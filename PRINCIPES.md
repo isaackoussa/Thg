@@ -132,7 +132,7 @@ Valeurs par défaut issues du dispositif prudentiel UMOA (Bâle II/III, BCEAO). 
 ## 5. Saisie des données
 1. **Formulaire manuel** : poste par poste, totaux et soldes intermédiaires calculés automatiquement, contrôle actif = passif
 2. **Import Excel/CSV** : modèle téléchargeable avec les codes A1… P9 et les postes du compte de résultat
-3. **Import photo/PDF** : extraction automatique, puis **validation obligatoire par l'utilisateur** avant calcul
+3. **Import de fichiers** : Excel (.xlsx, .xls, .ods), Word (.docx), PDF (recherche de la banque par son nom dans le fascicule), photos (lues par Claude dans claude.ai, par reconnaissance de texte Tesseract sur le site Netlify). Extraction automatique, puis **validation obligatoire par l'utilisateur** avant calcul
 
 ## 6. Principes techniques
 - App web autonome, adaptée au mobile

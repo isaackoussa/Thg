@@ -181,6 +181,11 @@ textarea { width: 100%; min-height: 180px; font-family: ui-monospace, Menlo, Con
 .tip { position: fixed; z-index: 50; pointer-events: none; background: var(--ink); color: var(--bg); font-size: 0.8rem; padding: 6px 9px; border-radius: 6px; max-width: 260px; box-shadow: 0 4px 14px rgba(0,0,0,.18); }
 .toast { position: fixed; bottom: calc(16px + env(safe-area-inset-bottom, 0px)); left: 50%; transform: translateX(-50%); background: var(--ink); color: var(--bg); padding: 8px 14px; border-radius: 8px; font-weight: 600; z-index: 60; }
 .method-list { display: grid; gap: 10px; }
+.drop { border: 2px dashed var(--line); border-radius: 10px; padding: 18px 14px; display: grid; gap: 10px; justify-items: center; text-align: center; color: var(--ink-2); }
+.drop.over { border-color: var(--accent); background: var(--accent-soft); }
+.file-status { display: grid; gap: 6px; background: var(--surface-2); border-radius: 8px; padding: 10px 12px; font-size: 0.9rem; }
+.file-status progress { width: 100%; accent-color: var(--accent); }
+.file-status.err { background: var(--bad-bg); color: var(--bad); }
 .rcode { margin: 0; background: var(--surface-2); border-radius: 8px; padding: 10px 12px; overflow-x: auto; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 0.78rem; line-height: 1.5; white-space: pre; max-height: 70vh; }
 .method-item { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; display: grid; gap: 4px; overflow-x: auto; }
 @media (prefers-reduced-motion: no-preference) { .card, .tile { transition: border-color .15s; } }
@@ -1148,15 +1153,19 @@ function vBale() {
 
 /* ---- Import ---- */
 function vImport() {
-  let h = head('Données', 'Importer ou exporter', 'Colle un tableau copié depuis Excel, un CSV, ou le texte copié directement depuis le PDF du fascicule BCEAO. L’app reconnaît les intitulés du PCB révisé et les nombres au format « 131 072 ». Tu vérifies l’aperçu avant d’appliquer.');
-  h += '<div class="card"><h3>1. Coller ou charger</h3><p class="note">Formats acceptés : texte du fascicule (une ligne par poste, trois montants), lignes « code ; libellé ; 2021 ; 2022 ; 2023 », colonnes Excel séparées par des tabulations, ou fichier .csv, .txt ou .json exporté par l’app. Sur iPhone : ouvre le PDF, sélectionne le tableau, Copier, puis colle ici.</p>'
+  let h = head('Données', 'Importer ou exporter', 'Importe un fichier Excel, Word, PDF ou une photo des états financiers, ou colle du texte. L’app reconnaît les intitulés du PCB révisé et les nombres au format « 131 072 ». Rien n’est enregistré avant que tu aies vérifié l’aperçu.');
+  h += '<div class="card"><h3>1. Importer un fichier</h3><p class="note">Excel (.xlsx, .xls, .ods), Word (.docx), PDF (dont le fascicule BCEAO), photo ou capture d’écran, CSV ou sauvegarde .json. L’app extrait les chiffres, puis tu vérifies l’aperçu avant de les appliquer.</p>'
+    + '<div class="drop" id="dropZone"><span>Glisse un ou plusieurs fichiers ici</span><div class="row"><label class="btn pri" for="impFile">Choisir un fichier</label><label class="btn" for="impCam">Prendre une photo</label></div>'
+    + '<input type="file" id="impFile" multiple accept=".xlsx,.xlsm,.xls,.ods,.docx,.doc,.pdf,.csv,.tsv,.txt,.json,image/*" hidden><input type="file" id="impCam" accept="image/*" capture="environment" hidden></div>'
+    + '<div id="fileStatus" class="file-status" hidden></div><div id="pdfPick"></div>'
+    + '<p class="note">Photos : ' + (window.claude && window.claude.use ? 'lues par Claude quand c’est possible (une autorisation est demandée la première fois), sinon par reconnaissance de texte.' : 'lues par reconnaissance de texte dans ton navigateur (le premier usage télécharge environ 3 Mo).') + ' Cadre bien le tableau, à plat et bien éclairé.</p></div>';
+  h += '<div class="card"><h3>2. Ou coller du texte</h3><p class="note">Texte copié du fascicule (une ligne par poste et ses montants), lignes « code ; libellé ; 2021 ; 2022 ; 2023 » ou colonnes copiées depuis Excel. Le texte extrait d’un fichier apparaît aussi ici : tu peux le corriger avant d’analyser.</p>'
     + '<textarea id="impText" placeholder="CREANCES SUR LA CLIENTELE 131 072 130 602 150 766&#10;DETTES A L\'EGARD DE LA CLIENTELE 218 985 187 843 196 626&#10;…"></textarea>'
-    + '<div class="row"><button class="btn pri" id="impParse">Analyser le texte</button><label class="btn" for="impFile">Choisir un fichier</label><input type="file" id="impFile" accept=".csv,.txt,.tsv,.json" hidden></div>'
+    + '<div class="row"><button class="btn pri" id="impParse">Analyser le texte</button></div>'
     + '<div id="impPreview"></div></div>';
-  h += '<div class="card"><h3>2. Exporter</h3><p class="note">Copie les données de la banque courante au format CSV (point-virgule), pour Excel ou pour les recharger plus tard. Le modèle vide liste tous les codes attendus.</p>'
+  h += '<div class="card"><h3>3. Exporter</h3><p class="note">Copie les données de la banque courante au format CSV (point-virgule), pour Excel ou pour les recharger plus tard. Le modèle vide liste tous les codes attendus.</p>'
     + '<div class="row"><button class="btn" id="expCsv">Copier mes données (CSV)</button><button class="btn" id="expTpl">Copier le modèle vide</button><button class="btn" id="expJson">Copier la sauvegarde complète (JSON)</button></div>'
     + (CAN_DOWNLOAD ? '<div class="row"><button class="btn" id="dlCsv">Télécharger le CSV</button><button class="btn" id="dlJson">Télécharger la sauvegarde (.json)</button></div>' : '') + '<textarea id="expOut" readonly hidden></textarea></div>';
-  h += '<div class="card"><h3>3. Photo ou PDF</h3><p class="note">L’extraction automatique depuis une photo est prévue à l’étape 3 du projet. En attendant : sur iPhone, ouvre la capture dans Photos, appuie longuement sur le texte (Texte en direct), Tout sélectionner, Copier, puis colle-le ci-dessus. Vérifie toujours l’aperçu.</p></div>';
   return h;
 }
 const norm = s => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().replace(/[^A-Z0-9]+/g, ' ').trim();
@@ -1209,9 +1218,10 @@ function parseImport(text) {
     let label, nums;
     if (/[;\t]/.test(line)) {
       const cells = line.split(/[;\t]/).map(c => c.trim());
-      const numCells = [], labCells = [];
-      cells.forEach(c => { const v = parseNum(c); if (v !== null && c !== '') numCells.push(v); else if (c) labCells.push(c); });
-      label = labCells.join(' '); nums = numCells;
+      const first = cells.findIndex(c => c !== '' && parseNum(c) !== null);
+      label = cells.slice(0, first < 0 ? cells.length : first).filter(Boolean).join(' ');
+      nums = first < 0 ? [] : cells.slice(first).map(c => parseNum(c));
+      while (nums.length && nums[nums.length - 1] === null) nums.pop();
     } else {
       const toks = line.trim().split(/\s+/);
       if (toks.length && toks.every(t => /^(19|20)\d\d$/.test(t))) { out.years = toks.map(Number); return; }
@@ -1247,9 +1257,241 @@ function parseImport(text) {
     if (F[hit.k].s === 'cp') sec = 'passif';
   });
   // Coût du risque, gains sur immobilisations et impôt : déduits des soldes si le fascicule les fournit (évite les erreurs de signe)
-  const derive = (k, a, b, sign) => { if (out.chk[a] && out.chk[b]) out.vals[k] = out.chk[a].map((x, i) => sign * (x - out.chk[b][i])); };
+  const derive = (k, a, b, sign) => { if (out.chk[a] && out.chk[b]) out.vals[k] = out.chk[a].map((x, i) => fin(x) && fin(out.chk[b][i]) ? sign * (x - out.chk[b][i]) : null); };
   derive('R13', 'RBE', 'RE', 1); derive('R14', 'RAI', 'RE', 1); derive('R15', 'RAI', 'RN', 1);
   return out;
+}
+/* ---- Lecture de fichiers : Excel, Word, PDF, photos (bibliothèques chargées à la demande) ---- */
+const LIBS = {
+  xlsx: ['https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js'],
+  mammoth: ['https://cdn.jsdelivr.net/npm/mammoth@1.8.0/mammoth.browser.min.js'],
+  pdf: ['https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js', 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'],
+  tesseract: ['https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js']
+};
+const OCR_PATHS = { workerPath:'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/worker.min.js', corePath:'https://cdn.jsdelivr.net/npm/tesseract.js-core@5.1.1', langPath:'https://cdn.jsdelivr.net/npm/@tesseract.js-data/fra@1.0.0/4.0.0_best_int' };
+const scriptsLoaded = {};
+function loadScript(src) {
+  if (!scriptsLoaded[src]) scriptsLoaded[src] = new Promise((res, rej) => {
+    const el = document.createElement('script'); el.src = src; el.async = false;
+    el.onload = res;
+    el.onerror = () => { delete scriptsLoaded[src]; el.remove(); rej(new Error('Le module de lecture n’a pas pu être chargé. Vérifie ta connexion internet puis réessaie.')); };
+    document.head.appendChild(el);
+  });
+  return scriptsLoaded[src];
+}
+async function lib(name) { for (const u of LIBS[name]) await loadScript(u); }
+function fileStatus(msg, opts = {}) {
+  const el = $('#fileStatus'); if (!el) return;
+  el.hidden = !msg; el.classList.toggle('err', !!opts.err);
+  el.innerHTML = msg ? '<span>' + msg + '</span>' + (opts.progress != null ? '<progress max="1" value="' + opts.progress + '"></progress>' : '') : '';
+}
+function fileKind(f) {
+  const n = (f.name || '').toLowerCase(), ext = n.includes('.') ? n.split('.').pop() : '';
+  if (['xlsx', 'xlsm', 'xls', 'ods'].includes(ext)) return 'sheet';
+  if (ext === 'docx') return 'docx';
+  if (ext === 'doc') return 'doc';
+  if (ext === 'pdf' || f.type === 'application/pdf') return 'pdf';
+  if (['csv', 'tsv', 'txt', 'json'].includes(ext) || /^text\//.test(f.type) || f.type === 'application/json') return 'text';
+  if (/^image\//.test(f.type) || ['jpg', 'jpeg', 'png', 'webp', 'gif', 'heic', 'heif', 'bmp'].includes(ext)) return 'image';
+  return 'unknown';
+}
+async function readSheet(f) {
+  await lib('xlsx');
+  const wb = XLSX.read(await f.arrayBuffer(), { type:'array' });
+  const lines = [];
+  wb.SheetNames.forEach(name => {
+    const rows = XLSX.utils.sheet_to_json(wb.Sheets[name], { header:1, raw:true, defval:'' });
+    rows.forEach(r => { const cells = r.map(c => typeof c === 'number' ? String(c) : String(c ?? '').replace(/[\t\r\n]+/g, ' ').trim()); if (cells.some(Boolean)) lines.push(cells.join('\t')); });
+  });
+  return lines.join('\n');
+}
+async function readDocx(f) {
+  await lib('mammoth');
+  const { value } = await mammoth.convertToHtml({ arrayBuffer: await f.arrayBuffer() });
+  const doc = new DOMParser().parseFromString(value, 'text/html'), lines = [];
+  const walk = el => {
+    for (const c of el.children) {
+      if (c.tagName === 'TABLE') c.querySelectorAll('tr').forEach(tr => { const cells = [...tr.children].map(td => td.textContent.replace(/\s+/g, ' ').trim()); if (cells.some(Boolean)) lines.push(cells.join('\t')); });
+      else if (/^(UL|OL|DIV)$/.test(c.tagName)) walk(c);
+      else { const t = c.textContent.replace(/\s+/g, ' ').trim(); if (t) lines.push(t); }
+    }
+  };
+  walk(doc.body);
+  return lines.join('\n');
+}
+/* PDF : texte reconstitué ligne par ligne ; les pages scannées passent par la lecture d'image */
+let pdfDoc = null;
+async function openPdf(f) {
+  await lib('pdf');
+  pdfjsLib.GlobalWorkerOptions.workerSrc = LIBS.pdf[1];
+  return pdfjsLib.getDocument({ data: new Uint8Array(await f.arrayBuffer()), isEvalSupported:false }).promise;
+}
+async function pdfPageText(pdf, n) {
+  const page = await pdf.getPage(n), tc = await page.getTextContent();
+  const items = tc.items.filter(it => it.str && it.str.trim()).map(it => ({ s:it.str.trim(), x:it.transform[4], y:it.transform[5] }));
+  items.sort((a, b) => b.y - a.y || a.x - b.x);
+  const lines = [];
+  items.forEach(it => { const l = lines.find(l => Math.abs(l.y - it.y) <= 3); if (l) l.items.push(it); else lines.push({ y:it.y, items:[it] }); });
+  lines.sort((a, b) => b.y - a.y);
+  return lines.map(l => l.items.sort((a, b) => a.x - b.x).map(i => i.s).join(' ')).join('\n');
+}
+async function pdfPageImage(pdf, n) {
+  const page = await pdf.getPage(n), vp = page.getViewport({ scale:2 });
+  const c = document.createElement('canvas'); c.width = vp.width; c.height = vp.height;
+  await page.render({ canvasContext:c.getContext('2d'), viewport:vp }).promise;
+  return new Promise(r => c.toBlob(r, 'image/png'));
+}
+function parsePages(spec, max) {
+  const out = new Set();
+  String(spec || '').split(/[,;\s]+/).forEach(p => { const m = p.match(/^(\d+)(?:-(\d+))?$/); if (!m) return; let a = +m[1], b = +(m[2] || m[1]); if (a > b) [a, b] = [b, a]; for (let i = Math.max(1, a); i <= Math.min(max, b); i++) out.add(i); });
+  return [...out].sort((a, b) => a - b).slice(0, 40);
+}
+async function readPdfPages(pdf, pages, label) {
+  const parts = [], scans = [];
+  for (let k = 0; k < pages.length; k++) {
+    fileStatus('Lecture de ' + esc(label) + ' : page ' + pages[k] + ' (' + (k + 1) + '/' + pages.length + ')…', { progress:k / pages.length });
+    const t = await pdfPageText(pdf, pages[k]);
+    if (t.replace(/\s/g, '').length >= 30) parts.push(t); else scans.push(pages[k]);
+  }
+  if (scans.length) {
+    const blobs = [];
+    for (const n of scans) blobs.push(await pdfPageImage(pdf, n));
+    parts.push(await readImages(blobs, 'page(s) scannée(s) ' + scans.join(', ')));
+  }
+  return parts.join('\n');
+}
+/* Photos */
+async function normalizeImage(f) {
+  try {
+    const bmp = await createImageBitmap(f);
+    const k = Math.min(1, 2400 / Math.max(bmp.width, bmp.height));
+    const c = document.createElement('canvas'); c.width = Math.round(bmp.width * k); c.height = Math.round(bmp.height * k);
+    c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
+    return await new Promise(r => c.toBlob(r, 'image/jpeg', 0.92));
+  } catch (e) {
+    if (/hei[cf]$/i.test(f.name || '')) throw new Error('Ce format de photo (HEIC) n’est pas lisible par ce navigateur. Fais une capture d’écran de la photo ou exporte-la en JPEG.');
+    throw new Error('Image illisible : ' + (f.name || 'fichier'));
+  }
+}
+async function getSample() {
+  try { if (!window.claude || typeof window.claude.use !== 'function') return null; return await window.claude.use('sample'); } catch (e) { return null; }
+}
+const CLAUDE_PROMPT = 'Ces images montrent des états financiers d’une banque de l’UMOA (bilan, hors bilan et/ou compte de résultat, format PCB révisé, comme dans le fascicule BCEAO). '
+  + 'Recopie TOUTES les lignes chiffrées du tableau. Réponds uniquement avec un objet JSON de la forme '
+  + '{"annees":[2021,2022,2023],"lignes":[{"libelle":"CREANCES SUR LA CLIENTELE","valeurs":[131072,130602,150766]}]}. '
+  + 'Règles : libellés recopiés tels qu’imprimés ; valeurs en nombres sans séparateur de milliers, dans l’ordre des colonnes d’années ; négatifs avec un signe moins ; null pour une case vide ou illisible ; '
+  + 'garde les lignes de total et de sous-total ; pour un tableau sans années visibles, mets "annees": []. N’invente aucun chiffre.';
+async function readImages(blobs, label) {
+  const imgs = [];
+  for (const b of blobs) imgs.push(b.type === 'image/png' && b.size < 8e6 ? b : await normalizeImage(b));
+  const sample = await getSample();
+  const lim = sample ? await sample.limits().catch(() => null) : null;
+  if (sample && lim && lim.images) {
+    const parts = [];
+    for (let i = 0; i < imgs.length; i += lim.images.maxCount) {
+      fileStatus('Claude lit ' + esc(label) + '… (cela peut prendre une minute)', { progress:null });
+      try {
+        const data = await sample.json(CLAUDE_PROMPT, { images: imgs.slice(i, i + lim.images.maxCount) });
+        parts.push(claudeJsonToText(data));
+      } catch (e) {
+        if (['not_granted', 'sampling_disabled', 'images_unavailable', 'capability_disabled', 'not_declared'].includes(e && e.code)) { parts.length = 0; break; }
+        throw new Error(e && e.code === 'rate_limited' ? 'Limite d’utilisation de Claude atteinte : réessaie plus tard.' : e && e.code === 'image_rejected' ? 'Photo refusée (format ou taille). Essaie une capture d’écran.' : 'Claude n’a pas pu lire la photo. Réessaie ou colle le texte.');
+      }
+    }
+    if (parts.length) return parts.join('\n');
+  }
+  return ocrImages(imgs, label);
+}
+function claudeJsonToText(d) {
+  if (!d || !Array.isArray(d.lignes)) throw new Error('Réponse inattendue de Claude.');
+  const lines = [];
+  if (Array.isArray(d.annees) && d.annees.length) lines.push('ANNEE\t' + d.annees.join('\t'));
+  d.lignes.forEach(l => {
+    if (!l || typeof l.libelle !== 'string' || !Array.isArray(l.valeurs)) return;
+    lines.push(l.libelle.replace(/[\t\r\n;]+/g, ' ') + '\t' + l.valeurs.map(v => typeof v === 'number' && Number.isFinite(v) ? String(v) : '').join('\t'));
+  });
+  return lines.join('\n');
+}
+function cleanOcr(t) {
+  return t.split('\n').map(line => line.split(/\s+/).map(tok => /\d/.test(tok) && /^[-−(]?[0-9OoIl|]+[)]?$/.test(tok) ? tok.replace(/[Oo]/g, '0').replace(/[Il|]/g, '1') : tok).join(' ')).join('\n')
+    .replace(/(\d)[.,](\d{3})(?!\d)/g, '$1 $2');
+}
+async function ocrImages(imgs, label) {
+  await lib('tesseract');
+  fileStatus('Préparation de la reconnaissance de texte…', { progress:0 });
+  const worker = await Tesseract.createWorker('fra', 1, Object.assign({}, OCR_PATHS, {
+    logger: m => { if (m.status === 'recognizing text') fileStatus('Lecture de ' + esc(label) + '…', { progress:m.progress }); }
+  }));
+  try {
+    await worker.setParameters({ tessedit_pageseg_mode:'6', preserve_interword_spaces:'1' });
+    const out = [];
+    for (const img of imgs) { const { data } = await worker.recognize(img); out.push(cleanOcr(data.text || '')); }
+    return out.join('\n');
+  } finally { worker.terminate(); }
+}
+async function importFiles(files) {
+  if (!files.length) return;
+  $('#pdfPick').innerHTML = ''; $('#impPreview').innerHTML = '';
+  const texts = [], done = [];
+  try {
+    const images = files.filter(f => fileKind(f) === 'image');
+    for (const f of files) {
+      const kind = fileKind(f), name = f.name || 'fichier';
+      if (f.size > 40e6) throw new Error('« ' + name + ' » dépasse 40 Mo.');
+      if (kind === 'image') continue;
+      fileStatus('Lecture de ' + esc(name) + '…', { progress:null });
+      if (kind === 'text') texts.push(await f.text());
+      else if (kind === 'sheet') texts.push(await readSheet(f));
+      else if (kind === 'docx') texts.push(await readDocx(f));
+      else if (kind === 'doc') throw new Error('Les anciens fichiers Word (.doc) ne sont pas lisibles : ouvre-le dans Word et enregistre-le en .docx.');
+      else if (kind === 'pdf') {
+        const pdf = await openPdf(f);
+        if (pdf.numPages > 8) { pdfDoc = { pdf, name }; showPdfPicker(); if (!texts.length && !images.length) { fileStatus(''); return; } continue; }
+        texts.push(await readPdfPages(pdf, Array.from({ length:pdf.numPages }, (_, i) => i + 1), name));
+      } else throw new Error('Format non reconnu pour « ' + name + ' ». Formats acceptés : Excel, Word (.docx), PDF, photo, CSV, JSON.');
+      done.push(name);
+    }
+    if (images.length) { texts.push(await readImages(images, images.length > 1 ? images.length + ' photos' : '« ' + (images[0].name || 'photo') + ' »')); done.push(images.length > 1 ? images.length + ' photos' : (images[0].name || 'photo')); }
+    finishExtraction(texts.join('\n'), done);
+  } catch (e) {
+    fileStatus(esc(e && e.message ? e.message : 'Lecture impossible.'), { err:true });
+  }
+}
+function finishExtraction(text, names) {
+  if (!text.trim()) { fileStatus('Aucun texte trouvé dans ' + esc(names.join(', ')) + '. Pour une photo, essaie une image plus nette ; sinon colle le texte.', { err:true }); return; }
+  const isJson = /^\s*\{/.test(text);
+  $('#impText').value = text;
+  const res = parseImport(text);
+  fileStatus('Lu : ' + esc(names.join(', ')) + '. ' + (isJson ? '' : 'Vérifie l’aperçu et corrige le texte ci-dessous si besoin avant d’appliquer.'), { progress:null });
+  $('#fileStatus').querySelector('progress')?.remove();
+  previewImport(res);
+}
+function showPdfPicker() {
+  const { pdf, name } = pdfDoc;
+  $('#pdfPick').innerHTML = '<div class="banner"><b>« ' + esc(name) + ' » compte ' + pdf.numPages + ' pages.</b><span class="note">Indique les pages à lire, ou cherche la banque par son nom (le fascicule BCEAO contient toutes les banques de l’UMOA).</span>'
+    + '<div class="row"><label class="row note" for="pdfQuery">Banque <input type="text" id="pdfQuery" placeholder="ex. Banque Atlantique Bénin" style="min-width:200px"></label><button class="btn sm" id="pdfFind">Chercher</button></div>'
+    + '<div class="row"><label class="row note" for="pdfPages">Pages <input type="text" id="pdfPages" placeholder="ex. 22-23" style="width:120px"></label><button class="btn sm pri" id="pdfRead">Lire ces pages</button></div></div>';
+  $('#pdfFind').onclick = async () => {
+    const q = norm($('#pdfQuery').value || ''); if (q.length < 3) { fileStatus('Saisis au moins 3 lettres du nom de la banque.', { err:true }); return; }
+    const hits = [];
+    try {
+      for (let n = 1; n <= pdf.numPages; n++) {
+        if (n % 5 === 1) fileStatus('Recherche de « ' + esc($('#pdfQuery').value) + ' » : page ' + n + '/' + pdf.numPages + '…', { progress:n / pdf.numPages });
+        if (norm(await pdfPageText(pdf, n)).includes(q)) hits.push(n);
+      }
+    } catch (e) { fileStatus('Recherche impossible dans ce PDF.', { err:true }); return; }
+    if (!hits.length) { fileStatus('Nom introuvable dans le texte du PDF. Indique les pages à la main.', { err:true }); return; }
+    $('#pdfPages').value = hits.slice(0, 6).join(', ');
+    fileStatus('Trouvé page(s) ' + hits.slice(0, 12).join(', ') + (hits.length > 12 ? '…' : '') + '. Vérifie la liste puis « Lire ces pages ».', { progress:null });
+    $('#fileStatus').querySelector('progress')?.remove();
+  };
+  $('#pdfRead').onclick = async () => {
+    const pages = parsePages($('#pdfPages').value, pdf.numPages);
+    if (!pages.length) { fileStatus('Indique des pages valides, par exemple 22-23.', { err:true }); return; }
+    $('#impPreview').innerHTML = '';
+    try { finishExtraction(await readPdfPages(pdf, pages, name), [name + ' (p. ' + pages.join(', ') + ')']); }
+    catch (e) { fileStatus(esc(e.message || 'Lecture impossible.'), { err:true }); }
+  };
 }
 function previewImport(res) {
   const el = $('#impPreview');
@@ -1273,7 +1515,7 @@ function previewImport(res) {
       const arr = res.vals[k];
       target.v[k] = target.v[k] || target.years.map(() => null);
       const ys = res.years ? res.years.slice(-arr.length) : target.years.slice(-arr.length);
-      ys.forEach((yr, j) => { const i = target.years.indexOf(yr); if (i >= 0) target.v[k][i] = arr[j]; });
+      ys.forEach((yr, j) => { const i = target.years.indexOf(yr); if (i >= 0 && fin(arr[j])) target.v[k][i] = arr[j]; });
     });
     delete target.range;
     target.example = false; save(); toast(keys.length + ' poste(s) importé(s)'); state.tab = 'saisie'; renderAll();
@@ -1546,7 +1788,12 @@ function bindView() {
   if (state.tab === 'r') { $('#rCopy').onclick = () => copyText(rScript()); if ($('#rDl')) $('#rDl').onclick = () => download(fileBase() + '.R', rScript()); }
   if (state.tab === 'import') {
     $('#impParse').onclick = () => previewImport(parseImport($('#impText').value));
-    $('#impFile').onchange = e => { const f = e.target.files[0]; if (!f) return; const r = new FileReader(); r.onload = () => { $('#impText').value = r.result; previewImport(parseImport(r.result)); }; r.readAsText(f); };
+    $('#impFile').onchange = e => { importFiles([...e.target.files]); e.target.value = ''; };
+    $('#impCam').onchange = e => { importFiles([...e.target.files]); e.target.value = ''; };
+    const dz = $('#dropZone');
+    ['dragenter', 'dragover'].forEach(t => dz.addEventListener(t, e => { e.preventDefault(); dz.classList.add('over'); }));
+    ['dragleave', 'drop'].forEach(t => dz.addEventListener(t, () => dz.classList.remove('over')));
+    dz.addEventListener('drop', e => { e.preventDefault(); importFiles([...(e.dataTransfer?.files || [])]); });
     $('#expCsv').onclick = () => copyText(toCsv(false), $('#expOut'));
     $('#expTpl').onclick = () => copyText(toCsv(true), $('#expOut'));
     $('#expJson').onclick = () => copyText(JSON.stringify({ banks:state.banks, cur:state.cur, params:state.params }, null, 1), $('#expOut'));

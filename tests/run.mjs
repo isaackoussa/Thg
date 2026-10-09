@@ -5,6 +5,32 @@ import { readFileSync, existsSync, writeFileSync, mkdtempSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join, extname } from 'node:path';
+import { createRequire } from 'node:module';
+const require = createRequire(import.meta.url);
+const NM = new URL('../node_modules/', import.meta.url).pathname;
+// Les bibliothèques chargées depuis les CDN sont servies depuis node_modules (mêmes versions)
+const CDN_MAP = [
+  [/xlsx\/0\.18\.5\/xlsx\.full\.min\.js$/, 'xlsx/dist/xlsx.full.min.js'],
+  [/mammoth@1\.8\.0\/mammoth\.browser\.min\.js$/, 'mammoth/mammoth.browser.min.js'],
+  [/pdf\.js\/3\.11\.174\/pdf\.min\.js$/, 'pdfjs-dist/build/pdf.min.js'],
+  [/pdf\.js\/3\.11\.174\/pdf\.worker\.min\.js$/, 'pdfjs-dist/build/pdf.worker.min.js'],
+  [/tesseract\.js@5\.1\.1\/dist\/(.+)$/, 'tesseract.js/dist/$1'],
+  [/tesseract\.js-core@5\.1\.1\/(.+)$/, 'tesseract.js-core/$1'],
+  [/@tesseract\.js-data\/fra@1\.0\.0\/4\.0\.0_best_int\/(.+)$/, '@tesseract.js-data/fra/4.0.0_best_int/$1']
+];
+async function routeCdn(ctx) {
+  await ctx.route(/^https:\/\/(cdnjs\.cloudflare\.com|cdn\.jsdelivr\.net)\//, route => {
+    const url = route.request().url();
+    for (const [re, rel] of CDN_MAP) {
+      const m = url.match(re);
+      if (m) {
+        const f = NM + rel.replace('$1', m[1] || '');
+        if (existsSync(f)) return route.fulfill({ status: 200, body: readFileSync(f), headers: { 'Content-Type': f.endsWith('.wasm') ? 'application/wasm' : f.endsWith('.gz') ? 'application/gzip' : 'text/javascript', 'Access-Control-Allow-Origin': '*' } });
+      }
+    }
+    return route.fulfill({ status: 404, body: 'absent' });
+  });
+}
 
 const DIST = new URL('../dist/', import.meta.url).pathname;
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.webmanifest': 'application/manifest+json', '.png': 'image/png', '.svg': 'image/svg+xml' };
@@ -30,8 +56,10 @@ const FAKE_CR = { R1:[20000,21000,23000], R2:[8000,8200,9000], R3:[100,120,90], 
 
 const browser = await chromium.launch();
 
-async function openApp({ storage, width = 400, dark = false, breakStorage = false } = {}) {
+async function openApp({ storage, width = 400, dark = false, breakStorage = false, init } = {}) {
   const ctx = await browser.newContext({ viewport: { width, height: 900 }, colorScheme: dark ? 'dark' : 'light' });
+  await routeCdn(ctx);
+  if (init) await ctx.addInitScript(init);
   const page = await ctx.newPage();
   const errors = [];
   page.on('pageerror', e => errors.push(e.message));
@@ -319,6 +347,130 @@ else {
       ok(mism.length === 0, 'R ' + label + ' (' + base + ') : mêmes résultats que l’app', mism.slice(0, 5));
     }
     await ctx.close();
+  }
+}
+
+/* ---------- 8. Import de fichiers : Excel, Word, PDF, photo ---------- */
+{
+  const XLSX = require('xlsx');
+  const JSZip = require('jszip');
+  // Fichier Excel : en-tête d'années, une case vide au milieu, une feuille de compte de résultat
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+    ['Poste', 2021, 2022, 2023],
+    ['CREANCES SUR LA CLIENTELE', 131072, 130602, 150766],
+    ['Prêts subordonnés', 238, '', 258],
+    ['Dettes à l’égard de la clientèle', 218985, 187843, 196626]
+  ]), 'Bilan');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+    ['Rubrique', 2021, 2022, 2023],
+    ['Intérêts et produits assimilés', 20000, 21000, 23000],
+    ['Intérêts et charges assimilées', 8000, 8200, 9000]
+  ]), 'Compte de résultat');
+  const xlsxBuf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+  // Fichier Word : un paragraphe et un tableau
+  const zip = new JSZip();
+  zip.file('[Content_Types].xml', '<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>');
+  zip.file('_rels/.rels', '<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>');
+  const cell = t => '<w:tc><w:p><w:r><w:t xml:space="preserve">' + t + '</w:t></w:r></w:p></w:tc>';
+  const row = cs => '<w:tr>' + cs.map(cell).join('') + '</w:tr>';
+  zip.file('word/document.xml', '<?xml version="1.0" encoding="UTF-8"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>Bilan de la banque (millions FCFA)</w:t></w:r></w:p><w:tbl>'
+    + row(['Poste', '2021', '2022', '2023']) + row(['Caisse, banque centrale, CCP', '11 953', '14 456', '21 982']) + row(['Effets publics et valeurs assimilées', '105 891', '87 754', '78 393']) + row(['Report à nouveau (+/-)', '-10 548', '-7 437', '3 056'])
+    + '</w:tbl></w:body></w:document>');
+  const docxBuf = await zip.generateAsync({ type: 'nodebuffer' });
+  // PDF et image fabriqués à partir d'une page au format du fascicule
+  const table = rows => '<table style="font:16px Arial;border-collapse:collapse">' + rows.map(r => '<tr>' + r.map((c, i) => '<td style="padding:4px 14px;text-align:' + (i ? 'right' : 'left') + '">' + c + '</td>').join('') + '</tr>').join('') + '</table>';
+  const rowsBilan = [['', '2021', '2022', '2023'], ['CREANCES SUR LA CLIENTELE', '131 072', '130 602', '150 766'], ['DETTES A L\'EGARD DE LA CLIENTELE', '218 985', '187 843', '196 626'], ['EFFETS PUBLICS ET VALEURS ASSIMILEES', '105 891', '87 754', '78 393']];
+  const maker = await browser.newPage();
+  await maker.setContent('<h3 style="font:16px Arial">BANQUE ATLANTIQUE BENIN</h3>' + table(rowsBilan));
+  const pdfBuf = await maker.pdf({ format: 'A4' });
+  await maker.setViewportSize({ width: 900, height: 260 });
+  const pngBuf = await maker.screenshot({ fullPage: true });
+  let long = '';
+  for (let i = 1; i <= 10; i++) long += '<div style="page-break-after:always;font:16px Arial">' + (i === 9 ? '<h3>BANQUE TEST SAHEL</h3>' + table([['', '2022', '2023'], ['CREANCES SUR LA CLIENTELE', '5 000', '6 000']]) : '<p>Page ' + i + ' autre banque</p>') + '</div>';
+  await maker.setContent(long);
+  const longPdf = await maker.pdf({ format: 'A4' });
+  await maker.close();
+
+  const { page, ctx, errors } = await openApp();
+  await page.click('[data-tab="import"]');
+  const upload = async (name, mimeType, buffer, sel = '#impFile') => { await page.setInputFiles(sel, { name, mimeType, buffer }); };
+  const waitPreview = async () => { await page.waitForFunction(() => /reconnu|Sauvegarde|Banque détectée/.test(document.querySelector('#impPreview')?.innerText || '') || document.querySelector('#fileStatus.err'), null, { timeout: 120000 }); };
+  const parsed = () => page.evaluate(() => parseImport(document.querySelector('#impText').value));
+
+  await upload('etats.xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', xlsxBuf); await waitPreview();
+  let r = await parsed();
+  ok(JSON.stringify(r.years) === '[2021,2022,2023]' && JSON.stringify(r.vals.A4) === '[131072,130602,150766]' && JSON.stringify(r.vals.P3) === '[218985,187843,196626]', 'Excel : bilan lu', r.vals);
+  ok(JSON.stringify(r.vals.A12) === '[238,null,258]', 'Excel : case vide gardée à sa place', r.vals.A12);
+  ok(JSON.stringify(r.vals.R1) === '[20000,21000,23000]' && JSON.stringify(r.vals.R2) === '[8000,8200,9000]', 'Excel : deuxième feuille lue', [r.vals.R1, r.vals.R2]);
+  await page.click('#impApply');
+  ok(await page.evaluate(() => raw('A12', 1) === 248 && raw('A12', 2) === 258 && raw('R1', 2) === 23000), 'Excel : case vide ne remplace pas la valeur existante');
+  await page.click('[data-tab="import"]');
+
+  await upload('etats.docx', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', docxBuf); await waitPreview();
+  r = await parsed();
+  ok(JSON.stringify(r.vals.A1) === '[11953,14456,21982]' && JSON.stringify(r.vals.A2) === '[105891,87754,78393]' && JSON.stringify(r.vals.P9f) === '[-10548,-7437,3056]', 'Word : tableau lu', r.vals);
+
+  await upload('fascicule-extrait.pdf', 'application/pdf', pdfBuf); await waitPreview();
+  r = await parsed();
+  ok(JSON.stringify(r.vals.A4) === '[131072,130602,150766]' && JSON.stringify(r.vals.P3) === '[218985,187843,196626]' && JSON.stringify(r.vals.A2) === '[105891,87754,78393]', 'PDF : tableau lu ligne par ligne', r.vals);
+
+  await upload('fascicule.pdf', 'application/pdf', longPdf);
+  await page.waitForSelector('#pdfQuery');
+  ok(/10 pages/.test(await page.innerText('#pdfPick')), 'PDF long : choix des pages proposé');
+  await page.fill('#pdfQuery', 'banque test sahel'); await page.click('#pdfFind');
+  await page.waitForFunction(() => document.querySelector('#pdfPages').value !== '', null, { timeout: 60000 });
+  ok(await page.inputValue('#pdfPages') === '9', 'PDF long : banque retrouvée par son nom', await page.inputValue('#pdfPages'));
+  await page.click('#pdfRead'); await waitPreview();
+  r = await parsed();
+  ok(JSON.stringify(r.vals.A4) === '[5000,6000]' && JSON.stringify(r.years) === '[2022,2023]', 'PDF long : seule la page choisie est lue', r);
+
+  await upload('photo.png', 'image/png', pngBuf); await waitPreview();
+  r = await parsed();
+  const okA4 = JSON.stringify(r.vals.A4) === '[131072,130602,150766]', okP3 = JSON.stringify(r.vals.P3) === '[218985,187843,196626]';
+  ok(okA4 && okP3, 'photo (reconnaissance de texte) : chiffres lus', { A4: r.vals.A4, P3: r.vals.P3, texte: (await page.inputValue('#impText')).slice(0, 300) });
+
+  await upload('vieux.doc', 'application/msword', Buffer.from('x'));
+  await page.waitForSelector('#fileStatus.err');
+  ok(/\.docx/.test(await page.innerText('#fileStatus')), 'Word .doc : message clair');
+  await upload('image-cassee.jpg', 'image/jpeg', Buffer.from('pas une image'));
+  await page.waitForSelector('#fileStatus.err');
+  ok(/illisible/i.test(await page.innerText('#fileStatus')), 'image illisible : message clair');
+  await upload('donnees.zip', 'application/zip', Buffer.from('x'));
+  await page.waitForSelector('#fileStatus.err');
+  ok(/Format non reconnu/.test(await page.innerText('#fileStatus')), 'format inconnu : message clair');
+  ok(errors.length === 0, 'import de fichiers : aucune erreur JavaScript', errors.slice(0, 3));
+  await ctx.close();
+
+  // Module indisponible (hors connexion) : message, pas de blocage
+  {
+    const c2 = await browser.newContext({ viewport: { width: 400, height: 900 } });
+    await c2.route(/^https:\/\/(cdnjs\.cloudflare\.com|cdn\.jsdelivr\.net)\//, rt => rt.abort());
+    const p2 = await c2.newPage(); const e2 = []; p2.on('pageerror', e => e2.push(e.message));
+    await p2.goto(BASE); await p2.click('[data-tab="import"]');
+    await p2.setInputFiles('#impFile', { name: 'etats.xlsx', mimeType: 'application/octet-stream', buffer: xlsxBuf });
+    await p2.waitForSelector('#fileStatus.err');
+    ok(/connexion/.test(await p2.innerText('#fileStatus')), 'hors connexion : message clair');
+    ok(e2.length === 0, 'hors connexion : aucune erreur JavaScript', e2);
+    await c2.close();
+  }
+
+  // Photo lue par Claude (capacité simulée comme dans l'aperçu claude.ai)
+  {
+    const { page: p3, ctx: c3, errors: e3 } = await openApp({ init: () => {
+      const s = async () => ({ text: '' });
+      s.limits = async () => ({ maxPromptBytes: 262144, images: { maxCount: 5, maxInputBytes: 2e7, mediaTypes: ['image/jpeg', 'image/png'] } });
+      s.json = async (prompt, opts) => { window.__claudeCalls = (window.__claudeCalls || 0) + 1; window.__claudeImgs = opts.images.length; return { annees: [2021, 2022, 2023], lignes: [{ libelle: 'CREANCES SUR LA CLIENTELE', valeurs: [131072, 130602, 150766] }, { libelle: 'COUT DU RISQUE', valeurs: [1200, null, 2100] }, { libelle: 'Bizarre\tavec;séparateurs', valeurs: ['x'] }] }; };
+      window.claude = { use: async n => n === 'sample' ? s : null };
+    } });
+    await p3.click('[data-tab="import"]');
+    await p3.setInputFiles('#impFile', [{ name: 'p1.png', mimeType: 'image/png', buffer: pngBuf }, { name: 'p2.png', mimeType: 'image/png', buffer: pngBuf }]);
+    await p3.waitForFunction(() => /reconnu/.test(document.querySelector('#impPreview')?.innerText || ''), null, { timeout: 30000 });
+    const r3 = await p3.evaluate(() => [parseImport(document.querySelector('#impText').value).vals, window.__claudeCalls, window.__claudeImgs]);
+    ok(JSON.stringify(r3[0].A4) === '[131072,130602,150766]' && JSON.stringify(r3[0].R13) === '[1200,null,2100]', 'photo lue par Claude : valeurs reprises, case illisible laissée vide', r3[0]);
+    ok(r3[1] === 1 && r3[2] === 2, 'photo lue par Claude : un seul appel pour deux photos', r3.slice(1));
+    ok(e3.length === 0, 'photo lue par Claude : aucune erreur JavaScript', e3);
+    await c3.close();
   }
 }
 
