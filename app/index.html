@@ -1,0 +1,1319 @@
+<title>Analyste Bancaire UMOA</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800&family=Source+Sans+3:wght@400;500;600;700&family=STIX+Two+Text:ital,wght@0,400;0,600;1,400&display=swap">
+<style>
+/* Layout : en-tête collant façon registre (banque, exercice, onglets) + colonne de fiches indicateurs, 2 colonnes au-delà de 900px */
+:root {
+  --bg: #f2f4f1;
+  --surface: #ffffff;
+  --surface-2: #e8ede8;
+  --ink: #13201a;
+  --ink-2: #45524b;
+  --ink-3: #6b7770;
+  --line: #d3dbd5;
+  --accent: #0c5a48;
+  --accent-soft: #d9ebe3;
+  --on-accent: #ffffff;
+  --ok: #1a7642; --ok-bg: #e0f1e6;
+  --warn: #8f5500; --warn-bg: #f9edd6;
+  --bad: #b3302a; --bad-bg: #fae2df;
+  --na: #6b7770; --na-bg: #eaedea;
+  --s1: #2a78d6; --s1-soft: #86b6ef; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100; --s5: #e87ba4;
+  --f-display: 'Archivo', 'Helvetica Neue', Arial, sans-serif;
+  --f-body: 'Source Sans 3', 'Segoe UI', system-ui, sans-serif;
+  --f-math: 'STIX Two Text', 'Cambria Math', 'Times New Roman', serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f1412; --surface: #171d1a; --surface-2: #1f2724; --ink: #ecf1ee; --ink-2: #b3bdb7; --ink-3: #87928c; --line: #2c3632;
+    --accent: #58c2a2; --accent-soft: #19332b; --on-accent: #07211a;
+    --ok: #52c784; --ok-bg: #133022; --warn: #e4a840; --warn-bg: #36280f; --bad: #f2786d; --bad-bg: #3a1a17; --na: #87928c; --na-bg: #222a27;
+    --s1: #3987e5; --s1-soft: #184f95; --s2: #d95926; --s3: #199e70; --s4: #c98500; --s5: #d55181;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f1412; --surface: #171d1a; --surface-2: #1f2724; --ink: #ecf1ee; --ink-2: #b3bdb7; --ink-3: #87928c; --line: #2c3632;
+  --accent: #58c2a2; --accent-soft: #19332b; --on-accent: #07211a;
+  --ok: #52c784; --ok-bg: #133022; --warn: #e4a840; --warn-bg: #36280f; --bad: #f2786d; --bad-bg: #3a1a17; --na: #87928c; --na-bg: #222a27;
+  --s1: #3987e5; --s1-soft: #184f95; --s2: #d95926; --s3: #199e70; --s4: #c98500; --s5: #d55181;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--ink); font-family: var(--f-body); font-size: 15px; line-height: 1.5; }
+h1, h2, h3 { font-family: var(--f-display); text-wrap: balance; margin: 0; letter-spacing: -0.01em; }
+h2 { font-size: 1.35rem; font-weight: 700; }
+h3 { font-size: 1.02rem; font-weight: 700; }
+p { margin: 0; }
+button, input, select, textarea { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.num, td, .tabnum { font-variant-numeric: tabular-nums; }
+
+/* En-tête */
+.top { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 20; background: var(--surface); border-bottom: 1px solid var(--line); }
+.top-in { max-width: 1180px; margin: 0 auto; padding: 10px 16px 0; display: grid; gap: 8px; }
+.top-row { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; justify-content: space-between; }
+.brand { display: flex; gap: 10px; align-items: center; min-width: 0; }
+.mark { font-family: var(--f-display); font-weight: 800; font-size: 0.72rem; letter-spacing: 0.12em; background: var(--accent); color: var(--on-accent); padding: 5px 7px; border-radius: 4px; }
+.bank-name { font-family: var(--f-display); font-weight: 700; font-size: 1.05rem; line-height: 1.2; overflow-wrap: anywhere; }
+.sub { color: var(--ink-3); font-size: 0.82rem; }
+.ctrls { display: flex; gap: 8px; flex-wrap: wrap; }
+.ctrls label { display: flex; flex-direction: column; font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-3); gap: 2px; }
+select, input[type="text"], input[type="number"], textarea { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; }
+.ctrls select { min-width: 0; max-width: 46vw; }
+.tabs { display: flex; gap: 2px; overflow-x: auto; scrollbar-width: none; margin: 0 -16px; padding: 0 16px; }
+.tabs::-webkit-scrollbar { display: none; }
+.tab { background: none; border: 0; border-bottom: 3px solid transparent; padding: 8px 10px 9px; font-weight: 600; color: var(--ink-2); white-space: nowrap; cursor: pointer; font-size: 0.92rem; }
+.tab[aria-selected="true"] { color: var(--accent); border-bottom-color: var(--accent); }
+
+main { max-width: 1180px; margin: 0 auto; padding: 18px 16px 60px; display: grid; gap: 22px; }
+.section-head { display: grid; gap: 4px; }
+.lede { color: var(--ink-2); max-width: 70ch; }
+.eyebrow { font-size: 0.7rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-3); font-weight: 600; }
+.grid2 { display: grid; gap: 14px; grid-template-columns: 1fr; }
+@media (min-width: 900px) { .grid2 { grid-template-columns: 1fr 1fr; } }
+.grid2 > * { min-width: 0; }
+
+/* Fiches */
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px; display: grid; gap: 12px; min-width: 0; align-content: start; }
+.card-h { display: flex; justify-content: space-between; gap: 8px; align-items: flex-start; flex-wrap: wrap; }
+.card-h .t { display: grid; gap: 3px; min-width: 0; }
+.tags { display: flex; gap: 6px; flex-wrap: wrap; }
+.tag { font-size: 0.68rem; letter-spacing: 0.06em; text-transform: uppercase; font-weight: 600; color: var(--ink-3); border: 1px solid var(--line); border-radius: 4px; padding: 1px 6px; }
+.tag.reg { color: var(--accent); border-color: var(--accent); }
+.chip { display: inline-flex; align-items: center; gap: 5px; font-size: 0.78rem; font-weight: 600; padding: 2px 9px 2px 7px; border-radius: 999px; white-space: nowrap; }
+.chip i { font-style: normal; font-weight: 800; }
+.st-ok { color: var(--ok); background: var(--ok-bg); }
+.st-warn { color: var(--warn); background: var(--warn-bg); }
+.st-bad { color: var(--bad); background: var(--bad-bg); }
+.st-na, .st-info { color: var(--na); background: var(--na-bg); }
+.results { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.res { padding: 8px 10px; display: grid; gap: 1px; border-left: 1px solid var(--line); }
+.res:first-child { border-left: 0; }
+.res .y { font-size: 0.72rem; color: var(--ink-3); font-weight: 600; letter-spacing: 0.04em; }
+.res .v { font-family: var(--f-display); font-size: 1.12rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.res.sel { background: var(--accent-soft); }
+.res .s { font-size: 0.72rem; font-weight: 600; }
+.formula { background: var(--surface-2); border-radius: 8px; padding: 10px 12px; display: grid; gap: 8px; overflow-x: auto; }
+.f-line { font-family: var(--f-math); font-size: 1.04rem; line-height: 1.9; display: flex; flex-wrap: wrap; align-items: center; gap: 0 0.3em; }
+.f-line .lbl { font-family: var(--f-body); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-3); font-weight: 600; width: 100%; line-height: 1.3; }
+.f-res { font-weight: 600; color: var(--accent); }
+.frac { display: inline-flex; flex-direction: column; vertical-align: middle; text-align: center; margin: 0 0.15em; max-width: 100%; }
+.frac > .n { border-bottom: 1px solid currentColor; padding: 0 0.35em 0.05em; line-height: 1.5; }
+.frac > .d { padding: 0.05em 0.35em 0; line-height: 1.5; }
+.q { font-style: italic; }
+.v-num { font-variant-numeric: tabular-nums; }
+.miss { font-size: 0.85rem; color: var(--warn); }
+.note { font-size: 0.82rem; color: var(--ink-3); }
+.interp { color: var(--ink); max-width: 75ch; }
+.interp b { font-weight: 600; }
+details > summary { cursor: pointer; color: var(--ink-2); font-size: 0.86rem; font-weight: 600; }
+details > div { margin-top: 6px; color: var(--ink-2); font-size: 0.9rem; display: grid; gap: 6px; }
+.chart { width: 100%; height: auto; display: block; }
+.chart text { font-family: var(--f-body); }
+
+/* Synthèse */
+.tiles { display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(165px, 1fr)); }
+.tile { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 12px; display: grid; gap: 4px; align-content: start; cursor: pointer; text-align: left; }
+.tile:hover { border-color: var(--accent); }
+.tile .k { font-size: 0.78rem; color: var(--ink-2); font-weight: 600; }
+.tile .v { font-family: var(--f-display); font-size: 1.45rem; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.15; }
+.tile .d { font-size: 0.8rem; color: var(--ink-3); }
+.lists { display: grid; gap: 14px; grid-template-columns: 1fr; }
+@media (min-width: 760px) { .lists { grid-template-columns: 1fr 1fr; } }
+.lists ul { margin: 0; padding-left: 1.1em; display: grid; gap: 6px; }
+
+/* Tableaux */
+.tbl-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; font-size: 0.88rem; }
+th, td { padding: 6px 10px; text-align: right; white-space: nowrap; border-bottom: 1px solid var(--line); }
+th:first-child, td:first-child { text-align: left; white-space: normal; min-width: 210px; }
+thead th { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-3); font-weight: 600; background: var(--surface-2); position: sticky; top: 0; }
+tr.tot td { font-weight: 700; background: var(--surface-2); }
+tr.sub td:first-child { padding-left: 24px; color: var(--ink-2); }
+tr.sec td { font-family: var(--f-display); font-weight: 700; font-size: 0.78rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent); background: var(--surface); padding-top: 12px; }
+td.up { color: var(--ok); }
+td.down { color: var(--bad); }
+td.muted { color: var(--ink-3); }
+.code { font-size: 0.7rem; color: var(--ink-3); font-weight: 600; margin-right: 6px; }
+
+/* Saisie */
+.form-sec { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.form-sec > header { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+.inp-tbl { overflow-x: auto; }
+.inp-tbl table td { padding: 3px 6px; }
+.inp-tbl input { width: 100%; min-width: 92px; text-align: right; padding: 5px 6px; font-variant-numeric: tabular-nums; }
+.inp-tbl input.bad { border-color: var(--bad); }
+.inp-tbl td.calc { font-weight: 700; padding-right: 12px; }
+.checks { display: grid; gap: 6px; }
+.check { display: flex; gap: 8px; align-items: flex-start; font-size: 0.9rem; }
+.btn { background: var(--surface); border: 1px solid var(--line); border-radius: 7px; padding: 7px 12px; font-weight: 600; cursor: pointer; }
+.btn:hover { border-color: var(--accent); color: var(--accent); }
+.btn.pri { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.btn.pri:hover { color: var(--on-accent); filter: brightness(1.08); }
+.btn.sm { padding: 3px 9px; font-size: 0.82rem; }
+.btn.danger { color: var(--bad); }
+.row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.meta-grid { display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+.meta-grid label { display: grid; gap: 3px; font-size: 0.78rem; color: var(--ink-2); font-weight: 600; }
+.confirm { background: var(--bad-bg); color: var(--bad); border-radius: 8px; padding: 10px 12px; display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+textarea { width: 100%; min-height: 180px; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 0.82rem; }
+.banner { background: var(--accent-soft); border-radius: 10px; padding: 12px 14px; display: grid; gap: 4px; }
+.banner.warn { background: var(--warn-bg); }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 0.82rem; color: var(--ink-2); }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.legend i { width: 11px; height: 11px; border-radius: 3px; display: inline-block; }
+.params { display: grid; gap: 8px; }
+.param { display: grid; grid-template-columns: minmax(0, 1fr) 110px; gap: 10px; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--line); }
+.param .pl { display: grid; }
+.param .pl span { font-size: 0.8rem; color: var(--ink-3); }
+.param input { text-align: right; width: 100%; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 7px; overflow: hidden; }
+.seg button { border: 0; background: var(--surface); padding: 6px 12px; cursor: pointer; font-weight: 600; color: var(--ink-2); }
+.seg button[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); }
+.slider { display: grid; gap: 4px; }
+.slider input { width: 100%; accent-color: var(--accent); }
+.tip { position: fixed; z-index: 50; pointer-events: none; background: var(--ink); color: var(--bg); font-size: 0.8rem; padding: 6px 9px; border-radius: 6px; max-width: 260px; box-shadow: 0 4px 14px rgba(0,0,0,.18); }
+.toast { position: fixed; bottom: calc(16px + env(safe-area-inset-bottom, 0px)); left: 50%; transform: translateX(-50%); background: var(--ink); color: var(--bg); padding: 8px 14px; border-radius: 8px; font-weight: 600; z-index: 60; }
+.method-list { display: grid; gap: 10px; }
+.method-item { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; display: grid; gap: 4px; overflow-x: auto; }
+@media (prefers-reduced-motion: no-preference) { .card, .tile { transition: border-color .15s; } }
+</style>
+
+<div class="top">
+  <div class="top-in">
+    <div class="top-row">
+      <div class="brand">
+        <span class="mark">UMOA</span>
+        <div style="min-width:0">
+          <div class="bank-name" id="hdrBank"></div>
+          <div class="sub" id="hdrSub"></div>
+        </div>
+      </div>
+      <div class="ctrls">
+        <label for="bankSel">Banque<select id="bankSel"></select></label>
+        <label for="yearSel">Formules détaillées<select id="yearSel"></select></label>
+      </div>
+    </div>
+    <nav class="tabs" id="tabs" role="tablist"></nav>
+  </div>
+</div>
+<main id="view"></main>
+<div id="tip" class="tip" hidden></div>
+<div id="toast" class="toast" hidden></div>
+
+<script>
+'use strict';
+/* =====================================================================
+   1. PLAN DE COMPTES — PCB révisé UMOA (format du fascicule BCEAO)
+   ===================================================================== */
+const FIELDS = [
+  ['actif','A1','Caisse, banque centrale, CCP',['CAISSE BANQUE CENTRALE CCP','CAISSE BANQUES CENTRALES CCP']],
+  ['actif','A2','Effets publics et valeurs assimilées',['EFFETS PUBLICS ET VALEURS ASSIMILEES']],
+  ['actif','A3','Créances interbancaires et assimilées',['CREANCES INTERBANCAIRES ET ASSIMILEES','CREANCES INTERBANCAIRES']],
+  ['actif','A4','Créances sur la clientèle',['CREANCES SUR LA CLIENTELE']],
+  ['actif','A5','Obligations et autres titres à revenu fixe',['OBLIGATIONS ET AUTRES TITRES A REVENU FIXE']],
+  ['actif','A6','Actions et autres titres à revenu variable',['ACTIONS ET AUTRES TITRES A REVENU VARIABLE']],
+  ['actif','A7','Actionnaires ou associés',['ACTIONNAIRES OU ASSOCIES']],
+  ['actif','A8','Autres actifs',['AUTRES ACTIFS']],
+  ['actif','A9','Comptes de régularisation (actif)',['COMPTES DE REGULARISATION']],
+  ['actif','A10','Participations et autres titres détenus à long terme',['PARTICIPATIONS ET AUTRES TITRES DETENUS A LONG TERME']],
+  ['actif','A11','Parts dans les entreprises liées',['PARTS DANS LES ENTREPRISES LIEES']],
+  ['actif','A12','Prêts subordonnés',['PRETS SUBORDONNES']],
+  ['actif','A13','Immobilisations incorporelles',['IMMOBILISATIONS INCORPORELLES']],
+  ['actif','A14','Immobilisations corporelles',['IMMOBILISATIONS CORPORELLES']],
+  ['passif','P1','Banque centrale, CCP',['BANQUE CENTRALE CCP','BANQUES CENTRALES CCP']],
+  ['passif','P2','Dettes interbancaires et assimilées',['DETTES INTERBANCAIRES ET ASSIMILEES','DETTES INTERBANCAIRES']],
+  ['passif','P3',"Dettes à l'égard de la clientèle",['DETTES A L EGARD DE LA CLIENTELE']],
+  ['passif','P4','Dettes représentées par un titre',['DETTES REPRESENTEES PAR UN TITRE']],
+  ['passif','P5','Autres passifs',['AUTRES PASSIFS']],
+  ['passif','P6','Comptes de régularisation (passif)',['COMPTES DE REGULARISATION']],
+  ['passif','P7','Provisions',['PROVISIONS']],
+  ['passif','P8','Emprunts et titres émis subordonnés',['EMPRUNTS ET TITRES EMIS SUBORDONNES']],
+  ['cp','P9a','Capital souscrit',['CAPITAL SOUSCRIT']],
+  ['cp','P9b','Primes liées au capital',['PRIMES LIEES AU CAPITAL']],
+  ['cp','P9c','Réserves',['RESERVES']],
+  ['cp','P9d','Écarts de réévaluation',['ECARTS DE REEVALUATION']],
+  ['cp','P9e','Provisions réglementées',['PROVISIONS REGLEMENTEES']],
+  ['cp','P9f','Report à nouveau (+/−)',['REPORT A NOUVEAU']],
+  ['cp','P9g',"Résultat de l'exercice (+/−)",['RESULTAT DE L EXERCICE']],
+  ['hb','HB1','Engagements de financement donnés',['ENGAGEMENTS DE FINANCEMENT'],'donnes'],
+  ['hb','HB2','Engagements de garantie donnés',['ENGAGEMENTS DE GARANTIE'],'donnes'],
+  ['hb','HB3','Engagements sur titres donnés',['ENGAGEMENTS SUR TITRES'],'donnes'],
+  ['hb','HB4','Engagements de financement reçus',['ENGAGEMENTS DE FINANCEMENT'],'recus'],
+  ['hb','HB5','Engagements de garantie reçus',['ENGAGEMENTS DE GARANTIE'],'recus'],
+  ['hb','HB6','Engagements sur titres reçus',['ENGAGEMENTS SUR TITRES'],'recus'],
+  ['cr','R1','Intérêts et produits assimilés',['INTERETS ET PRODUITS ASSIMILES']],
+  ['cr','R2','Intérêts et charges assimilées',['INTERETS ET CHARGES ASSIMILEES']],
+  ['cr','R3','Revenus des titres à revenu variable',['REVENUS DES TITRES A REVENU VARIABLE']],
+  ['cr','R4','Commissions (produits)',['COMMISSIONS PRODUITS']],
+  ['cr','R5','Commissions (charges)',['COMMISSIONS CHARGES']],
+  ['cr','R6','Gains ou pertes nets sur portefeuilles de négociation',['GAINS OU PERTES NETS SUR OPERATIONS DES PORTEFEUILLES DE NEGOCIATION','GAINS OU PERTES NETS SUR OPERATIONS DU PORTEFEUILLE DE NEGOCIATION']],
+  ['cr','R7','Gains ou pertes nets sur portefeuilles de placement',['GAINS OU PERTES NETS SUR OPERATIONS DES PORTEFEUILLES DE PLACEMENT','GAINS OU PERTES NETS SUR OPERATIONS DU PORTEFEUILLE DE PLACEMENT']],
+  ['cr','R8',"Autres produits d'exploitation bancaire",['AUTRES PRODUITS D EXPLOITATION BANCAIRE']],
+  ['cr','R9',"Autres charges d'exploitation bancaire",['AUTRES CHARGES D EXPLOITATION BANCAIRE']],
+  ['cr','R10',"Subventions d'investissement",['SUBVENTIONS D INVESTISSEMENT']],
+  ['cr','R11',"Charges générales d'exploitation",['CHARGES GENERALES D EXPLOITATION']],
+  ['cr','R12','Dotations aux amortissements et dépréciations des immobilisations',['DOTATIONS AUX AMORTISSEMENTS']],
+  ['cr','R13','Coût du risque (charge nette, + = charge)',['COUT DU RISQUE']],
+  ['cr','R14','Gains ou pertes nets sur actifs immobilisés',['GAINS OU PERTES NETS SUR ACTIFS IMMOBILISES']],
+  ['cr','R15','Impôts sur les bénéfices',['IMPOTS SUR LES BENEFICES']],
+  ['prud','CET1','Fonds propres de base durs (CET1) déclarés',[]],
+  ['prud','T1','Fonds propres de base T1 (CET1 + AT1) déclarés',[]],
+  ['prud','FPE','Fonds propres effectifs totaux déclarés',[]],
+  ['prud','RWA','Actifs pondérés par les risques (RWA) déclarés',[]],
+  ['prud','EXPL',"Exposition de levier déclarée",[]],
+  ['prud','LIQA','Actifs disponibles et réalisables à ≤ 3 mois',[]],
+  ['prud','LIQP','Passifs exigibles à ≤ 3 mois',[]],
+  ['prud','HQLA','Actifs liquides de haute qualité (HQLA)',[]],
+  ['prud','SNT','Sorties nettes de trésorerie à 30 jours',[]],
+  ['prud','RSTAB','Ressources stables',[]],
+  ['prud','EMLT','Emplois à moyen et long terme',[]]
+].map(([s,k,l,a,ctx]) => ({s,k,l,a,ctx}));
+const F = Object.fromEntries(FIELDS.map(f => [f.k, f]));
+const SECTIONS = { actif:'Actif', passif:'Passif', cp:'Capitaux propres et ressources assimilées', hb:'Hors bilan', cr:'Compte de résultat', prud:'Données prudentielles déclarées (facultatif)' };
+const SHORT = { A1:'Caisse & banque centrale', A2:'Effets publics', A3:'Créances interbancaires', A4:'Créances clientèle', A5:'Obligations', A6:'Actions', A7:'Actionnaires', A8:'Autres actifs', A9:'Régul. actif', A10:'Participations', A11:'Entreprises liées', A12:'Prêts subordonnés', A13:'Immo. incorporelles', A14:'Immo. corporelles',
+  P1:'Banque centrale (passif)', P2:'Dettes interbancaires', P3:'Dépôts clientèle', P4:'Dettes titres', P5:'Autres passifs', P6:'Régul. passif', P7:'Provisions', P8:'Emprunts subordonnés',
+  P9a:'Capital', P9b:'Primes', P9c:'Réserves', P9d:'Écarts de réévaluation', P9e:'Provisions réglementées', P9f:'Report à nouveau', P9g:'Résultat de l’exercice',
+  HB1:'Eng. de financement donnés', HB2:'Eng. de garantie donnés', HB3:'Eng. sur titres donnés',
+  R1:'Intérêts reçus', R2:'Intérêts versés', R3:'Revenus titres variables', R4:'Commissions reçues', R5:'Commissions versées', R6:'Gains négociation', R7:'Gains placement', R8:'Autres produits bancaires', R9:'Autres charges bancaires', R10:'Subventions', R11:'Charges générales', R12:'Dotations amortissements', R13:'Coût du risque', R14:'Gains sur actifs immobilisés', R15:'Impôt',
+  CET1:'CET1 déclaré', T1:'T1 déclaré', FPE:'Fonds propres déclarés', RWA:'RWA déclarés', EXPL:'Exposition déclarée', LIQA:'Actifs ≤ 3 mois', LIQP:'Passifs ≤ 3 mois', HQLA:'HQLA', SNT:'Sorties nettes 30 j', RSTAB:'Ressources stables', EMLT:'Emplois MLT' };
+
+/* =====================================================================
+   2. PARAMÈTRES — seuils UMOA (dispositif prudentiel BCEAO Bâle II/III) & hypothèses
+   ===================================================================== */
+const PARAMS = [
+  { g:'Normes prudentielles UMOA', k:'seuil_cet1', l:'Ratio CET1 minimum', v:7.5, src:'Dispositif prudentiel UMOA (Bâle II/III), régime cible' },
+  { g:'Normes prudentielles UMOA', k:'seuil_t1', l:'Ratio Tier 1 minimum', v:8.5, src:'Dispositif prudentiel UMOA' },
+  { g:'Normes prudentielles UMOA', k:'seuil_solva', l:'Ratio de solvabilité global minimum', v:11.5, src:'Dispositif prudentiel UMOA, coussin de conservation inclus' },
+  { g:'Normes prudentielles UMOA', k:'seuil_levier', l:'Ratio de levier minimum', v:3, src:'Bâle III, repris par le dispositif UMOA' },
+  { g:'Normes prudentielles UMOA', k:'seuil_coefliq', l:'Coefficient de liquidité minimum', v:75, src:'Règles de liquidité BCEAO' },
+  { g:'Normes prudentielles UMOA', k:'seuil_lcr', l:'LCR minimum', v:100, src:'Bâle III' },
+  { g:'Normes prudentielles UMOA', k:'seuil_couv', l:'Couverture des emplois MLT par ressources stables', v:50, src:'Règles de transformation BCEAO' },
+  { g:"Repères d'analyse (non réglementaires)", k:'rep_transfo', l:'Transformation : plafond crédits / dépôts', v:100, src:'Usage en analyse bancaire' },
+  { g:"Repères d'analyse (non réglementaires)", k:'rep_liq', l:'Liquidité bilan : plancher', v:30, src:'Usage en analyse bancaire' },
+  { g:"Repères d'analyse (non réglementaires)", k:'rep_levier', l:'Levier bilan (CP / Total actif) : plancher', v:3, src:'Calqué sur le seuil Bâle III' },
+  { g:"Repères d'analyse (non réglementaires)", k:'rep_solva', l:'Solvabilité bilan : plancher', v:8, src:'Ancien ratio Cooke (Bâle I)' },
+  { g:"Repères d'analyse (non réglementaires)", k:'rep_roa', l:'ROA : plancher', v:1, src:'Usage en analyse bancaire' },
+  { g:"Repères d'analyse (non réglementaires)", k:'rep_roe', l:'ROE : plancher', v:10, src:'Usage en analyse bancaire' },
+  { g:"Repères d'analyse (non réglementaires)", k:'rep_coef', l:"Coefficient d'exploitation : plafond", v:60, src:'Usage en analyse bancaire' },
+  { g:"Repères d'analyse (non réglementaires)", k:'rep_cdr', l:'Coût du risque / crédits : plafond', v:2, src:'Usage en analyse bancaire' },
+  { g:"Repères d'analyse (non réglementaires)", k:'marge', l:'Zone de vigilance autour du seuil (en % du seuil)', v:10, src:'Un ratio à moins de 10 % du seuil passe en orange' },
+  { g:'Pondérations Bâle (approche standard simplifiée)', k:'w_A1', l:'Caisse, banque centrale, CCP', v:0, src:'Exposition sur la BCEAO' },
+  { g:'Pondérations Bâle (approche standard simplifiée)', k:'w_A2', l:'Effets publics', v:0, src:'Souverains UMOA en FCFA' },
+  { g:'Pondérations Bâle (approche standard simplifiée)', k:'w_A3', l:'Créances interbancaires', v:50, src:'Hypothèse : banques non notées, mélange court/long terme' },
+  { g:'Pondérations Bâle (approche standard simplifiée)', k:'w_A4', l:'Créances sur la clientèle', v:100, src:'Entreprises et particuliers non notés' },
+  { g:'Pondérations Bâle (approche standard simplifiée)', k:'w_A5', l:'Obligations', v:100, src:'Émetteurs non notés' },
+  { g:'Pondérations Bâle (approche standard simplifiée)', k:'w_A6', l:'Actions', v:100, src:'' },
+  { g:'Pondérations Bâle (approche standard simplifiée)', k:'w_A7', l:'Actionnaires ou associés', v:0, src:'Déduit des fonds propres' },
+  { g:'Pondérations Bâle (approche standard simplifiée)', k:'w_A8', l:'Autres actifs', v:100, src:'' },
+  { g:'Pondérations Bâle (approche standard simplifiée)', k:'w_A9', l:'Comptes de régularisation', v:100, src:'' },
+  { g:'Pondérations Bâle (approche standard simplifiée)', k:'w_A10', l:'Participations', v:100, src:'Peut aller à 250 % selon le dispositif' },
+  { g:'Pondérations Bâle (approche standard simplifiée)', k:'w_A11', l:'Parts dans les entreprises liées', v:100, src:'' },
+  { g:'Pondérations Bâle (approche standard simplifiée)', k:'w_A12', l:'Prêts subordonnés', v:100, src:'' },
+  { g:'Pondérations Bâle (approche standard simplifiée)', k:'w_A13', l:'Immobilisations incorporelles', v:0, src:'Déduites des fonds propres' },
+  { g:'Pondérations Bâle (approche standard simplifiée)', k:'w_A14', l:'Immobilisations corporelles', v:100, src:'' },
+  { g:'Pondérations Bâle (approche standard simplifiée)', k:'ccf_fin', l:'CCF engagements de financement', v:50, src:'Facteur de conversion hors bilan' },
+  { g:'Pondérations Bâle (approche standard simplifiée)', k:'ccf_gar', l:'CCF engagements de garantie', v:100, src:'Garanties financières (50 % pour cautions techniques)' },
+  { g:'Pondérations Bâle (approche standard simplifiée)', k:'ccf_tit', l:'CCF engagements sur titres', v:100, src:'' },
+  { g:'Pondérations Bâle (approche standard simplifiée)', k:'alpha_ro', l:'Risque opérationnel : coefficient α', v:15, src:'Approche indicateur de base : 15 % du PNB moyen' }
+];
+const DEFAULT_PARAMS = Object.fromEntries(PARAMS.map(p => [p.k, p.v]));
+
+/* =====================================================================
+   3. EXEMPLE — Banque Atlantique Bénin, fascicule BCEAO 2023, p. 22
+   ===================================================================== */
+const SAMPLE = {
+  id:'bab', name:'Banque Atlantique Bénin (BAB)', country:'Bénin', unit:'millions FCFA', years:[2021,2022,2023], example:true,
+  source:'Fascicule BCEAO des bilans et comptes de résultat des banques de l’UMOA 2023, p. 22',
+  v:{
+    A1:[11953,14456,21982], A2:[105891,87754,78393], A3:[16570,10725,19139], A4:[131072,130602,150766], A5:[1812,1510,1073], A6:[3322,3606,3853], A7:[0,0,0], A8:[12338,2450,1873], A9:[1186,898,626], A10:[178,178,178], A11:[0,0,0], A12:[238,248,258], A13:[2,59,61], A14:[17369,16602,17458],
+    P1:[0,0,0], P2:[55259,50736,64941], P3:[218985,187843,196626], P4:[0,0,0], P5:[1365,2001,2088], P6:[2403,1702,2167], P7:[1549,842,965], P8:[1583,1583,1584],
+    P9a:[28000,28000,20563], P9b:[0,0,0], P9c:[223,223,762], P9d:[0,0,0], P9e:[0,0,0], P9f:[-10548,-7437,3056], P9g:[3112,3595,2908],
+    HB1:[15104,22671,23533], HB2:[17771,21128,6057], HB3:[0,0,0], HB4:[0,0,0], HB5:[332663,360755,401445], HB6:[0,0,0],
+    R4:[4822,4889,5570]
+  }
+};
+
+/* =====================================================================
+   4. ÉTAT & STOCKAGE LOCAL
+   ===================================================================== */
+const LS_KEY = 'umoa-analyste-v1';
+const clone = o => JSON.parse(JSON.stringify(o));
+function loadState() {
+  let s = null;
+  try { s = JSON.parse(localStorage.getItem(LS_KEY) || 'null'); } catch (e) { s = null; }
+  if (!s || !s.banks || !Object.keys(s.banks).length) s = { banks:{ bab: clone(SAMPLE) }, cur:'bab' };
+  s.params = Object.assign({}, DEFAULT_PARAMS, s.params || {});
+  s.base = s.base || 'fin';
+  s.tab = s.tab || 'synthese';
+  if (!s.banks[s.cur]) s.cur = Object.keys(s.banks)[0];
+  return s;
+}
+const state = loadState();
+state.yi = 2;
+function save() { try { localStorage.setItem(LS_KEY, JSON.stringify({ banks:state.banks, cur:state.cur, params:state.params, base:state.base, tab:state.tab })); } catch (e) {} }
+const bank = () => state.banks[state.cur];
+const Y = () => bank().years;
+
+/* =====================================================================
+   5. NOMBRES
+   ===================================================================== */
+function parseNum(s) {
+  if (s == null) return null;
+  s = String(s).trim().replace(/[\s  ]/g, '').replace(/−/g, '-');
+  if (s === '' || s === '-') return null;
+  let neg = false;
+  if (/^\(.*\)$/.test(s)) { neg = true; s = s.slice(1, -1); }
+  if (/^-?\d+,\d+$/.test(s)) s = s.replace(',', '.');
+  else s = s.replace(/,/g, '');
+  const v = Number(s);
+  return Number.isFinite(v) ? (neg ? -v : v) : null;
+}
+const fin = v => typeof v === 'number' && Number.isFinite(v);
+const nfI = new Intl.NumberFormat('fr-FR', { maximumFractionDigits:0 });
+const nf = d => new Intl.NumberFormat('fr-FR', { minimumFractionDigits:d, maximumFractionDigits:d });
+const fmtM = v => fin(v) ? nfI.format(Math.round(v)).replace(/^-/, '−') : '—';
+const fmtP = (v, d = 2) => fin(v) ? nf(d).format(v * 100).replace(/^-/, '−') + ' %' : '—';
+const fmtX = v => fin(v) ? nf(2).format(v).replace(/^-/, '−') + ' ×' : '—';
+const fmtPts = (d) => fin(d) ? (d >= 0 ? '+' : '−') + nf(2).format(Math.abs(d * 100)) + ' pt' : '—';
+const fmtSigned = v => fin(v) ? (v >= 0 ? '+' : '−') + nfI.format(Math.abs(Math.round(v))) : '—';
+const fmtBy = (f, v) => f === 'm' ? fmtM(v) : f === 'x' ? fmtX(v) : fmtP(v);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;' }[c]));
+
+/* =====================================================================
+   6. MOTEUR DE FORMULES — une formule = un arbre, utilisé pour calculer ET afficher
+   ===================================================================== */
+const V = (k, off = 0) => ({ t:'v', k, off });
+const Q = (id, off = 0) => ({ t:'q', id, off });
+const C = (v, lbl) => ({ t:'c', v, lbl });
+const P = k => ({ t:'p', k });
+const MUL = (a, b) => ({ t:'*', a:[a, b] });
+const DIV = (n, d) => ({ t:'/', a:[n, d] });
+const M3 = x => ({ t:'m3', x });
+function S(...items) {
+  return { t:'s', a: items.map(it => {
+    if (Array.isArray(it)) return it;
+    const sg = it[0] === '-' ? -1 : 1, r = it.slice(1);
+    return [sg, r.startsWith('q:') ? Q(r.slice(2)) : V(r)];
+  }) };
+}
+function shift(n, d) {
+  if (n.t === 'v' || n.t === 'q') return Object.assign({}, n, { off: n.off + d });
+  if (n.t === 's') return { t:'s', a: n.a.map(([s, x]) => [s, shift(x, d)]) };
+  if (n.a) return Object.assign({}, n, { a: n.a.map(x => shift(x, d)) });
+  if (n.x) return Object.assign({}, n, { x: shift(n.x, d) });
+  return n;
+}
+const AVG = x => DIV(S([1, x], [1, shift(x, -1)]), C(2));
+const base = q => state.base === 'moy' ? AVG(Q(q)) : Q(q);
+
+const ZERO_OK = new Set();
+function raw(k, y) {
+  const a = bank().v[k];
+  if (!a) return null;
+  const x = a[y];
+  return fin(x) ? x : null;
+}
+function newCtx() { return { miss:new Set(), notes:new Set(), decl:new Set(), est:new Set() }; }
+function mergeCtx(a, b) { b.miss.forEach(x => a.miss.add(x)); b.notes.forEach(x => a.notes.add(x)); b.decl.forEach(x => a.decl.add(x)); b.est.forEach(x => a.est.add(x)); }
+
+function ev(n, y, ctx) {
+  switch (n.t) {
+    case 'v': {
+      const yy = y + n.off;
+      if (yy < 0) { ctx.notes.add('Exercice précédent indisponible pour ' + Y()[y]); return NaN; }
+      const x = raw(n.k, yy);
+      if (x === null) { ctx.miss.add(n.k); return NaN; }
+      return x;
+    }
+    case 'c': return n.v;
+    case 'p': return (state.params[n.k] ?? DEFAULT_PARAMS[n.k]) / 100;
+    case 'q': return evQ(n.id, y + n.off, ctx);
+    case 's': return n.a.reduce((acc, [sg, x]) => acc + sg * ev(x, y, ctx), 0);
+    case '*': return ev(n.a[0], y, ctx) * ev(n.a[1], y, ctx);
+    case '/': { const a = ev(n.a[0], y, ctx), b = ev(n.a[1], y, ctx); return b === 0 ? NaN : a / b; }
+    case 'm3': {
+      const vals = [];
+      for (let k = 0; k < 3; k++) { if (y - k < 0) break; const c2 = newCtx(); const v = ev(shift(n.x, -k), y, c2); if (fin(v) && v > 0) vals.push(v); else if (k === 0) mergeCtx(ctx, c2); }
+      return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : NaN;
+    }
+  }
+  return NaN;
+}
+function evQ(id, y, ctx) {
+  const q = QTY[id];
+  if (y < 0) { ctx.notes.add('Exercice précédent indisponible'); return NaN; }
+  if (q.decl && raw(q.decl, y) !== null) { ctx.decl.add(id); return raw(q.decl, y); }
+  if (q.decl) ctx.est.add(id);
+  const c1 = newCtx();
+  const v = ev(q.node, y, c1);
+  if (fin(v) || !q.alt) { mergeCtx(ctx, c1); return v; }
+  const c2 = newCtx();
+  const v2 = ev(q.alt, y, c2);
+  if (fin(v2)) { mergeCtx(ctx, c2); ctx.notes.add(q.altNote); return v2; }
+  mergeCtx(ctx, c1); mergeCtx(ctx, c2);
+  return NaN;
+}
+const calc = (node, y) => { const c = newCtx(); const v = ev(node, y, c); return { v, c }; };
+const val = (node, y) => calc(node, y).v;
+const qv = (id, y) => val(Q(id), y);
+
+/* Rendu : mode 'sym' (libellés) ou 'num' (valeurs de l'exercice y) */
+function wrapIf(n, html) { return (n.t === 's' && n.a.length > 1) ? '(' + html + ')' : html; }
+function R(n, mode, y) {
+  switch (n.t) {
+    case 'v': {
+      const lab = (SHORT[n.k] || F[n.k].l) + (n.off ? ' <sub>N' + n.off + '</sub>' : '');
+      if (mode === 'sym') return '<span title="' + esc(F[n.k].l) + '">' + lab + '</span>';
+      const x = (y + n.off >= 0) ? raw(n.k, y + n.off) : null;
+      return x === null ? '<span class="miss">?</span>' : '<span class="v-num" data-tip="' + esc(F[n.k].l + ' ' + (Y()[y + n.off] || '')) + '">' + (x < 0 ? '(' + fmtM(x) + ')' : fmtM(x)) + '</span>';
+    }
+    case 'c': return n.lbl || nf(n.v % 1 ? 1 : 0).format(n.v);
+    case 'p': {
+      const p = PARAMS.find(p => p.k === n.k);
+      return '<span data-tip="' + esc(p ? p.l : n.k) + ' (modifiable dans Paramètres)">' + nf((state.params[n.k] % 1) ? 1 : 0).format(state.params[n.k]) + ' %</span>';
+    }
+    case 'q': {
+      const q = QTY[n.id];
+      const lab = '<span class="q">' + q.n + '</span>' + (n.off ? ' <sub>N' + n.off + '</sub>' : '');
+      if (mode === 'sym') return '<span data-tip="' + esc(q.long || q.n) + '">' + lab + '</span>';
+      const v = (y + n.off >= 0) ? qv(n.id, y + n.off) : NaN;
+      return '<span class="v-num" data-tip="' + esc((q.long || q.n) + ' ' + (Y()[y + n.off] || '')) + '">' + (fin(v) ? (v < 0 ? '(' + fmtM(v) + ')' : fmtM(v)) : '<span class="miss">?</span>') + '</span>';
+    }
+    case 's': return n.a.map(([sg, x], i) => (i === 0 ? (sg < 0 ? '− ' : '') : (sg < 0 ? ' − ' : ' + ')) + wrapIf(x, R(x, mode, y))).join('');
+    case '*': return n.a.map(x => wrapIf(x, R(x, mode, y))).join(' × ');
+    case '/': return '<span class="frac"><span class="n">' + R(n.a[0], mode, y) + '</span><span class="d">' + R(n.a[1], mode, y) + '</span></span>';
+    case 'm3': {
+      if (mode === 'sym') return 'moyenne<sub>3 ans</sub>(' + R(n.x, mode, y) + ' &gt; 0)';
+      const parts = [];
+      for (let k = 2; k >= 0; k--) if (y - k >= 0) { const v = val(shift(n.x, -k), y); parts.push(fin(v) ? fmtM(v) : '?'); }
+      return 'moy(' + parts.join(' ; ') + ')';
+    }
+  }
+  return '';
+}
+
+/* =====================================================================
+   7. GRANDEURS INTERMÉDIAIRES
+   ===================================================================== */
+const ASSETS = ['A1','A2','A3','A4','A5','A6','A7','A8','A9','A10','A11','A12','A13','A14'];
+const LIABS = ['P1','P2','P3','P4','P5','P6','P7','P8'];
+const CPK = ['P9a','P9b','P9c','P9d','P9e','P9f','P9g'];
+const QTY = {
+  TA:  { n:'Total actif', node: S(...ASSETS.map(k => '+' + k)) },
+  CP:  { n:'Capitaux propres', long:'Capitaux propres et ressources assimilées', node: S(...CPK.map(k => '+' + k)) },
+  TP:  { n:'Total passif', node: S(...LIABS.map(k => '+' + k), '+q:CP') },
+  RNCR:{ n:'Résultat net (CR)', long:'Résultat net issu du compte de résultat', node: S('+q:RAI', '-R15') },
+  RN:  { n:'Résultat net', long:"Résultat net de l'exercice", node: V('P9g'), alt: Q('RNCR'), altNote:'Résultat net repris du compte de résultat' },
+  MI:  { n:"Marge d'intérêts", node: S('+R1', '-R2') },
+  COMN:{ n:'Commissions nettes', node: S('+R4', '-R5') },
+  PNB: { n:'PNB', long:'Produit net bancaire', node: S('+q:MI', '+R3', '+q:COMN', '+R6', '+R7', '+R8', '-R9') },
+  RBE: { n:'RBE', long:"Résultat brut d'exploitation", node: S('+q:PNB', '+R10', '-R11', '-R12') },
+  RE:  { n:"Résultat d'exploitation", node: S('+q:RBE', '-R13') },
+  RAI: { n:'Résultat avant impôt', node: S('+q:RE', '+R14') },
+  CGX: { n:"Charges d'exploitation", long:'Charges générales + dotations aux amortissements', node: S('+R11', '+R12') },
+  LA:  { n:'Actifs liquides', long:'Caisse et banque centrale + effets publics + créances interbancaires', node: S('+A1', '+A2', '+A3') },
+  PCT: { n:'Ressources exigibles', long:'Banque centrale + dettes interbancaires + dépôts clientèle', node: S('+P1', '+P2', '+P3') },
+  FPS: { n:'Fonds propres élargis', long:'Capitaux propres + emprunts subordonnés', node: S('+q:CP', '+P8') },
+  CET1:{ n:'CET1', long:'Fonds propres de base durs : capital, primes, réserves, provisions réglementées, report à nouveau, résultat, moins incorporels et actionnaires non libérés', decl:'CET1', node: S('+P9a', '+P9b', '+P9c', '+P9e', '+P9f', '+P9g', '-A13', '-A7') },
+  T1:  { n:'Tier 1', long:'Fonds propres de base (CET1 + AT1 ; AT1 supposé nul)', decl:'T1', node: Q('CET1') },
+  T2:  { n:'Tier 2', long:'Fonds propres complémentaires : subordonnés + écarts de réévaluation', node: S('+P8', '+P9d') },
+  FPT: { n:'Fonds propres effectifs', long:'Tier 1 + Tier 2', decl:'FPE', node: S('+q:T1', '+q:T2') },
+  RWAC:{ n:'RWA crédit', long:'Actifs pondérés au titre du risque de crédit', node: S(...ASSETS.map(k => [1, MUL(V(k), P('w_' + k))]), [1, MUL(V('HB1'), P('ccf_fin'))], [1, MUL(V('HB2'), P('ccf_gar'))], [1, MUL(V('HB3'), P('ccf_tit'))]) },
+  RWAO:{ n:'RWA opérationnel', long:'Risque opérationnel, approche indicateur de base', node: MUL(C(12.5, '12,5'), MUL(P('alpha_ro'), M3(Q('PNB')))) },
+  RWA: { n:'RWA', long:'Total des actifs pondérés par les risques', decl:'RWA', node: S('+q:RWAC', '+q:RWAO'), alt: Q('RWAC'), altNote:'RWA sans risque opérationnel (PNB non saisi) : ratios Bâle surestimés' },
+  EXP: { n:'Exposition de levier', long:'Total actif − incorporels + hors bilan × CCF', decl:'EXPL', node: S('+q:TA', '-A13', [1, MUL(V('HB1'), P('ccf_fin'))], [1, MUL(V('HB2'), P('ccf_gar'))], [1, MUL(V('HB3'), P('ccf_tit'))]) },
+  PNBC:{ n:'PNB*', long:'PNB critique : PNB qui produit une perte égale aux capitaux propres', node: S('-q:CP', '-R10', '+R11', '+R12', '+R13', '-R14') },
+  CDRC:{ n:'Coût du risque critique', node: S('+q:PNB', '+R10', '-R11', '-R12', '+R14', '+q:CP') },
+  LMAX:{ n:'Perte absorbable', long:'Perte maximale avant de passer sous le seuil de solvabilité global', node: DIV(S('+q:FPT', [-1, MUL(P('seuil_solva'), Q('RWA'))]), S([1, C(1)], [-1, P('seuil_solva')])) }
+};
+
+/* =====================================================================
+   8. INDICATEURS
+   ===================================================================== */
+const KIND = { simple:'Version bilan', reg:'Norme UMOA', bale:'Bâle III', analyse:"Indicateur d'analyse", stress:'Stress test' };
+const IND = [
+  { id:'transfo', g:'transformation', n:'Ratio de transformation', kind:'simple', node: DIV(V('A4'), V('P3')), thr:{ k:'rep_transfo', dir:'max' },
+    about:"Part des dépôts de la clientèle transformée en crédits. Au-delà de 100 %, la banque prête plus qu'elle ne collecte et dépend du marché interbancaire ou de la BCEAO.",
+    up:"La banque transforme davantage ses dépôts en crédits : l'intermédiation s'intensifie mais la liquidité se tend.", down:"La banque prête une part plus faible de ses dépôts : liquidité plus confortable, intermédiation moins poussée." },
+  { id:'couv_mlt', g:'transformation', n:'Couverture des emplois MLT par les ressources stables', kind:'reg', opt:true, node: DIV(V('RSTAB'), V('EMLT')), thr:{ k:'seuil_couv', dir:'min', reg:true },
+    about:'Norme de transformation BCEAO : les emplois à moyen et long terme doivent être financés au moins à hauteur du seuil par des ressources stables (fonds propres, dépôts à terme, emprunts longs).',
+    up:'Les emplois longs sont mieux adossés à des ressources stables.', down:'Une part croissante des emplois longs est financée par des ressources courtes : risque de transformation accru.' },
+  { id:'liq', g:'liquidite', n:'Ratio de liquidité (bilan)', kind:'simple', node: DIV(Q('LA'), Q('PCT')), thr:{ k:'rep_liq', dir:'min' },
+    about:"Actifs mobilisables rapidement (caisse, BCEAO, titres publics refinançables, créances interbancaires) rapportés aux ressources exigibles (dettes interbancaires et dépôts). Approximation du coefficient de liquidité, faute d'échéancier.",
+    up:'Le coussin de liquidité se renforce face aux retraits potentiels.', down:'Le coussin de liquidité se réduit : la banque est plus exposée à des retraits massifs.' },
+  { id:'coefliq', g:'liquidite', n:'Coefficient de liquidité', kind:'reg', opt:true, node: DIV(V('LIQA'), V('LIQP')), thr:{ k:'seuil_coefliq', dir:'min', reg:true },
+    about:'Norme BCEAO : actifs disponibles et réalisables à moins de 3 mois rapportés aux passifs exigibles à moins de 3 mois.', up:'La couverture des passifs courts s’améliore.', down:'La couverture des passifs courts se dégrade.' },
+  { id:'lcr', g:'liquidite', n:'Liquidity Coverage Ratio (LCR)', kind:'reg', opt:true, node: DIV(V('HQLA'), V('SNT')), thr:{ k:'seuil_lcr', dir:'min', reg:true },
+    about:'Bâle III : stock d’actifs liquides de haute qualité permettant de survivre à 30 jours de crise de liquidité.', up:'La résistance à une crise de liquidité de 30 jours s’améliore.', down:'La résistance à une crise de liquidité de 30 jours se dégrade.' },
+  { id:'levier', g:'levier', n:'Ratio de levier (bilan)', kind:'simple', node: DIV(Q('CP'), Q('TA')), thr:{ k:'rep_levier', dir:'min' },
+    about:'Part du bilan financée par les capitaux propres. Plus il est élevé, moins la banque est endettée.',
+    up:'Les fonds propres progressent plus vite que le bilan : la banque se désendette.', down:'Le bilan croît plus vite que les fonds propres : l’effet de levier augmente.' },
+  { id:'levier_b', g:'levier', n:'Ratio de levier Bâle III', kind:'bale', node: DIV(Q('T1'), Q('EXP')), thr:{ k:'seuil_levier', dir:'min', reg:true },
+    about:'Tier 1 rapporté à l’exposition totale non pondérée (bilan + hors bilan converti). Garde-fou contre un endettement excessif, indépendant des pondérations.',
+    up:'Le levier réglementaire s’améliore.', down:'Le levier réglementaire se dégrade.' },
+  { id:'mult', g:'levier', n:'Multiplicateur de fonds propres', kind:'analyse', fmt:'x', node: () => DIV(base('TA'), base('CP')),
+    about:'Nombre de francs d’actifs portés par chaque franc de fonds propres. C’est l’inverse du ratio de levier bilan et le lien entre ROA et ROE.',
+    up:'La banque utilise davantage l’endettement : le ROE est amplifié, le risque aussi.', down:'La banque se désendette : moins d’effet multiplicateur sur le ROE, mais plus de sécurité.' },
+  { id:'solva_s', g:'solva', n:'Solvabilité (bilan)', kind:'simple', node: DIV(Q('FPS'), Q('TA')), thr:{ k:'rep_solva', dir:'min' },
+    about:'Fonds propres élargis (capitaux propres + dettes subordonnées) rapportés au total du bilan, sans pondération par les risques. Version minorante du ratio de solvabilité.',
+    up:'La capacité à absorber des pertes se renforce.', down:'La capacité à absorber des pertes s’affaiblit.' },
+  { id:'cet1', g:'solva', n:'Ratio CET1', kind:'bale', node: DIV(Q('CET1'), Q('RWA')), thr:{ k:'seuil_cet1', dir:'min', reg:true },
+    about:'Fonds propres de base durs rapportés aux actifs pondérés par les risques. C’est le noyau dur de la solvabilité selon Bâle III.', up:'Le noyau dur de solvabilité se renforce.', down:'Le noyau dur de solvabilité s’érode.' },
+  { id:'t1', g:'solva', n:'Ratio Tier 1', kind:'bale', node: DIV(Q('T1'), Q('RWA')), thr:{ k:'seuil_t1', dir:'min', reg:true },
+    about:'Fonds propres de base (CET1 + AT1) rapportés aux actifs pondérés.', up:'Les fonds propres de base couvrent mieux les risques.', down:'Les fonds propres de base couvrent moins bien les risques.' },
+  { id:'solva', g:'solva', n:'Ratio de solvabilité global', kind:'bale', node: DIV(Q('FPT'), Q('RWA')), thr:{ k:'seuil_solva', dir:'min', reg:true },
+    about:'Fonds propres effectifs (Tier 1 + Tier 2) rapportés aux actifs pondérés par les risques de crédit et opérationnel.', up:'La solvabilité réglementaire s’améliore.', down:'La solvabilité réglementaire se dégrade.' },
+  { id:'souv', g:'structure', n:'Poids des titres publics', kind:'analyse', node: DIV(V('A2'), Q('TA')),
+    about:'Exposition aux États de l’UMOA via les effets publics. Ces titres sont liquides et pondérés à 0 %, mais concentrent le risque souverain.', up:'La banque se tourne davantage vers les titres d’État.', down:'La banque réduit son portefeuille de titres d’État.' },
+  { id:'roa', g:'renta', n:'ROA', long:'Return on Assets', kind:'analyse', node: () => DIV(Q('RN'), base('TA')), thr:{ k:'rep_roa', dir:'min' },
+    about:'Résultat net rapporté au total actif. Mesure la rentabilité économique : ce que rapporte chaque franc d’actif.', up:'Les actifs deviennent plus rentables.', down:'Les actifs rapportent moins.' },
+  { id:'roe', g:'renta', n:'ROE', long:'Return on Equity', kind:'analyse', node: () => DIV(Q('RN'), base('CP')), thr:{ k:'rep_roe', dir:'min' },
+    about:'Résultat net rapporté aux capitaux propres. Mesure la rentabilité financière pour l’actionnaire. ROE = ROA × multiplicateur de fonds propres.', up:'La rentabilité pour l’actionnaire progresse.', down:'La rentabilité pour l’actionnaire recule.' },
+  { id:'coef', g:'expl', n:"Coefficient d'exploitation", kind:'analyse', node: DIV(Q('CGX'), Q('PNB')), thr:{ k:'rep_coef', dir:'max' },
+    about:'Part du PNB absorbée par les frais de fonctionnement. Plus il est bas, plus la banque est efficiente.', up:'Les frais progressent plus vite que les revenus : l’efficacité se dégrade.', down:'La banque gagne en efficacité opérationnelle.' },
+  { id:'cdr', g:'expl', n:'Coût du risque / crédits', kind:'analyse', node: DIV(V('R13'), V('A4')), thr:{ k:'rep_cdr', dir:'max' },
+    about:'Dotations nettes aux provisions pour créances douteuses rapportées à l’encours de crédits. Mesure la qualité du portefeuille.', up:'Le risque de crédit se matérialise davantage.', down:'La qualité du portefeuille s’améliore.' },
+  { id:'mi_pnb', g:'expl', n:"Marge d'intérêts / PNB", kind:'analyse', node: DIV(Q('MI'), Q('PNB')),
+    about:'Part du PNB provenant de l’activité d’intermédiation (crédits − dépôts).', up:'La banque dépend davantage de l’intermédiation classique.', down:'Les revenus se diversifient hors intermédiation.' },
+  { id:'com_pnb', g:'expl', n:'Commissions nettes / PNB', kind:'analyse', node: DIV(Q('COMN'), Q('PNB')),
+    about:'Part du PNB provenant des services facturés (tenue de compte, transferts, monétique, garanties).', up:'Les revenus de services prennent du poids.', down:'Les revenus de services perdent du poids.' },
+  { id:'marge', g:'expl', n:'Marge nette', kind:'analyse', node: DIV(Q('RN'), Q('PNB')),
+    about:'Part du PNB qui reste en résultat net après charges, coût du risque et impôt.', up:'Une part croissante du PNB se transforme en bénéfice.', down:'Une part décroissante du PNB se transforme en bénéfice.' },
+  { id:'pnb_ta', g:'expl', n:'PNB / Total actif', kind:'analyse', node: DIV(Q('PNB'), Q('TA')),
+    about:'Rendement brut des actifs : revenu bancaire généré par franc d’actif.', up:'Les actifs génèrent plus de revenus.', down:'Les actifs génèrent moins de revenus.' },
+  { id:'perte', g:'faillite', n:'Perte critique', kind:'stress', fmt:'m', node: Q('CP'),
+    about:'Une banque est en faillite comptable lorsque ses pertes effacent ses capitaux propres. La perte critique est donc égale aux capitaux propres : RN* = −Capitaux propres.' },
+  { id:'pnbc', g:'faillite', n:'PNB critique (PNB*)', kind:'stress', fmt:'m', node: QTY.PNBC.node,
+    about:'On remonte la cascade du compte de résultat avec RN* = −Capitaux propres et un impôt nul (pas d’impôt sur une perte) : PNB* = RN* − subventions + charges générales + dotations + coût du risque − gains sur actifs immobilisés.' },
+  { id:'chute', g:'faillite', n:'Baisse de PNB menant à la faillite', kind:'stress', node: DIV(S('+q:PNB', '-q:PNBC'), Q('PNB')),
+    about:'De combien le PNB doit chuter, charges et coût du risque inchangés, pour que la perte de l’exercice efface les capitaux propres. Algébriquement, PNB − PNB* = Résultat avant impôt + Capitaux propres.' },
+  { id:'cdrc', g:'faillite', n:'Coût du risque critique', kind:'stress', fmt:'m', node: QTY.CDRC.node,
+    about:'Variante : coût du risque qui, à PNB inchangé, produirait une perte égale aux capitaux propres.' },
+  { id:'cdr_mult', g:'faillite', n:'Multiplication du coût du risque', kind:'stress', fmt:'x', node: DIV(Q('CDRC'), V('R13')),
+    about:'Par combien le coût du risque actuel doit être multiplié pour mener à la faillite.' },
+  { id:'abs_a', g:'faillite', n:'Perte d’actifs absorbable', kind:'stress', node: DIV(Q('CP'), Q('TA')),
+    about:'Pourcentage de l’actif qui peut être perdu avant que les capitaux propres ne soient effacés.' },
+  { id:'abs_c', g:'faillite', n:'Défauts de crédits absorbables', kind:'stress', node: DIV(Q('CP'), V('A4')),
+    about:'Pourcentage des créances sur la clientèle qui peut faire défaut (perte totale) avant la faillite.' },
+  { id:'lmax', g:'faillite', n:'Perte avant passage sous le seuil de solvabilité', kind:'bale', fmt:'m', node: QTY.LMAX.node,
+    about:'Perte que la banque peut subir avant que son ratio de solvabilité global ne tombe sous le minimum UMOA. Solution de (FP − L) / (RWA − L) = seuil, en supposant que la perte porte sur des actifs pondérés à 100 %.' }
+];
+const I = Object.fromEntries(IND.map(x => [x.id, x]));
+const nodeOf = ind => typeof ind.node === 'function' ? ind.node() : ind.node;
+
+/* =====================================================================
+   9. STATUTS & INTERPRÉTATION
+   ===================================================================== */
+const ST_LABEL = { ok:['✓','Conforme'], warn:['!','Marge faible'], bad:['✕','Non conforme'], na:['–','Non calculé'], info:['·','Information'] };
+function thrVal(ind) { return ind.thr ? (state.params[ind.thr.k] ?? DEFAULT_PARAMS[ind.thr.k]) / 100 : null; }
+function status(ind, v) {
+  if (!fin(v)) return 'na';
+  if (!ind.thr) return 'info';
+  const s = thrVal(ind), m = (state.params.marge ?? 10) / 100;
+  if (ind.thr.dir === 'min') return v < s ? 'bad' : v < s * (1 + m) ? 'warn' : 'ok';
+  return v > s ? 'bad' : v > s * (1 - m) ? 'warn' : 'ok';
+}
+function stLabel(ind, st) {
+  if (st === 'ok') return ind.thr && !ind.thr.reg ? 'Dans le repère' : 'Conforme';
+  if (st === 'bad') return ind.thr && !ind.thr.reg ? 'Hors repère' : 'Non conforme';
+  return ST_LABEL[st][1];
+}
+const chip = (ind, st) => '<span class="chip st-' + st + '"><i aria-hidden="true">' + ST_LABEL[st][0] + '</i>' + stLabel(ind, st) + '</span>';
+
+function series(ind) { return Y().map((_, y) => val(nodeOf(ind), y)); }
+function interpret(ind, vals) {
+  const yrs = Y(), f = ind.fmt || 'pct', out = [];
+  const idx = vals.map((v, i) => fin(v) ? i : -1).filter(i => i >= 0);
+  if (!idx.length) return '';
+  const first = idx[0], last = idx[idx.length - 1];
+  const fmtD = (a, b) => f === 'pct' ? fmtPts(b - a) : f === 'x' ? (b - a >= 0 ? '+' : '−') + nf(2).format(Math.abs(b - a)) : fmtSigned(b - a) + ' M';
+  if (first !== last) {
+    let s = 'Passe de <b>' + fmtBy(f, vals[first]) + '</b> en ' + yrs[first] + ' à <b>' + fmtBy(f, vals[last]) + '</b> en ' + yrs[last] + ' (' + fmtD(vals[first], vals[last]) + ')';
+    if (idx.length === 3) {
+      const d1 = vals[1] - vals[0], d2 = vals[2] - vals[1];
+      const w = d => d > 0 ? 'hausse' : d < 0 ? 'baisse' : 'stabilité';
+      s += w(d1) === w(d2) ? ', ' + w(d1) + ' continue sur la période' : ', avec une ' + w(d1) + ' en ' + yrs[1] + ' puis une ' + w(d2) + ' en ' + yrs[2];
+    }
+    out.push(s + '.');
+    const rel = Math.abs(vals[last] - vals[first]) / (Math.abs(vals[first]) || 1);
+    if (rel > 0.02 && ind.up && ind.down) out.push(vals[last] > vals[first] ? ind.up : ind.down);
+  } else out.push('Valeur ' + yrs[last] + ' : <b>' + fmtBy(f, vals[last]) + '</b>.');
+  if (ind.thr) {
+    const s = thrVal(ind), v = vals[last], st = status(ind, v);
+    const sl = ind.thr.reg ? 'le minimum réglementaire' : 'le repère', sv = fmtP(s, 1);
+    if (ind.thr.dir === 'min') {
+      if (st === 'bad') out.push('En ' + yrs[last] + ', le ratio est <b>sous ' + sl + ' de ' + sv + '</b> (écart ' + fmtPts(v - s) + ').');
+      else if (st === 'warn') out.push('Au-dessus de ' + sl + ' de ' + sv + ' mais avec une marge faible (' + fmtPts(v - s) + ').');
+      else out.push('Confortablement au-dessus de ' + sl + ' de ' + sv + ' (marge ' + fmtPts(v - s) + ').');
+    } else {
+      if (st === 'bad') out.push('En ' + yrs[last] + ', le ratio <b>dépasse ' + (ind.thr.reg ? 'le plafond réglementaire' : 'le repère') + ' de ' + sv + '</b>.');
+      else if (st === 'warn') out.push('Sous le plafond de ' + sv + ' mais proche de celui-ci.');
+      else out.push('Nettement sous le plafond de ' + sv + '.');
+    }
+  }
+  if (ind.story) out.push(ind.story(vals));
+  return out.join(' ');
+}
+I.pnbc.story = vals => {
+  const y = Y().length - 1, pnb = qv('PNB', y), v = vals[y];
+  if (!fin(v) || !fin(pnb)) return '';
+  if (v <= 0) return 'Même avec un PNB nul, les charges ne suffiraient pas à effacer les capitaux propres en un exercice : la banque encaisserait la disparition totale de ses revenus pendant un an.';
+  return 'En ' + Y()[y] + ', le PNB devrait tomber de ' + fmtM(pnb) + ' à ' + fmtM(v) + ' M pour que la perte efface les capitaux propres.';
+};
+I.chute.story = vals => {
+  const y = Y().length - 1; if (!fin(vals[y])) return '';
+  return vals[y] >= 1 ? 'Le PNB pourrait disparaître entièrement sans que la banque fasse faillite sur un exercice.' : 'Lecture : une chute du PNB de ' + fmtP(vals[y], 1) + ' en un an, à charges constantes, suffirait à mettre la banque en faillite.';
+};
+I.abs_c.story = vals => { const y = Y().length - 1; return fin(vals[y]) ? 'Il suffirait que ' + fmtP(vals[y], 1) + ' des crédits clientèle soient perdus pour effacer les fonds propres.' : ''; };
+I.lmax.story = vals => { const y = Y().length - 1; return fin(vals[y]) ? (vals[y] < 0 ? 'La banque est déjà sous le seuil : il lui manque ' + fmtM(-vals[y]) + ' M de fonds propres.' : 'Au-delà de ' + fmtM(vals[y]) + ' M de pertes, la banque passe sous le minimum de solvabilité UMOA.') : ''; };
+
+/* =====================================================================
+   10. GRAPHIQUES (SVG, aux couleurs du thème)
+   ===================================================================== */
+function barChart(ind, vals) {
+  const W = 320, H = 132, pl = 8, pr = 8, pt = 14, pb = 22;
+  const f = ind.fmt || 'pct', thr = thrVal(ind);
+  const fv = vals.filter(fin);
+  if (!fv.length) return '';
+  let lo = Math.min(0, ...fv), hi = Math.max(0, ...fv, thr ?? 0);
+  if (hi === lo) hi = lo + 1;
+  hi += (hi - lo) * 0.12;
+  const sy = v => pt + (hi - v) / (hi - lo) * (H - pt - pb);
+  const n = vals.length, bw = 54, gap = (W - pl - pr - n * bw) / (n + 1);
+  let g = '<line x1="' + pl + '" x2="' + (W - pr) + '" y1="' + sy(0) + '" y2="' + sy(0) + '" style="stroke:var(--line)" stroke-width="1"/>';
+  vals.forEach((v, i) => {
+    const x = pl + gap + i * (bw + gap);
+    if (fin(v)) {
+      const y0 = sy(0), y1 = sy(v), top = Math.min(y0, y1), h = Math.max(1.5, Math.abs(y0 - y1));
+      const r = Math.min(4, h / 2);
+      const up = v >= 0;
+      const d = up
+        ? 'M' + x + ',' + (top + h) + ' V' + (top + r) + ' Q' + x + ',' + top + ' ' + (x + r) + ',' + top + ' H' + (x + bw - r) + ' Q' + (x + bw) + ',' + top + ' ' + (x + bw) + ',' + (top + r) + ' V' + (top + h) + ' Z'
+        : 'M' + x + ',' + top + ' V' + (top + h - r) + ' Q' + x + ',' + (top + h) + ' ' + (x + r) + ',' + (top + h) + ' H' + (x + bw - r) + ' Q' + (x + bw) + ',' + (top + h) + ' ' + (x + bw) + ',' + (top + h - r) + ' V' + top + ' Z';
+      g += '<path d="' + d + '" style="fill:var(' + (i === state.yi ? '--s1' : '--s1-soft') + ')" data-tip="' + Y()[i] + ' : ' + esc(fmtBy(f, v)) + '"/>';
+      g += '<rect x="' + (x - gap / 2) + '" y="' + pt + '" width="' + (bw + gap) + '" height="' + (H - pt - pb) + '" style="fill:transparent" data-tip="' + Y()[i] + ' : ' + esc(fmtBy(f, v)) + '"/>';
+    }
+    g += '<text x="' + (x + bw / 2) + '" y="' + (H - 6) + '" text-anchor="middle" font-size="11" style="fill:var(--ink-3)">' + Y()[i] + '</text>';
+  });
+  if (thr != null && f === 'pct') {
+    const ty = sy(thr);
+    g += '<line x1="' + pl + '" x2="' + (W - pr) + '" y1="' + ty + '" y2="' + ty + '" style="stroke:var(--ink-2)" stroke-width="1.25" stroke-dasharray="4 3"/>';
+    g += '<text x="' + (W - pr) + '" y="' + (ty - 4) + '" text-anchor="end" font-size="10.5" style="fill:var(--ink-2)">' + (ind.thr.reg ? 'seuil ' : 'repère ') + esc(fmtP(thr, 1)) + '</text>';
+  }
+  return '<svg class="chart" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="' + esc(ind.n) + ' par exercice">' + g + '</svg>';
+}
+const STRUCT = {
+  actif: [ ['Trésorerie & interbancaire', ['A1','A3']], ['Titres', ['A2','A5','A6']], ['Crédits clientèle', ['A4']], ['Immobilisations & participations', ['A10','A11','A12','A13','A14']], ['Autres', ['A7','A8','A9']] ],
+  passif: [ ['Interbancaire & BCEAO', ['P1','P2']], ['Dépôts clientèle', ['P3']], ['Autres dettes & provisions', ['P4','P5','P6','P7']], ['Subordonnés', ['P8']], ['Capitaux propres', CPK] ]
+};
+function stackChart(kind) {
+  const groups = STRUCT[kind], W = 340, rowH = 26, gapR = 12, pl = 40, H = Y().length * (rowH + gapR) + 4;
+  let g = '';
+  Y().forEach((yr, y) => {
+    const parts = groups.map(([, ks]) => ks.reduce((a, k) => a + (raw(k, y) ?? 0), 0));
+    const tot = parts.reduce((a, b) => a + b, 0);
+    const ty = y * (rowH + gapR) + 2;
+    g += '<text x="0" y="' + (ty + rowH / 2 + 4) + '" font-size="11.5" style="fill:var(--ink-2)">' + yr + '</text>';
+    if (tot <= 0) return;
+    let x = pl;
+    const avail = W - pl - (groups.length - 1) * 2;
+    parts.forEach((p, i) => {
+      const w = Math.max(0, p / tot * avail);
+      if (w > 0) g += '<rect x="' + x + '" y="' + ty + '" width="' + w + '" height="' + rowH + '" rx="' + Math.min(3, w / 2) + '" style="fill:var(--s' + (i + 1) + ')" data-tip="' + yr + ' · ' + esc(groups[i][0]) + ' : ' + fmtM(p) + ' M (' + fmtP(p / tot, 1) + ')"/>';
+      x += w + 2;
+    });
+  });
+  const leg = '<div class="legend">' + groups.map(([l], i) => '<span><i style="background:var(--s' + (i + 1) + ')"></i>' + l + '</span>').join('') + '</div>';
+  return leg + '<svg class="chart" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Structure du ' + kind + ' par exercice">' + g + '</svg>';
+}
+
+/* =====================================================================
+   11. FICHE INDICATEUR
+   ===================================================================== */
+function card(ind) {
+  const node = nodeOf(ind), yrs = Y(), y = state.yi, f = ind.fmt || 'pct';
+  const vals = yrs.map((_, i) => val(node, i));
+  const c = calc(node, y).c;
+  const anyVal = vals.some(fin);
+  let tags = '<span class="tag' + (ind.kind === 'reg' || ind.kind === 'bale' ? ' reg' : '') + '">' + KIND[ind.kind] + '</span>';
+  if (ind.kind === 'bale') {
+    const isEst = c.est.size > 0 && ![...c.est].every(q => c.decl.has(q));
+    tags += '<span class="tag">' + (c.decl.size && !c.est.size ? 'Déclaré' : 'Estimé') + '</span>';
+  }
+  if (ind.opt && !anyVal) {
+    const need = [...new Set(collectVars(node))].map(k => F[k].l);
+    return '<article class="card" id="c-' + ind.id + '"><div class="card-h"><div class="t"><h3>' + ind.n + '</h3><div class="tags">' + tags + '</div></div>' + chip(ind, 'na') + '</div>'
+      + '<div class="f-line"><span>' + ind.n + ' =</span> ' + R(node, 'sym') + '</div>'
+      + '<p class="note">Non calculé : saisis « ' + need.join(' » et « ') + ' » dans Saisie, rubrique Données prudentielles. Ces chiffres figurent dans les états réglementaires transmis à la Commission bancaire, pas dans le fascicule.</p></article>';
+  }
+  const stN = status(ind, vals[vals.length - 1]);
+  const res = vals.map((v, i) => { const st = status(ind, v); return '<div class="res' + (i === y ? ' sel' : '') + '"><span class="y">' + yrs[i] + '</span><span class="v">' + fmtBy(f, v) + '</span>' + (st !== 'info' && st !== 'na' ? '<span class="s" style="color:var(--' + st + ')">' + ST_LABEL[st][0] + ' ' + stLabel(ind, st) + '</span>' : '') + '</div>'; }).join('');
+  const r = vals[y];
+  const missing = [...c.miss].map(k => '« ' + F[k].l + ' »');
+  let html = '<article class="card" id="c-' + ind.id + '">'
+    + '<div class="card-h"><div class="t"><h3>' + ind.n + (ind.long ? ' <span class="sub">· ' + ind.long + '</span>' : '') + '</h3><div class="tags">' + tags + '</div></div>' + chip(ind, stN) + '</div>'
+    + '<div class="results">' + res + '</div>'
+    + '<div class="formula">'
+    + '<div class="f-line"><span class="lbl">Formule</span><span>' + ind.n + ' =</span> ' + R(node, 'sym') + '</div>'
+    + '<div class="f-line"><span class="lbl">Avec les chiffres ' + yrs[y] + ' (M FCFA)</span><span>' + ind.n + ' =</span> ' + R(node, 'num', y) + ' <span class="f-res">= ' + fmtBy(f, r) + '</span></div>'
+    + '</div>';
+  if (missing.length) html += '<p class="miss">Données manquantes pour ' + yrs[y] + ' : ' + missing.join(', ') + '. Complète-les dans Saisie.</p>';
+  if (c.notes.size) html += '<p class="note">' + [...c.notes].map(esc).join(' · ') + '</p>';
+  if (anyVal) html += barChart(ind, vals) + '<p class="interp">' + interpret(ind, vals) + '</p>';
+  html += '<details><summary>Ce que mesure cet indicateur</summary><div><p>' + ind.about + '</p>' + (ind.thr ? '<p>Seuil retenu : ' + (ind.thr.dir === 'min' ? 'minimum ' : 'maximum ') + fmtP(thrVal(ind), 1) + ' (' + esc(PARAMS.find(p => p.k === ind.thr.k).src) + '). Modifiable dans Paramètres.</p>' : '') + subFormulas(node) + '</div></details>';
+  return html + '</article>';
+}
+function collectVars(n, acc = []) {
+  if (n.t === 'v') acc.push(n.k);
+  if (n.a) n.a.forEach(x => collectVars(Array.isArray(x) ? x[1] : x, acc));
+  if (n.x) collectVars(n.x, acc);
+  return acc;
+}
+function collectQ(n, acc = new Set()) {
+  if (n.t === 'q' && !acc.has(n.id)) { acc.add(n.id); collectQ(QTY[n.id].node, acc); if (QTY[n.id].alt) collectQ(QTY[n.id].alt, acc); }
+  if (n.a) n.a.forEach(x => collectQ(Array.isArray(x) ? x[1] : x, acc));
+  if (n.x) collectQ(n.x, acc);
+  return acc;
+}
+function subFormulas(node) {
+  const qs = [...collectQ(node)];
+  if (!qs.length) return '';
+  return '<p class="eyebrow">Grandeurs utilisées</p>' + qs.map(id => {
+    const q = QTY[id], y = state.yi;
+    const decl = q.decl && raw(q.decl, y) !== null;
+    return '<div class="f-line" style="font-size:.95rem"><span><span class="q">' + q.n + '</span> =</span> ' + (decl ? 'valeur déclarée (' + F[q.decl].l + ')' : R(q.node, 'sym')) + ' <span class="f-res">= ' + fmtM(qv(id, y)) + ' M en ' + Y()[y] + '</span></div>';
+  }).join('');
+}
+
+/* =====================================================================
+   12. VUES
+   ===================================================================== */
+const TABS = [
+  ['synthese','Synthèse'], ['saisie','Saisie'], ['dynamique','Dynamique'], ['structure','Ratios de structure'], ['renta','Rentabilité'], ['faillite','Faillite'], ['bale','Bâle III'], ['import','Import'], ['params','Paramètres'], ['methode','Formules']
+];
+const $ = s => document.querySelector(s);
+const view = $('#view');
+
+function head(eyebrow, title, lede) { return '<div class="section-head"><span class="eyebrow">' + eyebrow + '</span><h2>' + title + '</h2>' + (lede ? '<p class="lede">' + lede + '</p>' : '') + '</div>'; }
+function exampleBanner() {
+  const b = bank();
+  return b.example ? '<div class="banner"><b>Exemple chargé : ' + esc(b.name) + '</b><span class="note">Source : ' + esc(b.source) + '. Le compte de résultat n’est pas encore saisi (seules les commissions reçues le sont) : les indicateurs qui en dépendent attendent tes chiffres dans Saisie ou Import.</span></div>' : '';
+}
+
+/* ---- Synthèse ---- */
+function vSynthese() {
+  const yrs = Y(), n = yrs.length - 1;
+  const tile = (label, v, prev, f, ind, tab) => {
+    const st = ind ? status(ind, v) : null;
+    const d = fin(v) && fin(prev) ? (f === 'm' ? (prev ? fmtP((v - prev) / Math.abs(prev), 1).replace(/^(?!−)/, '+') : '') : f === 'x' ? '' : fmtPts(v - prev)) : '';
+    return '<button class="tile" data-go="' + tab + '"><span class="k">' + label + '</span><span class="v">' + (f === 'm' ? fmtM(v) : fmtBy(f, v)) + '</span>'
+      + '<span class="d">' + (d ? d + ' vs ' + yrs[n - 1] : (f === 'm' ? 'M FCFA' : '&nbsp;')) + '</span>' + (st && st !== 'info' ? chip(ind, st) : '') + '</button>';
+  };
+  const qq = id => [qv(id, n), qv(id, n - 1)];
+  const ii = id => { const s = series(I[id]); return [s[n], s[n - 1]]; };
+  let h = head('Exercice ' + yrs[n], 'Synthèse', 'Vue d’ensemble de la banque sur le dernier exercice. Touche une tuile pour voir le détail, la formule et l’interprétation.');
+  h += exampleBanner();
+  h += '<div class="tiles">'
+    + tile('Total bilan (M FCFA)', ...qq('TA'), 'm', null, 'dynamique')
+    + tile('PNB (M FCFA)', ...qq('PNB'), 'm', null, 'dynamique')
+    + tile('Résultat net (M FCFA)', ...qq('RN'), 'm', null, 'dynamique')
+    + tile('ROE', ...ii('roe'), 'pct', I.roe, 'renta')
+    + tile('ROA', ...ii('roa'), 'pct', I.roa, 'renta')
+    + tile('Solvabilité Bâle (est.)', ...ii('solva'), 'pct', I.solva, 'bale')
+    + tile('Levier Bâle III (est.)', ...ii('levier_b'), 'pct', I.levier_b, 'structure')
+    + tile('Transformation', ...ii('transfo'), 'pct', I.transfo, 'structure')
+    + tile('Liquidité (bilan)', ...ii('liq'), 'pct', I.liq, 'structure')
+    + tile("Coefficient d'exploitation", ...ii('coef'), 'pct', I.coef, 'renta')
+    + '</div>';
+  const good = [], watch = [];
+  ['solva','cet1','levier_b','transfo','liq','levier','roe','roa','coef','cdr'].forEach(id => {
+    const ind = I[id], s = series(ind), v = s[n], p = s[n - 1];
+    if (!fin(v)) return;
+    const st = status(ind, v);
+    const better = fin(p) ? (ind.thr && ind.thr.dir === 'max' ? v < p : v > p) : null;
+    const txt = '<b>' + ind.n + '</b> à ' + fmtP(v, 2) + (fin(p) ? ' (' + fmtPts(v - p) + ' sur un an)' : '');
+    if (st === 'bad') watch.push(txt + ' : ' + (ind.thr.reg ? 'sous la norme' : 'hors repère') + '.');
+    else if (st === 'warn') watch.push(txt + ' : proche du seuil.');
+    else if (better === false && Math.abs(v - p) / Math.abs(p || 1) > 0.1) watch.push(txt + ' : dégradation marquée.');
+    else if (st === 'ok') good.push(txt + (better ? ', en amélioration.' : '.'));
+  });
+  const cp = qv('CP', n), cp0 = qv('CP', 0);
+  if (fin(cp) && fin(cp0) && cp > cp0) good.push('<b>Capitaux propres</b> en hausse de ' + fmtM(cp0) + ' à ' + fmtM(cp) + ' M sur la période.');
+  const ran = raw('P9f', n);
+  if (ran !== null && ran < 0) watch.push('<b>Report à nouveau négatif</b> (' + fmtM(ran) + ' M) : pertes antérieures non encore apurées.');
+  const cap0 = raw('P9a', n - 1), cap1 = raw('P9a', n);
+  if (cap0 !== null && cap1 !== null && cap1 < cap0) watch.push('<b>Capital réduit</b> de ' + fmtM(cap0) + ' à ' + fmtM(cap1) + ' M en ' + yrs[n] + ' : opération probable d’apurement des pertes (réduction de capital).');
+  h += '<div class="lists"><div class="card"><h3>Points forts</h3>' + (good.length ? '<ul>' + good.map(x => '<li>' + x + '</li>').join('') + '</ul>' : '<p class="note">Aucun point fort identifié avec les données saisies.</p>') + '</div>'
+    + '<div class="card"><h3>Points de vigilance</h3>' + (watch.length ? '<ul>' + watch.map(x => '<li>' + x + '</li>').join('') + '</ul>' : '<p class="note">Aucun signal d’alerte avec les données saisies.</p>') + '</div></div>';
+  const comp = completeness();
+  h += '<div class="card"><h3>Complétude des données</h3><div class="checks">' + comp + '</div></div>';
+  return h;
+}
+function completeness() {
+  const out = [];
+  ['actif','passif','cp','hb','cr'].forEach(s => {
+    const ks = FIELDS.filter(f => f.s === s).map(f => f.k);
+    Y().forEach((yr, y) => {});
+    const filled = ks.reduce((a, k) => a + Y().filter((_, y) => raw(k, y) !== null).length, 0), tot = ks.length * Y().length;
+    const st = filled === tot ? 'ok' : filled === 0 ? 'bad' : 'warn';
+    out.push('<div class="check"><span class="chip st-' + st + '"><i>' + ST_LABEL[st][0] + '</i>' + filled + '/' + tot + '</span><span>' + SECTIONS[s] + (st !== 'ok' ? ' : <a href="#" data-go="saisie">compléter</a>' : '') + '</span></div>');
+  });
+  return out.join('');
+}
+
+/* ---- Saisie ---- */
+function vSaisie() {
+  const b = bank(), yrs = Y();
+  let h = head('Données', 'Saisie des états financiers', 'Montants en ' + esc(b.unit) + ', au format du fascicule BCEAO (PCB révisé). Laisse vide ce que tu n’as pas : les indicateurs concernés le signaleront. Les totaux et soldes intermédiaires se calculent seuls.');
+  h += '<div class="form-sec"><header><h3>Banque</h3><div class="row"><button class="btn sm" id="bNew">Nouvelle banque</button><button class="btn sm" id="bDup">Dupliquer</button><button class="btn sm" id="bSample">Recharger l’exemple BAB</button><button class="btn sm danger" id="bDel">Supprimer</button></div></header>'
+    + '<div style="padding:12px" class="meta-grid">'
+    + '<label>Nom<input type="text" id="m-name" value="' + esc(b.name) + '"></label>'
+    + '<label>Pays<input type="text" id="m-country" value="' + esc(b.country || '') + '"></label>'
+    + '<label>Unité<input type="text" id="m-unit" value="' + esc(b.unit) + '"></label>'
+    + yrs.map((yr, i) => '<label>Exercice ' + (i + 1) + '<input type="number" id="m-y' + i + '" value="' + yr + '"></label>').join('')
+    + '</div><div id="confirmBox" style="padding:0 12px 12px"></div></div>';
+  h += '<div class="card"><h3>Contrôles de cohérence</h3><div class="checks" id="checks"></div></div>';
+  const calcRows = { actif:[['TA','Total de l’actif']], passif:[], cp:[['CP','Capitaux propres et ressources assimilées'],['TP','Total du passif']], hb:[], cr:[] };
+  const crCalc = { R2:['MI',"Marge d'intérêts"], R9:['PNB','Produit net bancaire'], R12:['RBE',"Résultat brut d'exploitation"], R13:['RE',"Résultat d'exploitation"], R14:['RAI','Résultat avant impôt'], R15:['RNCR','Résultat net'] };
+  Object.keys(SECTIONS).forEach(s => {
+    h += '<section class="form-sec"><header><h3>' + SECTIONS[s] + '</h3>' + (s !== 'prud' ? '<button class="btn sm" data-zero="' + s + '">Cases vides → 0</button>' : '') + '</header>';
+    if (s === 'prud') h += '<p class="note" style="padding:8px 12px 0">Si tu disposes des chiffres réglementaires (rapport annuel, pilier 3, états BCEAO), ils remplacent les estimations de l’app.</p>';
+    h += '<div class="inp-tbl"><table><thead><tr><th>Poste</th>' + yrs.map(y => '<th>' + y + '</th>').join('') + '</tr></thead><tbody>';
+    FIELDS.filter(f => f.s === s).forEach(f => {
+      h += '<tr><td><span class="code">' + f.k + '</span>' + f.l + '</td>' + yrs.map((_, y) => {
+        const x = raw(f.k, y);
+        return '<td><input type="text" inputmode="decimal" id="i-' + f.k + '-' + y + '" data-k="' + f.k + '" data-y="' + y + '" value="' + (x === null ? '' : fmtM(x)) + '" aria-label="' + esc(f.l + ' ' + yrs[y]) + '"></td>';
+      }).join('') + '</tr>';
+      if (s === 'cr' && crCalc[f.k]) h += '<tr class="tot"><td>= ' + crCalc[f.k][1] + '</td>' + yrs.map((_, y) => '<td class="calc" data-q="' + crCalc[f.k][0] + '" data-y="' + y + '"></td>').join('') + '</tr>';
+    });
+    (calcRows[s] || []).forEach(([q, l]) => { h += '<tr class="tot"><td>' + l + '</td>' + yrs.map((_, y) => '<td class="calc" data-q="' + q + '" data-y="' + y + '"></td>').join('') + '</tr>'; });
+    h += '</tbody></table></div></section>';
+  });
+  return h;
+}
+function refreshCalcs() {
+  document.querySelectorAll('td.calc').forEach(td => { td.textContent = fmtM(qv(td.dataset.q, +td.dataset.y)); });
+  const el = $('#checks'); if (!el) return;
+  const out = [];
+  Y().forEach((yr, y) => {
+    const ta = qv('TA', y), tp = qv('TP', y);
+    if (fin(ta) && fin(tp)) out.push(chk(Math.abs(ta - tp) < 1, yr + ' · Total actif (' + fmtM(ta) + ') ' + (Math.abs(ta - tp) < 1 ? '=' : '≠') + ' total passif (' + fmtM(tp) + ')' + (Math.abs(ta - tp) >= 1 ? ' : écart de ' + fmtM(ta - tp) + ', vérifie la saisie' : '')));
+    else out.push(chk(null, yr + ' · Bilan incomplet : équilibre actif = passif non vérifiable'));
+    const rb = raw('P9g', y), rc = qv('RNCR', y);
+    if (rb !== null && fin(rc)) out.push(chk(Math.abs(rb - rc) < 1, yr + ' · Résultat du bilan (' + fmtM(rb) + ') ' + (Math.abs(rb - rc) < 1 ? '=' : '≠') + ' résultat net du compte de résultat (' + fmtM(rc) + ')'));
+  });
+  el.innerHTML = out.join('');
+}
+const chk = (ok, txt) => '<div class="check"><span class="chip st-' + (ok === null ? 'na' : ok ? 'ok' : 'bad') + '"><i>' + (ok === null ? '–' : ok ? '✓' : '✕') + '</i>' + (ok === null ? 'À compléter' : ok ? 'OK' : 'Écart') + '</span><span>' + txt + '</span></div>';
+
+/* ---- Dynamique ---- */
+function dynRows(kind) {
+  if (kind === 'actif') return [...ASSETS.map(k => ({ k })), { q:'TA', tot:true }];
+  if (kind === 'passif') return [...LIABS.map(k => ({ k })), { q:'CP', tot:true, l:'Capitaux propres' }, ...CPK.map(k => ({ k, sub:true })), { q:'TP', tot:true }];
+  if (kind === 'hb') return FIELDS.filter(f => f.s === 'hb').map(f => ({ k:f.k }));
+  return [{ k:'R1' }, { k:'R2' }, { q:'MI', tot:true }, { k:'R3' }, { k:'R4' }, { k:'R5' }, { k:'R6' }, { k:'R7' }, { k:'R8' }, { k:'R9' }, { q:'PNB', tot:true, l:'Produit net bancaire (PNB)' }, { k:'R10' }, { k:'R11' }, { k:'R12' }, { q:'RBE', tot:true, l:"Résultat brut d'exploitation" }, { k:'R13' }, { q:'RE', tot:true }, { k:'R14' }, { q:'RAI', tot:true }, { k:'R15' }, { q:'RNCR', tot:true, l:'Résultat net' }];
+}
+function rowVals(r) { return Y().map((_, y) => r.k ? (raw(r.k, y) ?? NaN) : qv(r.q, y)); }
+function dynTable(kind) {
+  const yrs = Y(), n = yrs.length, denomQ = kind === 'cr' ? 'PNB' : 'TA';
+  let h = '<div class="tbl-wrap"><table><thead><tr><th>Poste</th>' + yrs.map(y => '<th>' + y + '</th>').join('');
+  for (let i = 1; i < n; i++) h += '<th>Δ ' + yrs[i] + '</th><th>Δ %</th>';
+  h += '<th>TCAM</th><th>Poids ' + yrs[n - 1] + '</th></tr></thead><tbody>';
+  dynRows(kind).forEach(r => {
+    const v = rowVals(r);
+    const lab = r.l || (r.k ? F[r.k].l : QTY[r.q].long || QTY[r.q].n);
+    h += '<tr class="' + (r.tot ? 'tot' : r.sub ? 'sub' : '') + '"><td>' + (r.k ? '<span class="code">' + r.k + '</span>' : '') + esc(lab) + '</td>' + v.map(x => '<td>' + fmtM(x) + '</td>').join('');
+    for (let i = 1; i < n; i++) {
+      const d = v[i] - v[i - 1], p = v[i - 1] ? d / Math.abs(v[i - 1]) : NaN;
+      const cls = !fin(p) ? 'muted' : Math.abs(p) >= 0.1 ? (p > 0 ? 'up' : 'down') : '';
+      h += '<td class="' + (fin(d) ? '' : 'muted') + '">' + (fin(d) ? fmtSigned(d) : '—') + '</td><td class="' + cls + '">' + (fin(p) ? (p >= 0 ? '+' : '') + fmtP(p, 1) : '—') + '</td>';
+    }
+    const a = v[0], z = v[n - 1];
+    const t = fin(a) && fin(z) && a > 0 && z > 0 ? Math.pow(z / a, 1 / (n - 1)) - 1 : NaN;
+    const den = qv(denomQ, n - 1);
+    h += '<td>' + (fin(t) ? fmtP(t, 1) : '—') + '</td><td class="muted">' + (fin(z) && fin(den) && den ? fmtP(z / den, 1) : '—') + '</td></tr>';
+  });
+  return h + '</tbody></table></div>';
+}
+function highlights(kind) {
+  const yrs = Y(), n = yrs.length - 1;
+  const rows = dynRows(kind).filter(r => r.k && !r.sub).map(r => { const v = rowVals(r); return { r, d: v[n] - v[n - 1], p: v[n - 1] ? (v[n] - v[n - 1]) / Math.abs(v[n - 1]) : NaN, v }; }).filter(x => fin(x.d) && x.d !== 0);
+  rows.sort((a, b) => Math.abs(b.d) - Math.abs(a.d));
+  if (!rows.length) return '';
+  const tot = kind === 'actif' ? 'TA' : kind === 'passif' ? 'TP' : 'PNB';
+  const T = [qv(tot, n - 1), qv(tot, n)];
+  let s = fin(T[0]) && fin(T[1]) ? '<p>' + (kind === 'cr' ? 'Le PNB' : kind === 'actif' ? 'Le total du bilan' : 'Le total du passif') + ' ' + (T[1] >= T[0] ? 'progresse' : 'recule') + ' de <b>' + fmtP(Math.abs(T[1] - T[0]) / Math.abs(T[0]), 1) + '</b> en ' + yrs[n] + ' (' + fmtSigned(T[1] - T[0]) + ' M). Principaux mouvements :</p>' : '<p>Principaux mouvements en ' + yrs[n] + ' :</p>';
+  s += '<ul>' + rows.slice(0, 4).map(x => '<li><b>' + esc(SHORT[x.r.k] || F[x.r.k].l) + '</b> : ' + fmtSigned(x.d) + ' M' + (fin(x.p) ? ' (' + (x.p >= 0 ? '+' : '') + fmtP(x.p, 1) + ')' : '') + '</li>').join('') + '</ul>';
+  return s;
+}
+function vDynamique() {
+  const yrs = Y(), y = Math.max(1, state.yi), n = yrs.length;
+  let h = head('Analyse horizontale & verticale', 'Dynamique du bilan et du compte de résultat', 'Pour chaque poste : variation en valeur, taux de variation, taux de croissance annuel moyen (TCAM) et poids dans le total. Les variations d’au moins 10 % sont colorées.');
+  h += exampleBanner();
+  const ta = qv('TA', y), ta0 = qv('TA', y - 1);
+  const tcamA = qv('TA', 0), tcamZ = qv('TA', n - 1);
+  h += '<div class="card"><h3>Formules utilisées</h3><div class="formula">'
+    + '<div class="f-line"><span class="lbl">Variation absolue (exemple : total actif ' + yrs[y] + ')</span>ΔX = X<sub>N</sub> − X<sub>N−1</sub> = ' + fmtM(ta) + ' − ' + fmtM(ta0) + ' <span class="f-res">= ' + fmtSigned(ta - ta0) + '</span></div>'
+    + '<div class="f-line"><span class="lbl">Taux de variation</span>ΔX % = <span class="frac"><span class="n">X<sub>N</sub> − X<sub>N−1</sub></span><span class="d">X<sub>N−1</sub></span></span> = <span class="frac"><span class="n">' + fmtSigned(ta - ta0) + '</span><span class="d">' + fmtM(ta0) + '</span></span> <span class="f-res">= ' + fmtP((ta - ta0) / ta0, 1) + '</span></div>'
+    + '<div class="f-line"><span class="lbl">Taux de croissance annuel moyen sur ' + (n - 1) + ' ans</span>TCAM = (<span class="frac"><span class="n">X<sub>' + yrs[n - 1] + '</sub></span><span class="d">X<sub>' + yrs[0] + '</sub></span></span>)<sup>1/' + (n - 1) + '</sup> − 1 = (<span class="frac"><span class="n">' + fmtM(tcamZ) + '</span><span class="d">' + fmtM(tcamA) + '</span></span>)<sup>1/' + (n - 1) + '</sup> − 1 <span class="f-res">= ' + fmtP(Math.pow(tcamZ / tcamA, 1 / (n - 1)) - 1, 1) + '</span></div>'
+    + '<div class="f-line"><span class="lbl">Poids (structure)</span>Poids = <span class="frac"><span class="n">Poste</span><span class="d">Total actif (bilan) ou PNB (compte de résultat)</span></span></div>'
+    + '</div></div>';
+  h += '<div class="grid2"><div class="card"><h3>Structure de l’actif</h3>' + stackChart('actif') + highlights('actif') + '</div><div class="card"><h3>Structure du passif</h3>' + stackChart('passif') + highlights('passif') + '</div></div>';
+  h += '<h3>Actif</h3>' + dynTable('actif') + '<h3>Passif</h3>' + dynTable('passif') + '<h3>Hors bilan</h3>' + dynTable('hb') + '<h3>Compte de résultat en cascade</h3>';
+  const crHi = highlights('cr');
+  h += (crHi ? '<div class="card">' + crHi + '</div>' : '') + dynTable('cr');
+  return h;
+}
+
+/* ---- Ratios de structure ---- */
+function vStructure() {
+  let h = head('Liquidité, transformation, levier, solvabilité', 'Ratios de structure', 'Chaque ratio est donné en version bilan (calculable depuis le fascicule) et, quand c’est possible, en version réglementaire UMOA ou Bâle III. Les versions Bâle sont estimées à partir du bilan tant que tu ne saisis pas les chiffres déclarés.');
+  h += exampleBanner();
+  const grp = (t, ids) => '<h3>' + t + '</h3><div class="grid2">' + ids.map(id => card(I[id])).join('') + '</div>';
+  h += grp('Transformation', ['transfo','couv_mlt']) + grp('Liquidité', ['liq','coefliq','lcr']) + grp('Levier', ['levier','levier_b','mult']) + grp('Solvabilité', ['solva_s','solva','cet1','t1']) + grp('Structure du portefeuille', ['souv']);
+  return h;
+}
+
+/* ---- Rentabilité ---- */
+function vRenta() {
+  const yrs = Y();
+  let h = head('ROA, ROE et exploitation', 'Rentabilité', 'Rentabilité économique (ROA), financière (ROE) et leur lien par l’effet de levier. Les ratios d’exploitation nécessitent le compte de résultat.');
+  h += '<div class="row"><span class="eyebrow">Base de calcul</span><div class="seg" role="group" aria-label="Base de calcul"><button id="baseFin" aria-pressed="' + (state.base === 'fin') + '">Fin d’exercice</button><button id="baseMoy" aria-pressed="' + (state.base === 'moy') + '">Moyenne N / N−1</button></div><span class="note">' + (state.base === 'moy' ? 'La moyenne n’existe pas pour le premier exercice.' : 'Méthode la plus courante dans les cours et le fascicule.') + '</span></div>';
+  h += '<div class="grid2">' + card(I.roa) + card(I.roe) + '</div>';
+  const roa = series(I.roa), m = series(I.mult), roe = series(I.roe);
+  let t = '<div class="tbl-wrap"><table><thead><tr><th>Décomposition</th>' + yrs.map(y => '<th>' + y + '</th>').join('') + '</tr></thead><tbody>'
+    + '<tr><td>ROA = Résultat net / Total actif</td>' + roa.map(v => '<td>' + fmtP(v) + '</td>').join('') + '</tr>'
+    + '<tr><td>× Multiplicateur = Total actif / Capitaux propres</td>' + m.map(v => '<td>' + fmtX(v) + '</td>').join('') + '</tr>'
+    + '<tr class="tot"><td>= ROE</td>' + roe.map(v => '<td>' + fmtP(v) + '</td>').join('') + '</tr></tbody></table></div>';
+  const ex = [];
+  for (let i = 1; i < yrs.length; i++) {
+    if (![roa[i], roa[i - 1], m[i], m[i - 1]].every(fin)) continue;
+    const eRoa = (roa[i] - roa[i - 1]) * m[i - 1], eLev = roa[i] * (m[i] - m[i - 1]), dRoe = roe[i] - roe[i - 1];
+    const main = Math.abs(eRoa) >= Math.abs(eLev) ? 'la rentabilité des actifs' : 'l’effet de levier';
+    ex.push('<li><b>' + yrs[i] + '</b> : le ROE varie de ' + fmtPts(dRoe) + '. Effet rentabilité des actifs (ΔROA × multiplicateur<sub>N−1</sub>) : <b>' + fmtPts(eRoa) + '</b> ; effet levier (ROA<sub>N</sub> × Δmultiplicateur) : <b>' + fmtPts(eLev) + '</b>. Le facteur dominant est ' + main + '.</li>');
+  }
+  h += '<div class="card"><h3>Effet de levier : ROE = ROA × multiplicateur de fonds propres</h3><div class="formula"><div class="f-line"><span class="lbl">Identité de Du Pont</span>ROE = ROA × Multiplicateur</div><div class="f-line"><span class="frac"><span class="n">RN</span><span class="d">CP</span></span> = <span class="frac"><span class="n">RN</span><span class="d">TA</span></span> × <span class="frac"><span class="n">TA</span><span class="d">CP</span></span><span class="note" style="font-family:var(--f-body)">RN : résultat net · TA : total actif · CP : capitaux propres</span></div></div>' + t
+    + (ex.length ? '<p class="eyebrow">Ce qui explique la variation du ROE</p><ul>' + ex.join('') + '</ul>' : '') + '</div>';
+  h += '<div class="grid2">' + card(I.mult) + card(I.marge) + '</div>';
+  h += '<h3>Exploitation</h3><div class="grid2">' + ['coef','cdr','mi_pnb','com_pnb','pnb_ta'].map(id => card(I[id])).join('') + '</div>';
+  return h;
+}
+
+/* ---- Faillite ---- */
+function vFaillite() {
+  const yrs = Y();
+  let h = head('Test de résistance', 'Faillite : perte critique et PNB critique', 'Une banque est en faillite lorsque ses pertes effacent ses capitaux propres. On cherche la perte qui produit cet effet, puis le niveau de PNB qui y mène, toutes charges égales par ailleurs.');
+  h += exampleBanner();
+  let t = '<div class="tbl-wrap"><table><thead><tr><th>Étape</th>' + yrs.map(y => '<th>' + y + '</th>').join('') + '</tr></thead><tbody>';
+  const line = (l, f, cls) => '<tr class="' + (cls || '') + '"><td>' + l + '</td>' + yrs.map((_, y) => '<td>' + f(y) + '</td>').join('') + '</tr>';
+  t += line('Capitaux propres', y => fmtM(qv('CP', y)))
+    + line('① Perte critique : RN* = −Capitaux propres', y => fmtM(-qv('CP', y)), 'tot')
+    + line('PNB réel', y => fmtM(qv('PNB', y)))
+    + line('② PNB critique PNB*', y => fmtM(qv('PNBC', y)), 'tot')
+    + line('Baisse de PNB tolérable (PNB − PNB*)', y => fmtM(qv('PNB', y) - qv('PNBC', y)))
+    + line('… en % du PNB', y => fmtP(val(nodeOf(I.chute), y), 1), 'tot')
+    + line('Coût du risque réel', y => fmtM(raw('R13', y) ?? NaN))
+    + line('Coût du risque critique', y => fmtM(qv('CDRC', y)))
+    + '</tbody></table></div>';
+  h += '<div class="card"><h3>Démarche en deux étapes</h3><div class="formula">'
+    + '<div class="f-line"><span class="lbl">① Perte qui efface les fonds propres</span>RN* = − Capitaux propres</div>'
+    + '<div class="f-line"><span class="lbl">Cascade du compte de résultat (impôt nul en cas de perte)</span>RN* = PNB* + Subventions − Charges générales − Dotations − Coût du risque ± Gains sur actifs immobilisés</div>'
+    + '<div class="f-line"><span class="lbl">② On isole le PNB</span>PNB* = − Capitaux propres − Subventions + Charges générales + Dotations + Coût du risque − Gains sur actifs immobilisés</div>'
+    + '</div>' + t + '</div>';
+  h += '<div class="grid2">' + ['perte','pnbc','chute','cdrc','cdr_mult','abs_a','abs_c','lmax'].map(id => card(I[id])).join('') + '</div>';
+  h += simulator();
+  return h;
+}
+function simulator() {
+  const y = state.yi, yr = Y()[y];
+  const pnb = qv('PNB', y), cgx = qv('CGX', y), cdr = raw('R13', y), sub = raw('R10', y) ?? 0, gai = raw('R14', y) ?? 0, is = raw('R15', y), rai = qv('RAI', y), cp = qv('CP', y), rn = qv('RN', y), fpt = qv('FPT', y), rwa = qv('RWA', y);
+  if (![pnb, cgx, cdr, cp, rn].every(fin)) return '<div class="card"><h3>Simulateur de choc</h3><p class="note">Disponible dès que le compte de résultat de ' + yr + ' est saisi (PNB, charges, coût du risque).</p></div>';
+  const tx = fin(is) && fin(rai) && rai > 0 ? is / rai : 0;
+  const shock = state.shock || { pnb:20, cdr:2 };
+  const pnbS = pnb * (1 - shock.pnb / 100), cdrS = cdr * shock.cdr;
+  const raiS = pnbS + sub - cgx - cdrS + gai, rnS = raiS > 0 ? raiS * (1 - tx) : raiS;
+  const cpS = cp - rn + rnS, solS = fin(fpt) && fin(rwa) ? (fpt - rn + rnS) / (rwa - Math.max(0, rn - rnS) * 0) : NaN;
+  const stCp = cpS <= 0 ? 'bad' : cpS < cp * 0.5 ? 'warn' : 'ok';
+  const stS = status(I.solva, solS);
+  return '<div class="card" id="sim"><h3>Simulateur de choc (' + yr + ')</h3><p class="note">Applique un choc au PNB et au coût du risque de l’exercice ' + yr + ', puis observe les capitaux propres et la solvabilité. L’impôt est recalculé au taux effectif (' + fmtP(tx, 1) + ') et devient nul en cas de perte.</p>'
+    + '<div class="grid2"><label class="slider">Baisse du PNB : <b>' + shock.pnb + ' %</b><input type="range" id="sPnb" min="0" max="100" step="5" value="' + shock.pnb + '"></label>'
+    + '<label class="slider">Coût du risque multiplié par : <b>' + nf(1).format(shock.cdr) + '</b><input type="range" id="sCdr" min="1" max="10" step="0.5" value="' + shock.cdr + '"></label></div>'
+    + '<div class="tbl-wrap"><table><thead><tr><th></th><th>Réel</th><th>Après choc</th></tr></thead><tbody>'
+    + '<tr><td>PNB</td><td>' + fmtM(pnb) + '</td><td>' + fmtM(pnbS) + '</td></tr>'
+    + '<tr><td>Coût du risque</td><td>' + fmtM(cdr) + '</td><td>' + fmtM(cdrS) + '</td></tr>'
+    + '<tr><td>Résultat net</td><td>' + fmtM(rn) + '</td><td>' + fmtM(rnS) + '</td></tr>'
+    + '<tr class="tot"><td>Capitaux propres</td><td>' + fmtM(cp) + '</td><td>' + fmtM(cpS) + ' ' + '<span class="chip st-' + stCp + '"><i>' + ST_LABEL[stCp][0] + '</i>' + (stCp === 'bad' ? 'Faillite' : stCp === 'warn' ? 'Fonds propres divisés par 2' : 'Absorbé') + '</span></td></tr>'
+    + '<tr><td>Solvabilité globale (est.)</td><td>' + fmtP(val(nodeOf(I.solva), y), 1) + '</td><td>' + fmtP(solS, 1) + ' ' + chip(I.solva, stS) + '</td></tr>'
+    + '</tbody></table></div></div>';
+}
+
+/* ---- Bâle III ---- */
+function vBale() {
+  const yrs = Y();
+  let h = head('Dispositif prudentiel UMOA', 'Bâle III : fonds propres et actifs pondérés', 'Sans données réglementaires, l’app estime les fonds propres et les actifs pondérés à partir du bilan : approche standard simplifiée pour le risque de crédit, approche indicateur de base pour le risque opérationnel. Les pondérations sont réglables dans Paramètres. Les chiffres déclarés, s’ils sont saisis, remplacent ces estimations.');
+  const line = (l, f, cls) => '<tr class="' + (cls || '') + '"><td>' + l + '</td>' + yrs.map((_, y) => '<td>' + f(y) + '</td>').join('') + '</tr>';
+  const rv = k => y => fmtM(raw(k, y) ?? NaN);
+  let fp = '<div class="tbl-wrap"><table><thead><tr><th>Fonds propres (M FCFA)</th>' + yrs.map(y => '<th>' + y + '</th>').join('') + '</tr></thead><tbody>'
+    + ['P9a','P9b','P9c','P9e','P9f','P9g'].map(k => line('+ ' + F[k].l, rv(k), 'sub')).join('')
+    + line('− Immobilisations incorporelles', y => fmtM(-(raw('A13', y) ?? NaN)), 'sub') + line('− Actionnaires ou associés (capital non libéré)', y => fmtM(-(raw('A7', y) ?? NaN)), 'sub')
+    + line('= CET1', y => fmtM(qv('CET1', y)) + (raw('CET1', y) !== null ? ' (déclaré)' : ''), 'tot')
+    + line('+ AT1 (supposé nul)', () => '0', 'sub') + line('= Tier 1', y => fmtM(qv('T1', y)), 'tot')
+    + line('+ Emprunts subordonnés', rv('P8'), 'sub') + line('+ Écarts de réévaluation', rv('P9d'), 'sub') + line('= Tier 2', y => fmtM(qv('T2', y)), 'tot')
+    + line('Fonds propres effectifs', y => fmtM(qv('FPT', y)) + (raw('FPE', y) !== null ? ' (déclaré)' : ''), 'tot')
+    + '</tbody></table></div>';
+  let rw = '<div class="tbl-wrap"><table><thead><tr><th>Actifs pondérés (M FCFA)</th><th>Pond.</th>' + yrs.map(y => '<th>' + y + '</th>').join('') + '</tr></thead><tbody>'
+    + ASSETS.map(k => '<tr class="sub"><td>' + F[k].l + '</td><td>' + state.params['w_' + k] + ' %</td>' + yrs.map((_, y) => '<td>' + fmtM((raw(k, y) ?? NaN) * state.params['w_' + k] / 100) + '</td>').join('') + '</tr>').join('')
+    + [['HB1','ccf_fin'],['HB2','ccf_gar'],['HB3','ccf_tit']].map(([k, c]) => '<tr class="sub"><td>' + F[k].l + ' × CCF</td><td>' + state.params[c] + ' %</td>' + yrs.map((_, y) => '<td>' + fmtM((raw(k, y) ?? NaN) * state.params[c] / 100) + '</td>').join('') + '</tr>').join('')
+    + '<tr class="tot"><td>RWA risque de crédit</td><td></td>' + yrs.map((_, y) => '<td>' + fmtM(qv('RWAC', y)) + '</td>').join('') + '</tr>'
+    + '<tr class="sub"><td>PNB moyen positif (3 ans max.)</td><td></td>' + yrs.map((_, y) => '<td>' + fmtM(val(M3(Q('PNB')), y)) + '</td>').join('') + '</tr>'
+    + '<tr class="tot"><td>RWA risque opérationnel = 12,5 × ' + state.params.alpha_ro + ' % × PNB moyen</td><td></td>' + yrs.map((_, y) => '<td>' + fmtM(qv('RWAO', y)) + '</td>').join('') + '</tr>'
+    + '<tr class="tot"><td>Total RWA</td><td></td>' + yrs.map((_, y) => { const c = calc(Q('RWA'), y); return '<td>' + fmtM(c.v) + (raw('RWA', y) !== null ? ' (déclaré)' : c.c.notes.size ? ' *' : '') + '</td>'; }).join('') + '</tr>'
+    + '<tr class="sub"><td>Densité des RWA (RWA / Total actif)</td><td></td>' + yrs.map((_, y) => '<td>' + fmtP(qv('RWA', y) / qv('TA', y), 1) + '</td>').join('') + '</tr>'
+    + '</tbody></table></div>';
+  const noOp = yrs.some((_, y) => calc(Q('RWA'), y).c.notes.size);
+  h += '<div class="grid2"><div class="card"><h3>Composition des fonds propres</h3>' + fp + '</div><div class="card"><h3>Actifs pondérés par les risques</h3>' + rw + (noOp ? '<p class="note">* Risque opérationnel non inclus faute de PNB : les ratios sont surestimés tant que le compte de résultat n’est pas saisi.</p>' : '') + '</div></div>';
+  h += '<div class="grid2">' + ['solva','cet1','t1','levier_b','lmax'].map(id => card(I[id])).join('') + '</div>';
+  return h;
+}
+
+/* ---- Import ---- */
+function vImport() {
+  let h = head('Données', 'Importer ou exporter', 'Colle un tableau copié depuis Excel, un CSV, ou le texte copié directement depuis le PDF du fascicule BCEAO. L’app reconnaît les intitulés du PCB révisé et les nombres au format « 131 072 ». Tu vérifies l’aperçu avant d’appliquer.');
+  h += '<div class="card"><h3>1. Coller ou charger</h3><p class="note">Formats acceptés : texte du fascicule (une ligne par poste, trois montants), lignes « code ; libellé ; 2021 ; 2022 ; 2023 », colonnes Excel séparées par des tabulations, ou fichier .csv, .txt ou .json exporté par l’app. Sur iPhone : ouvre le PDF, sélectionne le tableau, Copier, puis colle ici.</p>'
+    + '<textarea id="impText" placeholder="CREANCES SUR LA CLIENTELE 131 072 130 602 150 766&#10;DETTES A L\'EGARD DE LA CLIENTELE 218 985 187 843 196 626&#10;…"></textarea>'
+    + '<div class="row"><button class="btn pri" id="impParse">Analyser le texte</button><label class="btn" for="impFile">Choisir un fichier</label><input type="file" id="impFile" accept=".csv,.txt,.tsv,.json" hidden></div>'
+    + '<div id="impPreview"></div></div>';
+  h += '<div class="card"><h3>2. Exporter</h3><p class="note">Copie les données de la banque courante au format CSV (point-virgule), pour Excel ou pour les recharger plus tard. Le modèle vide liste tous les codes attendus.</p>'
+    + '<div class="row"><button class="btn" id="expCsv">Copier mes données (CSV)</button><button class="btn" id="expTpl">Copier le modèle vide</button><button class="btn" id="expJson">Copier la sauvegarde complète (JSON)</button></div><textarea id="expOut" readonly hidden></textarea></div>';
+  h += '<div class="card"><h3>3. Photo ou PDF</h3><p class="note">L’extraction automatique depuis une photo est prévue à l’étape 3 du projet. En attendant : sur iPhone, ouvre la capture dans Photos, appuie longuement sur le texte (Texte en direct), Tout sélectionner, Copier, puis colle-le ci-dessus. Vérifie toujours l’aperçu.</p></div>';
+  return h;
+}
+const norm = s => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().replace(/[^A-Z0-9]+/g, ' ').trim();
+const ALIASES = (() => {
+  const list = [];
+  FIELDS.forEach(f => f.a.forEach(a => list.push({ a, k:f.k, s:f.s, ctx:f.ctx })));
+  [['TOTAL', null], ['CAPITAUX PROPRES ET RESSOURCES ASSIMILEES', 'CP'], ['PRODUIT NET BANCAIRE', 'PNB'], ['RESULTAT BRUT D EXPLOITATION', 'RBE'], ['RESULTAT D EXPLOITATION', 'RE'], ['RESULTAT AVANT IMPOT', 'RAI'], ['RESULTAT NET', 'RN'], ['MARGE D INTERET', 'MI'], ['ENGAGEMENTS DONNES', 'HBD'], ['ENGAGEMENTS RECUS', 'HBR']]
+    .forEach(([a, c]) => list.push({ a, chk:c || 'skip' }));
+  return list.sort((x, y) => y.a.length - x.a.length);
+})();
+function splitNumbers(tokens, want = 3) {
+  const isLead = t => /^[-−(]?\d{1,3}\)?$/.test(t) && !(t.length > 1 && /^0/.test(t.replace(/^[-−(]/, '')));
+  const best = { score:Infinity, parts:null };
+  const rec = (i, parts) => {
+    if (parts.length > want) return;
+    if (i === tokens.length) {
+      if (parts.length === want) {
+        const vals = parts.map(p => parseNum(p.join('')));
+        if (vals.some(v => v === null)) return;
+        let sc = 0; for (let j = 1; j < vals.length; j++) sc += Math.abs(Math.log10(Math.abs(vals[j]) + 1) - Math.log10(Math.abs(vals[j - 1]) + 1));
+        if (sc < best.score) { best.score = sc; best.parts = vals; }
+      }
+      return;
+    }
+    if (!isLead(tokens[i]) && !/^[-−(]?\d+[)]?$/.test(tokens[i])) return;
+    for (let j = i + 1; j <= tokens.length; j++) {
+      const grp = tokens.slice(i, j);
+      if (j > i + 1 && !/^\d{3}\)?$/.test(tokens[j - 1])) break;
+      if (j > i + 1 && !isLead(tokens[i])) break;
+      rec(j, parts.concat([grp]));
+    }
+  };
+  rec(0, []);
+  return best.parts;
+}
+function parseImport(text) {
+  const yrs = Y(), out = { vals:{}, chk:{}, unknown:[], years:null };
+  if (/^\s*\{/.test(text)) {
+    try { const j = JSON.parse(text); if (j.banks) return { json:j }; if (j.v) return { bankJson:j }; } catch (e) { out.unknown.push('JSON illisible'); return out; }
+  }
+  let sec = 'actif', hb = 'donnes';
+  text.split(/\r?\n/).forEach(line => {
+    if (!line.trim()) return;
+    let label, nums;
+    if (/[;\t]/.test(line)) {
+      const cells = line.split(/[;\t]/).map(c => c.trim());
+      const numCells = [], labCells = [];
+      cells.forEach(c => { const v = parseNum(c); if (v !== null && c !== '') numCells.push(v); else if (c) labCells.push(c); });
+      label = labCells.join(' '); nums = numCells;
+    } else {
+      const toks = line.trim().split(/\s+/);
+      let i = toks.length;
+      while (i > 0 && /^[-−(]?\d+[,.]?\d*\)?$/.test(toks[i - 1])) i--;
+      label = toks.slice(0, i).join(' ');
+      const numToks = toks.slice(i);
+      nums = numToks.length ? (splitNumbers(numToks, Math.min(yrs.length, numToks.length)) || splitNumbers(numToks, Math.min(numToks.length, 2)) || splitNumbers(numToks, 1) || []) : [];
+    }
+    const L = norm(label);
+    if (!L && nums.length === yrs.length && nums.every(v => v >= 1990 && v <= 2100)) { out.years = nums; return; }
+    if (/^PASSIF\b/.test(L) || /TOTAL DE L ACTIF/.test(L)) sec = 'passif';
+    if (/^HORS BILAN/.test(L)) sec = 'hb';
+    if (/^ENGAGEMENTS DONNES/.test(L)) hb = 'donnes';
+    if (/^ENGAGEMENTS RECUS/.test(L)) hb = 'recus';
+    if (/^ACTIF\b/.test(L) && !L.includes('TOTAL')) sec = 'actif';
+    if (!nums.length) return;
+    const codeHit = FIELDS.find(f => norm(f.k) === norm(label.split(' ')[0] || '') && (label.split(' ')[0] || '').toUpperCase() === f.k.toUpperCase());
+    let hit = codeHit ? { k:codeHit.k } : null;
+    if (!hit) {
+      const cands = ALIASES.filter(a => L.startsWith(a.a));
+      hit = cands.find(a => a.chk) && cands.find(a => a.chk).a.length >= (cands.find(a => !a.chk)?.a.length || 0) ? cands.find(a => a.chk) : null;
+      if (!hit) {
+        const fc = cands.filter(a => !a.chk);
+        hit = fc.find(a => a.ctx ? a.ctx === hb : (a.a === 'COMPTES DE REGULARISATION' ? a.s === (sec === 'passif' ? 'passif' : 'actif') : true)) || fc[0] || null;
+      }
+    }
+    if (!hit) { out.unknown.push(line.trim()); return; }
+    if (hit.chk) { if (hit.chk !== 'skip') out.chk[hit.chk] = nums.slice(-yrs.length); return; }
+    out.vals[hit.k] = nums.slice(-yrs.length);
+    if (F[hit.k].s === 'cp') sec = 'passif';
+  });
+  // Coût du risque, gains sur immobilisations et impôt : déduits des soldes si le fascicule les fournit (évite les erreurs de signe)
+  const derive = (k, a, b, sign) => { if (out.chk[a] && out.chk[b]) out.vals[k] = out.chk[a].map((x, i) => sign * (x - out.chk[b][i])); };
+  derive('R13', 'RBE', 'RE', 1); derive('R14', 'RAI', 'RE', 1); derive('R15', 'RAI', 'RN', 1);
+  return out;
+}
+function previewImport(res) {
+  const el = $('#impPreview');
+  if (res.json) { el.innerHTML = '<div class="banner"><b>Sauvegarde complète détectée</b> (' + Object.keys(res.json.banks).length + ' banque(s)).<div class="row"><button class="btn pri" id="impApplyJson">Remplacer toutes mes données</button></div></div>'; $('#impApplyJson').onclick = () => { state.banks = res.json.banks; state.cur = res.json.cur || Object.keys(state.banks)[0]; if (res.json.params) state.params = Object.assign({}, DEFAULT_PARAMS, res.json.params); save(); toast('Sauvegarde restaurée'); renderAll(); }; return; }
+  if (res.bankJson) { el.innerHTML = '<div class="banner"><b>Banque détectée : ' + esc(res.bankJson.name || '?') + '</b><div class="row"><button class="btn pri" id="impApplyBank">Ajouter comme nouvelle banque</button></div></div>'; $('#impApplyBank').onclick = () => { const id = 'b' + Date.now(); state.banks[id] = Object.assign({ unit:'millions FCFA', years:[2021,2022,2023] }, res.bankJson, { id, example:false }); state.cur = id; save(); toast('Banque ajoutée'); renderAll(); }; return; }
+  const keys = Object.keys(res.vals), yrs = res.years || Y();
+  let h = '<h3 style="margin-top:12px">Aperçu : ' + keys.length + ' poste(s) reconnu(s)</h3>';
+  if (res.years) h += '<p class="note">Exercices détectés : ' + res.years.join(', ') + '</p>';
+  if (keys.length) {
+    h += '<div class="tbl-wrap"><table><thead><tr><th>Poste</th>' + yrs.map(y => '<th>' + y + '</th>').join('') + '</tr></thead><tbody>'
+      + keys.map(k => '<tr><td><span class="code">' + k + '</span>' + esc(F[k].l) + '</td>' + res.vals[k].map(v => '<td>' + fmtM(v) + '</td>').join('') + '</tr>').join('') + '</tbody></table></div>';
+  }
+  const chkK = Object.keys(res.chk);
+  if (chkK.length) h += '<p class="note">Totaux lus pour contrôle : ' + chkK.map(k => k + ' ' + res.chk[k].map(fmtM).join(' / ')).join(' · ') + '</p>';
+  if (res.unknown.length) h += '<p class="miss">Lignes non reconnues (' + res.unknown.length + ') : ' + res.unknown.slice(0, 6).map(esc).join(' · ') + (res.unknown.length > 6 ? '…' : '') + '</p>';
+  if (keys.length) h += '<div class="row" style="margin-top:8px"><button class="btn pri" id="impApply">Appliquer à « ' + esc(bank().name) + ' »</button><button class="btn" id="impApplyNew">Créer une nouvelle banque</button></div>';
+  el.innerHTML = h;
+  const apply = target => {
+    keys.forEach(k => { target.v[k] = Y().map((_, i) => res.vals[k][i] ?? null); });
+    if (res.years) target.years = res.years.slice(0, 3);
+    target.example = false; save(); toast(keys.length + ' poste(s) importé(s)'); state.tab = 'saisie'; renderAll();
+    if (res.chk.PNB) setTimeout(() => { const ok = Y().every((_, y) => !fin(qv('PNB', y)) || Math.abs(qv('PNB', y) - res.chk.PNB[y]) < 1); if (!ok) toast('Attention : le PNB recalculé diffère du PNB lu'); }, 300);
+  };
+  if ($('#impApply')) $('#impApply').onclick = () => apply(bank());
+  if ($('#impApplyNew')) $('#impApplyNew').onclick = () => { const id = 'b' + Date.now(); state.banks[id] = { id, name:'Nouvelle banque importée', country:'', unit:'millions FCFA', years:Y().slice(), v:{} }; state.cur = id; apply(state.banks[id]); };
+}
+function toCsv(tpl) {
+  const b = bank();
+  return ['code;libellé;' + b.years.join(';')].concat(FIELDS.map(f => f.k + ';' + f.l + ';' + b.years.map((_, y) => tpl ? '' : (raw(f.k, y) ?? '')).join(';'))).join('\n');
+}
+
+/* ---- Paramètres ---- */
+function vParams() {
+  let h = head('Réglages', 'Paramètres', 'Seuils réglementaires UMOA, repères d’analyse et hypothèses de pondération Bâle. Les valeurs par défaut reprennent le dispositif prudentiel de la BCEAO : vérifie-les avec ton cours ou les textes en vigueur. Toute modification est appliquée immédiatement à tous les calculs.');
+  const groups = [...new Set(PARAMS.map(p => p.g))];
+  h += '<div class="grid2">' + groups.map(g => '<div class="card"><h3>' + g + '</h3><div class="params">' + PARAMS.filter(p => p.g === g).map(p =>
+    '<div class="param"><div class="pl"><label for="p-' + p.k + '">' + p.l + '</label>' + (p.src ? '<span>' + esc(p.src) + (state.params[p.k] !== p.v ? ' · défaut ' + nf(p.v % 1 ? 1 : 0).format(p.v) + ' %' : '') + '</span>' : '') + '</div><input type="number" step="0.5" id="p-' + p.k + '" data-p="' + p.k + '" value="' + state.params[p.k] + '" aria-label="' + esc(p.l) + ' en %"></div>').join('') + '</div></div>').join('') + '</div>';
+  h += '<div class="row"><button class="btn" id="pReset">Rétablir les valeurs par défaut</button></div>';
+  return h;
+}
+
+/* ---- Formules (méthode) ---- */
+function vMethode() {
+  let h = head('Référence', 'Toutes les formules', 'Liste générée à partir du moteur de calcul : ce qui est affiché ici est exactement ce que l’app calcule.');
+  h += '<h3>Grandeurs intermédiaires</h3><div class="method-list">' + Object.entries(QTY).map(([id, q]) => '<div class="method-item"><b>' + (q.long ? q.n + ' · ' + q.long : q.n) + '</b><div class="f-line"><span class="q">' + q.n + '</span> = ' + R(q.node, 'sym') + '</div>' + (q.decl ? '<span class="note">Remplacé par la valeur déclarée « ' + F[q.decl].l + ' » si elle est saisie.</span>' : '') + '</div>').join('') + '</div>';
+  h += '<h3>Indicateurs</h3><div class="method-list">' + IND.map(ind => '<div class="method-item"><b>' + ind.n + '</b> <span class="tag">' + KIND[ind.kind] + '</span><div class="f-line">' + R(nodeOf(ind), 'sym') + '</div><span class="note">' + ind.about + (ind.thr ? ' Seuil : ' + (ind.thr.dir === 'min' ? '≥ ' : '≤ ') + fmtP(thrVal(ind), 1) + '.' : '') + '</span></div>').join('') + '</div>';
+  return h;
+}
+
+/* =====================================================================
+   13. ORCHESTRATION
+   ===================================================================== */
+const VIEWS = { synthese:vSynthese, saisie:vSaisie, dynamique:vDynamique, structure:vStructure, renta:vRenta, faillite:vFaillite, bale:vBale, import:vImport, params:vParams, methode:vMethode };
+function renderHeader() {
+  const b = bank();
+  $('#hdrBank').textContent = b.name;
+  $('#hdrSub').textContent = [b.country, b.years.join(' · '), b.unit].filter(Boolean).join(' · ');
+  $('#bankSel').innerHTML = Object.values(state.banks).map(x => '<option value="' + x.id + '"' + (x.id === state.cur ? ' selected' : '') + '>' + esc(x.name) + '</option>').join('');
+  $('#yearSel').innerHTML = b.years.map((y, i) => '<option value="' + i + '"' + (i === state.yi ? ' selected' : '') + '>' + y + '</option>').join('');
+  $('#tabs').innerHTML = TABS.map(([k, l]) => '<button class="tab" role="tab" data-tab="' + k + '" aria-selected="' + (state.tab === k) + '">' + l + '</button>').join('');
+}
+function renderAll(keepScroll) {
+  if (state.yi >= Y().length) state.yi = Y().length - 1;
+  renderHeader();
+  const sy = window.scrollY;
+  view.innerHTML = VIEWS[state.tab]();
+  bindView();
+  if (keepScroll) window.scrollTo(0, sy);
+}
+function toast(msg) { const t = $('#toast'); t.textContent = msg; t.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(() => { t.hidden = true; }, 2600); }
+async function copyText(txt, out) {
+  try { await navigator.clipboard.writeText(txt); toast('Copié dans le presse-papiers'); }
+  catch (e) { toast('Copie bloquée : sélectionne le texte ci-dessous'); }
+  if (out) { out.hidden = false; out.value = txt; out.select(); }
+}
+function bindView() {
+  view.querySelectorAll('[data-go]').forEach(el => el.addEventListener('click', e => { e.preventDefault(); state.tab = el.dataset.go; save(); renderAll(); window.scrollTo(0, 0); }));
+  if (state.tab === 'saisie') {
+    refreshCalcs();
+    view.querySelectorAll('input[data-k]').forEach(inp => {
+      inp.addEventListener('change', () => {
+        const v = parseNum(inp.value), b = bank(), k = inp.dataset.k, y = +inp.dataset.y;
+        if (inp.value.trim() !== '' && v === null) { inp.classList.add('bad'); return; }
+        inp.classList.remove('bad');
+        b.v[k] = b.v[k] || b.years.map(() => null);
+        b.v[k][y] = v;
+        if (b.example) b.example = false;
+        inp.value = v === null ? '' : fmtM(v);
+        save(); refreshCalcs();
+      });
+    });
+    const meta = (id, fn) => { const el = $('#' + id); if (el) el.addEventListener('change', () => { fn(el.value); save(); renderHeader(); }); };
+    meta('m-name', v => { bank().name = v.trim() || 'Banque sans nom'; });
+    meta('m-country', v => { bank().country = v.trim(); });
+    meta('m-unit', v => { bank().unit = v.trim() || 'millions FCFA'; });
+    bank().years.forEach((_, i) => meta('m-y' + i, v => { const n = parseInt(v, 10); if (n) bank().years[i] = n; }));
+    view.querySelectorAll('[data-zero]').forEach(btn => btn.addEventListener('click', () => {
+      const b = bank();
+      FIELDS.filter(f => f.s === btn.dataset.zero).forEach(f => { b.v[f.k] = b.years.map((_, y) => raw(f.k, y) ?? 0); });
+      save(); renderAll(true); toast('Cases vides complétées par 0');
+    }));
+    $('#bNew').onclick = () => { const id = 'b' + Date.now(); state.banks[id] = { id, name:'Nouvelle banque', country:'', unit:'millions FCFA', years:Y().slice(), v:{} }; state.cur = id; save(); renderAll(); };
+    $('#bDup').onclick = () => { const id = 'b' + Date.now(); state.banks[id] = Object.assign(clone(bank()), { id, name:bank().name + ' (copie)', example:false }); state.cur = id; save(); renderAll(); };
+    $('#bSample').onclick = () => { state.banks.bab = clone(SAMPLE); state.cur = 'bab'; save(); renderAll(); toast('Exemple BAB rechargé'); };
+    $('#bDel').onclick = () => {
+      $('#confirmBox').innerHTML = '<div class="confirm">Supprimer définitivement « ' + esc(bank().name) + ' » de cet appareil ?<button class="btn sm danger" id="bDelYes">Supprimer</button><button class="btn sm" id="bDelNo">Annuler</button></div>';
+      $('#bDelNo').onclick = () => { $('#confirmBox').innerHTML = ''; };
+      $('#bDelYes').onclick = () => { delete state.banks[state.cur]; if (!Object.keys(state.banks).length) state.banks.bab = clone(SAMPLE); state.cur = Object.keys(state.banks)[0]; save(); renderAll(); toast('Banque supprimée'); };
+    };
+  }
+  if (state.tab === 'renta') {
+    $('#baseFin').onclick = () => { state.base = 'fin'; save(); renderAll(true); };
+    $('#baseMoy').onclick = () => { state.base = 'moy'; save(); renderAll(true); };
+  }
+  if (state.tab === 'faillite' && $('#sPnb')) {
+    const upd = () => { state.shock = { pnb:+$('#sPnb').value, cdr:+$('#sCdr').value }; const sim = $('#sim'); sim.outerHTML = simulator(); bindSim(); };
+    const bindSim = () => { $('#sPnb').oninput = upd; $('#sCdr').oninput = upd; };
+    bindSim();
+  }
+  if (state.tab === 'params') {
+    view.querySelectorAll('input[data-p]').forEach(inp => inp.addEventListener('change', () => { const v = parseNum(inp.value); if (v === null) return; state.params[inp.dataset.p] = v; save(); toast('Paramètre appliqué'); }));
+    $('#pReset').onclick = () => { state.params = Object.assign({}, DEFAULT_PARAMS); save(); renderAll(true); toast('Valeurs par défaut rétablies'); };
+  }
+  if (state.tab === 'import') {
+    $('#impParse').onclick = () => previewImport(parseImport($('#impText').value));
+    $('#impFile').onchange = e => { const f = e.target.files[0]; if (!f) return; const r = new FileReader(); r.onload = () => { $('#impText').value = r.result; previewImport(parseImport(r.result)); }; r.readAsText(f); };
+    $('#expCsv').onclick = () => copyText(toCsv(false), $('#expOut'));
+    $('#expTpl').onclick = () => copyText(toCsv(true), $('#expOut'));
+    $('#expJson').onclick = () => copyText(JSON.stringify({ banks:state.banks, cur:state.cur, params:state.params }, null, 1), $('#expOut'));
+  }
+}
+$('#tabs').addEventListener('click', e => { const b = e.target.closest('[data-tab]'); if (!b) return; state.tab = b.dataset.tab; save(); renderAll(); window.scrollTo(0, 0); });
+$('#bankSel').addEventListener('change', e => { state.cur = e.target.value; save(); renderAll(); });
+$('#yearSel').addEventListener('change', e => { state.yi = +e.target.value; renderAll(true); });
+
+/* Info-bulles (survol, focus, toucher) */
+const tip = $('#tip');
+function showTip(el, x, y) { tip.textContent = el.dataset.tip; tip.hidden = false; const r = tip.getBoundingClientRect(); tip.style.left = Math.max(8, Math.min(window.innerWidth - r.width - 8, x - r.width / 2)) + 'px'; tip.style.top = Math.max(8, y - r.height - 12) + 'px'; }
+document.addEventListener('pointermove', e => { const el = e.target.closest && e.target.closest('[data-tip]'); if (el) showTip(el, e.clientX, e.clientY); else tip.hidden = true; });
+document.addEventListener('pointerdown', e => { const el = e.target.closest && e.target.closest('[data-tip]'); if (el) showTip(el, e.clientX, e.clientY); else tip.hidden = true; });
+window.addEventListener('scroll', () => { tip.hidden = true; }, { passive:true });
+
+renderAll();
+</script>
