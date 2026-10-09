@@ -141,6 +141,9 @@ Valeurs par défaut issues du dispositif prudentiel UMOA (Bâle II/III, BCEAO). 
 - Chaque formule vit à un seul endroit du code, ce qui garantit que la formule affichée et le calcul effectué sont identiques
 - Code versionné dans ce dépôt
 
+## 6 quater. Rapport Word
+L'onglet « Rapport Word » génère un .docx : page de titre, sommaire, synthèse (points forts, vigilance, commentaire), dynamique des comptes, ratios de structure, rentabilité et Du Pont, test de faillite, Bâle III, méthodologie. Les formules sont de vraies équations Word produites par le même moteur que l'app (formule puis application numérique), suivies du tableau des valeurs, du graphique et de l'interprétation. Parties, graphiques et applications numériques sont au choix.
+
 ## 6 ter. Historique d'analyse
 L'onglet « Historique » enregistre des instantanés : copie des données de la banque, paramètres et résultats clés de tous les exercices. Chaque entrée peut être revue, comparée à l'état actuel ou à une autre entrée, et restaurée (l'état remplacé est d'abord sauvegardé). Un import crée une entrée automatique. 60 entrées au plus, conservées sur l'appareil et incluses dans la sauvegarde JSON.
 

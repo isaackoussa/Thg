@@ -14,7 +14,7 @@ Les principes du projet sont dans [PRINCIPES.md](PRINCIPES.md).
 ```bash
 npm install        # installe Playwright (tests et icônes)
 npm run build      # construit dist/
-npm test           # construit puis teste (Rscript requis pour la parité R, sinon ce test est ignoré)
+npm test           # construit puis teste (Rscript pour la parité R ; LibreOffice avec libreoffice-math pour vérifier le rapport Word)
 ```
 
 ## Déploiement Netlify

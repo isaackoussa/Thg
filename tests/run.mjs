@@ -16,7 +16,8 @@ const CDN_MAP = [
   [/pdf\.js\/3\.11\.174\/pdf\.worker\.min\.js$/, 'pdfjs-dist/build/pdf.worker.min.js'],
   [/tesseract\.js@5\.1\.1\/dist\/(.+)$/, 'tesseract.js/dist/$1'],
   [/tesseract\.js-core@5\.1\.1\/(.+)$/, 'tesseract.js-core/$1'],
-  [/@tesseract\.js-data\/fra@1\.0\.0\/4\.0\.0_best_int\/(.+)$/, '@tesseract.js-data/fra/4.0.0_best_int/$1']
+  [/@tesseract\.js-data\/fra@1\.0\.0\/4\.0\.0_best_int\/(.+)$/, '@tesseract.js-data/fra/4.0.0_best_int/$1'],
+  [/jszip@3\.10\.1\/dist\/jszip\.min\.js$/, 'jszip/dist/jszip.min.js']
 ];
 async function routeCdn(ctx) {
   await ctx.route(/^https:\/\/(cdnjs\.cloudflare\.com|cdn\.jsdelivr\.net)\//, route => {
@@ -50,7 +51,7 @@ function ok(cond, name, detail) {
   if (cond) pass++; else { fail++; failures.push(name + (detail !== undefined ? ' → ' + JSON.stringify(detail) : '')); }
 }
 const near = (a, b, eps = 1e-9) => Number.isFinite(a) && Number.isFinite(b) && Math.abs(a - b) <= eps * Math.max(1, Math.abs(b));
-const TABS = ['synthese', 'saisie', 'dynamique', 'structure', 'renta', 'faillite', 'bale', 'import', 'params', 'historique', 'methode', 'r'];
+const TABS = ['synthese', 'saisie', 'dynamique', 'structure', 'renta', 'faillite', 'bale', 'import', 'params', 'rapport', 'historique', 'methode', 'r'];
 
 const FAKE_CR = { R1:[20000,21000,23000], R2:[8000,8200,9000], R3:[100,120,90], R4:[4822,4889,5570], R5:[500,520,600], R6:[200,-50,300], R7:[100,100,100], R8:[300,350,400], R9:[200,220,240], R10:[0,0,0], R11:[9000,9300,9800], R12:[1500,1600,1700], R13:[1200,900,2100], R14:[10,0,-20], R15:[400,500,600] };
 
@@ -548,6 +549,94 @@ else {
   ok(await page.evaluate(() => state.history.length === 1 && state.history[0].label === 'valide' && state.history[0].res.vals.roe[0] === null), 'historique abîmé : entrées invalides retirées');
   await visitAllTabs(page, 'historique abîmé', errors);
   await ctx.close();
+}
+
+/* ---------- 10. Rapport Word ---------- */
+{
+  const JSZip = require('jszip');
+  const hasSoffice = (() => { try { execFileSync('soffice', ['--version'], { stdio: 'ignore' }); return true; } catch (e) { return false; } })();
+  const checkDocx = async (buf, label, expect) => {
+    const dir = mkdtempSync(join(tmpdir(), 'umoa-docx-'));
+    const file = join(dir, 'rapport.docx');
+    writeFileSync(file, buf);
+    const zip = await JSZip.loadAsync(buf);
+    const parts = Object.keys(zip.files).filter(f => /\.(xml|rels)$/.test(f));
+    let wellFormed = true, bad = '';
+    for (const f of parts) {
+      const x = await zip.file(f).async('string');
+      writeFileSync(join(dir, 'part.xml'), x);
+      try { execFileSync('python3', ['-c', 'import sys,xml.dom.minidom as m; m.parse(sys.argv[1])', join(dir, 'part.xml')], { stdio: 'pipe' }); }
+      catch (e) { wellFormed = false; bad = f + ' : ' + String(e.stderr).slice(-200); }
+    }
+    ok(wellFormed, label + ' : toutes les parties XML sont bien formées', bad);
+    const doc = await zip.file('word/document.xml').async('string');
+    let info = '';
+    try { info = execFileSync('python3', ['-c', 'import docx,sys; d=docx.Document(sys.argv[1]); print(len(d.paragraphs), len(d.tables), len(d.inline_shapes))', file], { encoding: 'utf8' }).trim(); } catch (e) { info = 'ERREUR ' + String(e.stderr).slice(-300); }
+    ok(/^\d+ \d+ \d+$/.test(info), label + ' : le document s’ouvre (python-docx)', info);
+    if (hasSoffice) {
+      try {
+        execFileSync('soffice', ['--headless', '--convert-to', 'pdf', '--outdir', dir, file], { stdio: 'pipe', timeout: 120000 });
+        const txt = execFileSync('pdftotext', ['-layout', join(dir, 'rapport.pdf'), '-'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+        const pages = Number((execFileSync('pdfinfo', [join(dir, 'rapport.pdf')], { encoding: 'utf8' }).match(/Pages:\s+(\d+)/) || [])[1]);
+        ok(pages >= 1, label + ' : LibreOffice le convertit en PDF (' + pages + ' pages)');
+        const missing = expect.filter(e => !(e instanceof RegExp ? e.test(txt) : txt.includes(e)));
+        ok(missing.length === 0, label + ' : contenu attendu présent dans le PDF', missing.map(String));
+        return { doc, info, txt, pages, dir };
+      } catch (e) { ok(false, label + ' : conversion LibreOffice', String(e.stderr || e.message).slice(-300)); }
+    }
+    return { doc, info, dir };
+  };
+  const ALL_SECTIONS = ['synthese', 'dynamique', 'structure', 'renta', 'faillite', 'bale', 'methode'];
+  const { page, ctx, errors } = await openApp();
+  await page.evaluate(cr => Object.assign(bank().v, cr), FAKE_CR);
+  const b64 = await page.evaluate(async () => { const blob = await buildReport({ title: 'Analyse BAB', author: 'Isaac', sections: REPORT_SECTIONS.map(s => s[0]), charts: true, allYears: true, comment: 'Banque en redressement.\nÀ suivre.' }); const u = new Uint8Array(await blob.arrayBuffer()); let s = ''; u.forEach(c => s += String.fromCharCode(c)); return btoa(s); });
+  const full = await checkDocx(Buffer.from(b64, 'base64'), 'rapport complet', ['Analyse BAB', 'Réalisé par Isaac', 'Synthèse et points clés', 'Banque en redressement.', 'Dynamique du bilan', 'Ratio de transformation', 'Test de faillite', 'Bâle III', 'Méthodologie', '76,68 %', '10,66 %', /150\s?766/, /196\s?626/, 'Figure 1', /Ratio de transformation\s*=/, /ROE\s*=/]);
+  ok(/<m:f>/.test(full.doc) && (full.doc.match(/<m:oMathPara>/g) || []).length > 40, 'rapport : formules en équations Word (fractions)', (full.doc.match(/<m:oMathPara>/g) || []).length);
+  ok(Number(full.info.split(' ')[2]) >= 20 && Number(full.info.split(' ')[1]) >= 20, 'rapport : graphiques et tableaux inclus', full.info);
+  if (full.pages) ok(full.pages >= 15, 'rapport complet : plusieurs pages', full.pages);
+  // rapport minimal, sans graphiques, une seule partie, banque vide et un seul exercice
+  for (const [label, storage, opt, expect] of [
+    ['rapport sans graphiques', null, { sections: ['renta'], charts: false, allYears: false }, ['Rentabilité', 'ROE']],
+    ['rapport banque vide', { banks: { a: { id: 'a', name: 'Vide & <Cie>', years: [2022, 2023], v: {} } }, cur: 'a' }, { sections: ALL_SECTIONS, charts: true }, ['Vide & <Cie>', 'Données manquantes']],
+    ['rapport un exercice', { banks: { a: { id: 'a', name: 'Une année', years: [2023], v: fullBank(1, () => [1000]) } }, cur: 'a' }, { sections: ALL_SECTIONS, charts: true, allYears: true }, ['Une année', 'Test de faillite']]
+  ]) {
+    const { page: p2, ctx: c2, errors: e2 } = await openApp(storage ? { storage } : {});
+    const r = await p2.evaluate(async o => { try { const blob = await buildReport(o); const u = new Uint8Array(await blob.arrayBuffer()); let s = ''; u.forEach(c => s += String.fromCharCode(c)); return btoa(s); } catch (e) { return 'ERR ' + e.message; } }, opt);
+    ok(!r.startsWith('ERR'), label + ' : généré sans erreur', r.slice(0, 200));
+    if (!r.startsWith('ERR')) { const res = await checkDocx(Buffer.from(r, 'base64'), label, expect); if (label === 'rapport sans graphiques') ok(res.info.endsWith(' 0'), label + ' : aucune image', res.info); }
+    ok(e2.length === 0, label + ' : aucune erreur JavaScript', e2);
+    await c2.close();
+  }
+  // bouton : téléchargement réel sur le site
+  await page.click('[data-tab="rapport"]');
+  await page.uncheck('#rCharts');
+  const [dl] = await Promise.all([page.waitForEvent('download', { timeout: 60000 }), page.click('#rGo')]);
+  ok(/^Analyse_Banque_Atlantique_Benin_BAB_2021-2023\.docx$/.test(dl.suggestedFilename()), 'rapport : téléchargement du fichier .docx', dl.suggestedFilename());
+  ok(/Rapport prêt/.test(await page.innerText('#rStatus')), 'rapport : état affiché');
+  ok(await page.evaluate(() => state.report && state.report.charts === false), 'rapport : options mémorisées');
+  await page.evaluate(() => { document.querySelectorAll('[data-rsec]').forEach(c => { c.checked = false; }); });
+  await page.click('#rGo');
+  ok(/au moins une partie/.test(await page.innerText('#rStatus')), 'rapport : aucune partie cochée signalée');
+  ok(errors.length === 0, 'rapport : aucune erreur JavaScript', errors.slice(0, 3));
+  await ctx.close();
+  // dans claude.ai (page dans un cadre) : passage par la capacité « downloads »
+  {
+    const c3 = await browser.newContext({ viewport: { width: 400, height: 900 } });
+    await routeCdn(c3);
+    await c3.addInitScript(() => { if (window.self !== window.top) window.claude = { use: async n => n === 'downloads' ? { save: async ({ filename, data }) => { window.__saved = [filename, data instanceof Blob, data.size]; return { status: 'saved' }; } } : null }; });
+    const p3 = await c3.newPage(); const e3 = []; p3.on('pageerror', e => e3.push(e.message));
+    await p3.route(BASE + 'cadre', r => r.fulfill({ status: 200, contentType: 'text/html', body: '<iframe src="' + BASE + '" style="width:400px;height:900px;border:0"></iframe>' }));
+    await p3.goto(BASE + 'cadre');
+    const fr = p3.frames().find(f => f !== p3.mainFrame());
+    await fr.waitForSelector('#view .section-head');
+    await fr.click('[data-tab="rapport"]'); await fr.uncheck('#rCharts'); await fr.click('#rGo');
+    await fr.waitForFunction(() => window.__saved, null, { timeout: 60000 });
+    const sv = await fr.evaluate(() => window.__saved);
+    ok(/\.docx$/.test(sv[0]) && sv[1] && sv[2] > 5000, 'rapport dans claude.ai : fichier remis à la capacité de téléchargement', sv);
+    ok(e3.length === 0, 'rapport dans claude.ai : aucune erreur JavaScript', e3);
+    await c3.close();
+  }
+  if (full.dir) console.log('Rapport d’exemple : ' + full.dir);
 }
 
 await browser.close();
