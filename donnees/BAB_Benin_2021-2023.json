@@ -1,0 +1,59 @@
+{
+  "banque": "Banque Atlantique Bénin (BAB)",
+  "pays": "Bénin",
+  "source": "BCEAO, Fascicule des bilans et comptes de résultat des banques et établissements financiers de l'UMOA 2023, p. 22",
+  "unite": "millions FCFA",
+  "annees": [2021, 2022, 2023],
+  "bilan": {
+    "actif": {
+      "A1_caisse_banque_centrale_ccp": [11953, 14456, 21982],
+      "A2_effets_publics": [105891, 87754, 78393],
+      "A3_creances_interbancaires": [16570, 10725, 19139],
+      "A4_creances_clientele": [131072, 130602, 150766],
+      "A5_obligations_revenu_fixe": [1812, 1510, 1073],
+      "A6_actions_revenu_variable": [3322, 3606, 3853],
+      "A7_actionnaires_associes": [0, 0, 0],
+      "A8_autres_actifs": [12338, 2450, 1873],
+      "A9_comptes_regularisation": [1186, 898, 626],
+      "A10_participations": [178, 178, 178],
+      "A11_parts_entreprises_liees": [0, 0, 0],
+      "A12_prets_subordonnes": [238, 248, 258],
+      "A13_immobilisations_incorporelles": [2, 59, 61],
+      "A14_immobilisations_corporelles": [17369, 16602, 17458],
+      "TA_total_actif": [301931, 269088, 295660]
+    },
+    "passif": {
+      "P1_banque_centrale_ccp": [0, 0, 0],
+      "P2_dettes_interbancaires": [55259, 50736, 64941],
+      "P3_dettes_clientele": [218985, 187843, 196626],
+      "P4_dettes_representees_titre": [0, 0, 0],
+      "P5_autres_passifs": [1365, 2001, 2088],
+      "P6_comptes_regularisation": [2403, 1702, 2167],
+      "P7_provisions": [1549, 842, 965],
+      "P8_emprunts_subordonnes": [1583, 1583, 1584],
+      "P9_capitaux_propres": [20787, 24381, 27289],
+      "P9a_capital_souscrit": [28000, 28000, 20563],
+      "P9b_primes": [0, 0, 0],
+      "P9c_reserves": [223, 223, 762],
+      "P9d_ecarts_reevaluation": [0, 0, 0],
+      "P9e_provisions_reglementees": [0, 0, 0],
+      "P9f_report_a_nouveau": [-10548, -7437, 3056],
+      "P9g_resultat_exercice": [3112, 3595, 2908],
+      "TP_total_passif": [301931, 269088, 295660]
+    },
+    "hors_bilan": {
+      "engagements_donnes": [32875, 43799, 29590],
+      "engagements_donnes_financement": [15104, 22671, 23533],
+      "engagements_donnes_garantie": [17771, 21128, 6057],
+      "engagements_donnes_titres": [0, 0, 0],
+      "engagements_recus": [332663, 360755, 401445],
+      "engagements_recus_financement": [0, 0, 0],
+      "engagements_recus_garantie": [332663, 360755, 401445],
+      "engagements_recus_titres": [0, 0, 0]
+    }
+  },
+  "compte_de_resultat": {
+    "commissions_produits": [4822, 4889, 5570],
+    "_a_completer": "page suivante du fascicule"
+  }
+}
