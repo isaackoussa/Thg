@@ -50,7 +50,7 @@ function ok(cond, name, detail) {
   if (cond) pass++; else { fail++; failures.push(name + (detail !== undefined ? ' → ' + JSON.stringify(detail) : '')); }
 }
 const near = (a, b, eps = 1e-9) => Number.isFinite(a) && Number.isFinite(b) && Math.abs(a - b) <= eps * Math.max(1, Math.abs(b));
-const TABS = ['synthese', 'saisie', 'dynamique', 'structure', 'renta', 'faillite', 'bale', 'import', 'params', 'methode', 'r'];
+const TABS = ['synthese', 'saisie', 'dynamique', 'structure', 'renta', 'faillite', 'bale', 'import', 'params', 'historique', 'methode', 'r'];
 
 const FAKE_CR = { R1:[20000,21000,23000], R2:[8000,8200,9000], R3:[100,120,90], R4:[4822,4889,5570], R5:[500,520,600], R6:[200,-50,300], R7:[100,100,100], R8:[300,350,400], R9:[200,220,240], R10:[0,0,0], R11:[9000,9300,9800], R12:[1500,1600,1700], R13:[1200,900,2100], R14:[10,0,-20], R15:[400,500,600] };
 
@@ -472,6 +472,82 @@ else {
     ok(e3.length === 0, 'photo lue par Claude : aucune erreur JavaScript', e3);
     await c3.close();
   }
+}
+
+/* ---------- 9. Historique d'analyse ---------- */
+{
+  const { page, ctx, errors } = await openApp();
+  await page.click('[data-tab="historique"]');
+  ok(/Aucune analyse enregistrée/.test(await page.innerText('#view')), 'historique : état vide expliqué');
+  await page.fill('#hLabel', 'BAB version initiale'); await page.fill('#hNote', 'avant compte de résultat');
+  await page.click('#hSave');
+  let h = await page.evaluate(() => state.history.map(e => [e.label, e.note, e.kind, e.res.vals.roe[2], e.bank.v.A4[2]]));
+  ok(h.length === 1 && h[0][0] === 'BAB version initiale' && h[0][1] === 'avant compte de résultat' && h[0][2] === 'manuel', 'historique : analyse enregistrée avec nom et note', h);
+  ok(near(h[0][3], 2908 / 27289) && h[0][4] === 150766, 'historique : résultats et données figés au moment de l’enregistrement', h[0]);
+  // la période choisie n'altère pas l'instantané : tous les exercices sont gardés
+  await page.click('[data-tab="renta"]'); await page.selectOption('#fromSel', '2022');
+  await page.click('[data-tab="synthese"]'); await page.click('[data-hsave]');
+  h = await page.evaluate(() => [state.history.length, state.history[0].res.years, state.history[0].period]);
+  ok(h[0] === 2 && JSON.stringify(h[1]) === '[2021,2022,2023]' && JSON.stringify(h[2]) === '[2022,2023]', 'historique : enregistrement depuis la synthèse, période notée, tous les exercices gardés', h);
+  await page.selectOption('#fromSel', '2021');
+  // modification puis comparaison
+  await page.click('[data-tab="saisie"]');
+  await page.fill('#i-P9g-2', '1 000'); await page.press('#i-P9g-2', 'Tab');
+  await page.click('[data-tab="historique"]');
+  const first = await page.evaluate(() => state.history[state.history.length - 1].id);
+  await page.click('[data-hcmp="' + first + '"]');
+  const cmp = await page.innerText('[data-hbox="' + first + '"]');
+  ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), 'historique : comparaison ouverte sans débordement horizontal');
+  ok(/Comparaison sur l’exercice 2023/.test(cmp) && /Résultat net/.test(cmp) && /−1\s?908/.test(cmp), 'historique : comparaison à l’état actuel (écart de résultat net)', cmp.slice(0, 400));
+  await page.selectOption('#hA', first); await page.selectOption('#hB', 'current'); await page.click('#hCmp');
+  ok(/ROE/.test(await page.innerText('#hCmpOut')), 'historique : comparaison de deux analyses');
+  await page.click('[data-hdet="' + first + '"]');
+  ok(/2021[\s\S]*2022[\s\S]*2023/.test(await page.innerText('[data-hbox="' + first + '"]')), 'historique : détails par exercice');
+  // restauration : l'état actuel est sauvegardé avant
+  await page.click('[data-hres="' + first + '"]'); await page.click('[data-hresok]');
+  h = await page.evaluate(() => [raw('P9g', 2), state.history.length, state.history[0].kind, state.history[0].bank.v.P9g[2], state.tab]);
+  ok(h[0] === 2908 && h[1] === 3 && h[2] === 'auto' && h[3] === 1000 && h[4] === 'synthese', 'historique : restauration, avec sauvegarde automatique de l’état remplacé', h);
+  // restauration d'une banque supprimée
+  await page.click('[data-tab="saisie"]'); await page.click('#bDup'); await page.click('[data-tab="historique"]');
+  await page.fill('#hLabel', 'copie'); await page.click('#hSave');
+  const copyBank = await page.evaluate(() => state.cur);
+  await page.click('[data-tab="saisie"]'); await page.click('#bDel'); await page.click('#bDelYes');
+  await page.click('[data-tab="historique"]');
+  const copyEntry = await page.evaluate(id => state.history.find(e => e.bankId === id).id, copyBank);
+  await page.click('[data-hcmp="' + copyEntry + '"]');
+  ok(/n’existe plus/.test(await page.innerText('[data-hbox="' + copyEntry + '"]')), 'historique : banque supprimée signalée');
+  await page.click('[data-hres="' + copyEntry + '"]'); await page.click('[data-hresok]');
+  ok(await page.evaluate(id => !!state.banks[id] && state.cur === id, copyBank), 'historique : banque supprimée recréée');
+  // import ajoute une entrée
+  await page.click('[data-tab="import"]');
+  await page.fill('#impText', 'INTERETS ET PRODUITS ASSIMILES 20 100 21 300 23 900'); await page.click('#impParse'); await page.click('#impApply');
+  ok(await page.evaluate(() => state.history[0].kind === 'import'), 'historique : entrée automatique après import');
+  // persistance, filtre, suppression
+  const n = await page.evaluate(() => state.history.length);
+  await page.reload(); await page.waitForSelector('#view .section-head');
+  ok(await page.evaluate(() => state.history.length) === n, 'historique : conservé après rechargement');
+  await page.click('[data-tab="historique"]');
+  ok(await page.$('#hFilter') !== null, 'historique : filtre par banque quand plusieurs banques');
+  const del = await page.evaluate(() => state.history[0].id);
+  await page.click('[data-hdel="' + del + '"]'); await page.click('[data-hdelok]');
+  ok(await page.evaluate(() => state.history.length) === n - 1, 'historique : suppression d’une entrée');
+  // sauvegarde JSON emporte l'historique
+  const back = await page.evaluate(() => { const j = parseImport(JSON.stringify({ banks: state.banks, cur: state.cur, params: state.params, history: state.history })); return j.json.history.length; });
+  ok(back === n - 1, 'historique : inclus dans la sauvegarde JSON', back);
+  // plafond
+  const cap = await page.evaluate(() => { for (let i = 0; i < 70; i++) addHistory(i % 2 ? 'import' : 'manuel', 'x' + i, ''); return [state.history.length, state.history.filter(e => e.kind === 'manuel').length]; });
+  ok(cap[0] === 60 && cap[1] >= 35, 'historique : plafonné à 60, les entrées automatiques partent en premier', cap);
+  await page.click('[data-tab="synthese"]'); await page.click('[data-tab="historique"]');
+  await page.click('#hClear'); await page.click('#hClearOk');
+  ok(await page.evaluate(() => state.history.length === 0 && Object.keys(state.banks).length >= 1), 'historique : vidé sans toucher aux banques');
+  ok(errors.length === 0, 'historique : aucune erreur JavaScript', errors.slice(0, 3));
+  await ctx.close();
+}
+{
+  const { page, ctx, errors } = await openApp({ storage: { banks: { a: { id: 'a', name: 'A', years: [2023], v: { A4: [1] } } }, cur: 'a', history: [null, 5, { label: 'cassée' }, { id: 'ok', label: 'valide', bank: { name: 'B', years: [2022], v: { A4: [2] } }, res: { years: [2022], vals: { roe: ['x'] } } }] } });
+  ok(await page.evaluate(() => state.history.length === 1 && state.history[0].label === 'valide' && state.history[0].res.vals.roe[0] === null), 'historique abîmé : entrées invalides retirées');
+  await visitAllTabs(page, 'historique abîmé', errors);
+  await ctx.close();
 }
 
 await browser.close();

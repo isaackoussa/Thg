@@ -181,6 +181,15 @@ textarea { width: 100%; min-height: 180px; font-family: ui-monospace, Menlo, Con
 .tip { position: fixed; z-index: 50; pointer-events: none; background: var(--ink); color: var(--bg); font-size: 0.8rem; padding: 6px 9px; border-radius: 6px; max-width: 260px; box-shadow: 0 4px 14px rgba(0,0,0,.18); }
 .toast { position: fixed; bottom: calc(16px + env(safe-area-inset-bottom, 0px)); left: 50%; transform: translateX(-50%); background: var(--ink); color: var(--bg); padding: 8px 14px; border-radius: 8px; font-weight: 600; z-index: 60; }
 .method-list { display: grid; gap: 10px; }
+.hist-list { display: grid; gap: 10px; }
+.hist { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; display: grid; gap: 8px; min-width: 0; }
+.hist > * { min-width: 0; }
+.hist-top { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; align-items: flex-start; }
+.hist-top .t { display: grid; gap: 2px; min-width: 0; }
+.hist .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.hist .kv { font-size: 0.8rem; color: var(--ink-2); background: var(--surface-2); border-radius: 6px; padding: 2px 8px; font-variant-numeric: tabular-nums; }
+.hist .kv b { color: var(--ink); }
+td.diff-up { color: var(--ok); } td.diff-down { color: var(--bad); }
 .drop { border: 2px dashed var(--line); border-radius: 10px; padding: 18px 14px; display: grid; gap: 10px; justify-items: center; text-align: center; color: var(--ink-2); }
 .drop.over { border-color: var(--accent); background: var(--accent-soft); }
 .file-status { display: grid; gap: 6px; background: var(--surface-2); border-radius: 8px; padding: 10px 12px; font-size: 0.9rem; }
@@ -358,6 +367,19 @@ function cleanParams(p) {
   if (p && typeof p === 'object') Object.keys(DEFAULT_PARAMS).forEach(k => { const v = Number(p[k]); if (p[k] !== null && p[k] !== '' && typeof p[k] !== 'boolean' && Number.isFinite(v)) out[k] = v; });
   return out;
 }
+const HIST_MAX = 60;
+function cleanHistory(h) {
+  if (!Array.isArray(h)) return [];
+  return h.filter(e => e && typeof e === 'object' && e.bank && e.res && Array.isArray(e.res.years)).map(e => {
+    const b = cleanBanks({ x:e.bank }).x;
+    if (!b) return null;
+    const vals = {};
+    if (e.res.vals && typeof e.res.vals === 'object') Object.keys(e.res.vals).forEach(k => { if (Array.isArray(e.res.vals[k])) vals[k] = e.res.vals[k].map(x => (typeof x === 'number' && Number.isFinite(x)) ? x : null); });
+    return { id:String(e.id || 'h' + Math.random().toString(36).slice(2)), at:String(e.at || new Date().toISOString()), kind:['manuel', 'import', 'auto'].includes(e.kind) ? e.kind : 'manuel',
+      label:String(e.label || 'Analyse').slice(0, 120), note:String(e.note || '').slice(0, 500), bankId:String(e.bankId || b.id), bank:b, base:e.base === 'moy' ? 'moy' : 'fin', params:cleanParams(e.params),
+      period:Array.isArray(e.period) ? e.period.map(Number).slice(0, 2) : null, res:{ years:e.res.years.map(Number), vals } };
+  }).filter(Boolean).slice(0, HIST_MAX);
+}
 function cleanBanks(banks) {
   const out = {};
   if (!banks || typeof banks !== 'object') return out;
@@ -390,6 +412,7 @@ function loadState() {
   s.banks = cleanBanks(s.banks);
   if (!Object.keys(s.banks).length) s.banks = { bab: clone(SAMPLE) };
   s.params = cleanParams(s.params);
+  s.history = cleanHistory(s.history);
   s.base = s.base === 'moy' ? 'moy' : 'fin';
   s.tab = typeof s.tab === 'string' ? s.tab : 'synthese';
   if (!s.banks[s.cur]) s.cur = Object.keys(s.banks)[0];
@@ -397,12 +420,13 @@ function loadState() {
 }
 const state = loadState();
 state.yi = 99;
-function save() { try { localStorage.setItem(LS_KEY, JSON.stringify({ banks:state.banks, cur:state.cur, params:state.params, base:state.base, tab:state.tab })); } catch (e) {} }
+function save() { try { localStorage.setItem(LS_KEY, JSON.stringify({ banks:state.banks, cur:state.cur, params:state.params, base:state.base, tab:state.tab, history:state.history })); } catch (e) {} }
 const bank = () => state.banks[state.cur];
 /* Période analysée : sous-ensemble contigu des exercices saisis (Saisie et Import travaillent toujours sur tous les exercices) */
+let FULL_RANGE = false;
 function rng() {
   const b = bank(), n = b.years.length;
-  if (state.tab === 'saisie' || state.tab === 'import' || !b.range) return [0, n - 1];
+  if (FULL_RANGE || state.tab === 'saisie' || state.tab === 'import' || state.tab === 'historique' || !b.range) return [0, n - 1];
   let a = b.years.indexOf(b.range[0]), z = b.years.indexOf(b.range[1]);
   if (a < 0) a = 0; if (z < 0) z = n - 1; if (a > z) [a, z] = [z, a];
   return [a, z];
@@ -857,7 +881,7 @@ function subFormulas(node) {
    12. VUES
    ===================================================================== */
 const TABS = [
-  ['synthese','Synthèse'], ['saisie','Saisie'], ['dynamique','Dynamique'], ['structure','Ratios de structure'], ['renta','Rentabilité'], ['faillite','Faillite'], ['bale','Bâle III'], ['import','Import'], ['params','Paramètres'], ['methode','Formules'], ['r','Code R']
+  ['synthese','Synthèse'], ['saisie','Saisie'], ['dynamique','Dynamique'], ['structure','Ratios de structure'], ['renta','Rentabilité'], ['faillite','Faillite'], ['bale','Bâle III'], ['import','Import'], ['params','Paramètres'], ['historique','Historique'], ['methode','Formules'], ['r','Code R']
 ];
 const $ = s => document.querySelector(s);
 const view = $('#view');
@@ -871,6 +895,7 @@ function exampleBanner() {
 /* ---- Synthèse ---- */
 function vSynthese() {
   const yrs = Y(), n = yrs.length - 1;
+  const saveBar = '<div class="row"><button class="btn" data-hsave="1">Enregistrer cette analyse dans l’historique</button>' + (state.history.length ? '<a href="#" data-go="historique" class="note">' + state.history.length + ' analyse(s) enregistrée(s)</a>' : '') + '</div>';
   const tile = (label, v, prev, f, ind, tab) => {
     const st = ind ? status(ind, v) : null;
     const d = fin(v) && fin(prev) ? (f === 'm' ? (prev ? fmtP((v - prev) / Math.abs(prev), 1).replace(/^(?!−)/, '+') : '') : f === 'x' ? '' : fmtPts(v - prev)) : '';
@@ -879,7 +904,7 @@ function vSynthese() {
   };
   const qq = id => [qv(id, n), qv(id, n - 1)];
   const ii = id => { const s = series(I[id]); return [s[n], s[n - 1]]; };
-  let h = head('Exercice ' + yrs[n], 'Synthèse', 'Vue d’ensemble de la banque sur le dernier exercice. Touche une tuile pour voir le détail, la formule et l’interprétation.');
+  let h = head('Exercice ' + yrs[n], 'Synthèse', 'Vue d’ensemble de la banque sur le dernier exercice. Touche une tuile pour voir le détail, la formule et l’interprétation.') + saveBar;
   h += exampleBanner();
   h += '<div class="tiles">'
     + tile('Total bilan (M FCFA)', ...qq('TA'), 'm', null, 'dynamique')
@@ -1207,7 +1232,7 @@ function parseImport(text) {
   if (/^\s*\{/.test(text)) {
     try {
       const j = JSON.parse(text);
-      if (j && j.banks) { const banks = cleanBanks(j.banks); if (Object.keys(banks).length) return { json:{ banks, cur:j.cur, params:j.params } }; }
+      if (j && j.banks) { const banks = cleanBanks(j.banks); if (Object.keys(banks).length) return { json:{ banks, cur:j.cur, params:j.params, history:cleanHistory(j.history) } }; }
       if (j && j.v) { const bb = cleanBanks({ x:j }); if (bb.x) return { bankJson:bb.x }; }
       out.unknown.push('Fichier JSON reconnu mais sans données de banque exploitables'); return out;
     } catch (e) { out.unknown.push('JSON illisible : ' + e.message); return out; }
@@ -1495,7 +1520,7 @@ function showPdfPicker() {
 }
 function previewImport(res) {
   const el = $('#impPreview');
-  if (res.json) { el.innerHTML = '<div class="banner"><b>Sauvegarde complète détectée</b> (' + Object.keys(res.json.banks).length + ' banque(s)).<div class="row"><button class="btn pri" id="impApplyJson">Remplacer toutes mes données</button></div></div>'; $('#impApplyJson').onclick = () => { state.banks = res.json.banks; state.cur = state.banks[res.json.cur] ? res.json.cur : Object.keys(state.banks)[0]; if (res.json.params) state.params = cleanParams(res.json.params); save(); toast('Sauvegarde restaurée'); renderAll(); }; return; }
+  if (res.json) { el.innerHTML = '<div class="banner"><b>Sauvegarde complète détectée</b> (' + Object.keys(res.json.banks).length + ' banque(s)).<div class="row"><button class="btn pri" id="impApplyJson">Remplacer toutes mes données</button></div></div>'; $('#impApplyJson').onclick = () => { state.banks = res.json.banks; state.cur = state.banks[res.json.cur] ? res.json.cur : Object.keys(state.banks)[0]; if (res.json.params) state.params = cleanParams(res.json.params); if (res.json.history.length) state.history = res.json.history; save(); toast('Sauvegarde restaurée'); renderAll(); }; return; }
   if (res.bankJson) { el.innerHTML = '<div class="banner"><b>Banque détectée : ' + esc(res.bankJson.name || '?') + '</b><div class="row"><button class="btn pri" id="impApplyBank">Ajouter comme nouvelle banque</button></div></div>'; $('#impApplyBank').onclick = () => { const id = 'b' + Date.now(); state.banks[id] = Object.assign(clone(res.bankJson), { id, example:false }); state.cur = id; save(); toast('Banque ajoutée'); renderAll(); }; return; }
   const keys = Object.keys(res.vals), yrs = res.years || Y().slice(-Math.max(1, ...Object.values(res.vals).map(a => a.length)));
   let h = '<h3 style="margin-top:12px">Aperçu : ' + keys.length + ' poste(s) reconnu(s)</h3>';
@@ -1518,7 +1543,9 @@ function previewImport(res) {
       ys.forEach((yr, j) => { const i = target.years.indexOf(yr); if (i >= 0 && fin(arr[j])) target.v[k][i] = arr[j]; });
     });
     delete target.range;
-    target.example = false; save(); toast(keys.length + ' poste(s) importé(s)'); state.tab = 'saisie'; renderAll();
+    target.example = false; save();
+    addHistory('import', 'Après import de ' + keys.length + ' poste(s)', '', target.id);
+    toast(keys.length + ' poste(s) importé(s), analyse ajoutée à l’historique'); state.tab = 'saisie'; renderAll();
     if (res.chk.PNB) setTimeout(() => { const ys = (res.years || Y()).slice(-res.chk.PNB.length); const ok = ys.every((yr, j) => { const y = Y().indexOf(yr); const v = y >= 0 ? qv('PNB', y) : NaN; return !fin(v) || Math.abs(v - res.chk.PNB[j]) < 1; }); if (!ok) toast('Attention : le PNB recalculé diffère du PNB lu'); }, 300);
   };
   if ($('#impApply')) $('#impApply').onclick = () => apply(bank());
@@ -1545,6 +1572,139 @@ function vMethode() {
   h += '<h3>Grandeurs intermédiaires</h3><div class="method-list">' + Object.entries(QTY).map(([id, q]) => '<div class="method-item"><b>' + (q.long ? q.n + ' · ' + q.long : q.n) + '</b><div class="f-line"><span class="q">' + q.n + '</span> = ' + R(q.node, 'sym') + '</div>' + (q.decl ? '<span class="note">Remplacé par la valeur déclarée « ' + F[q.decl].l + ' » si elle est saisie.</span>' : '') + '</div>').join('') + '</div>';
   h += '<h3>Indicateurs</h3><div class="method-list">' + IND.map(ind => '<div class="method-item"><b>' + ind.n + '</b> <span class="tag">' + KIND[ind.kind] + '</span><div class="f-line">' + R(nodeOf(ind), 'sym') + '</div><span class="note">' + ind.about + (ind.thr ? ' Seuil : ' + (ind.thr.dir === 'min' ? '≥ ' : '≤ ') + fmtP(thrVal(ind), 1) + '.' : '') + '</span></div>').join('') + '</div>';
   return h;
+}
+
+/* =====================================================================
+   12 ter. HISTORIQUE D'ANALYSE — instantanés des données et des résultats
+   ===================================================================== */
+const HIST_KEYS = [['TA', 'Total bilan', 'm', 'q'], ['PNB', 'PNB', 'm', 'q'], ['RN', 'Résultat net', 'm', 'q'], ['CP', 'Capitaux propres', 'm', 'q'],
+  ['roe', 'ROE'], ['roa', 'ROA'], ['solva', 'Solvabilité globale (Bâle)'], ['cet1', 'Ratio CET1'], ['levier_b', 'Levier Bâle III'], ['levier', 'Levier (bilan)'],
+  ['transfo', 'Transformation'], ['liq', 'Liquidité (bilan)'], ['coef', "Coefficient d'exploitation"], ['cdr', 'Coût du risque / crédits'], ['chute', 'Baisse de PNB menant à la faillite']];
+const HIST_CHIPS = [['roe', 'ROE'], ['solva', 'Solvabilité'], ['transfo', 'Transformation'], ['coef', 'Coef. exploitation']];
+function withFull(fn, bankObj) {
+  const prevFull = FULL_RANGE, prevCur = state.cur, tmp = bankObj && !state.banks[bankObj.id];
+  FULL_RANGE = true;
+  if (bankObj) { if (tmp) state.banks[bankObj.id] = bankObj; state.cur = bankObj.id; }
+  try { return fn(); } finally { FULL_RANGE = prevFull; state.cur = prevCur; if (tmp) delete state.banks[bankObj.id]; }
+}
+function snapshotResults(b) {
+  return withFull(() => {
+    const vals = {};
+    HIST_KEYS.forEach(([id, , , t]) => { vals[id] = b.years.map((_, y) => { const v = t === 'q' ? qv(id, y) : val(nodeOf(I[id]), y); return fin(v) ? v : null; }); });
+    return { years:b.years.slice(), vals };
+  }, b);
+}
+function addHistory(kind, label, note, bankId) {
+  const b = state.banks[bankId || state.cur]; if (!b) return null;
+  const yy = withFull(() => Y(), b);
+  const e = { id:'h' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), at:new Date().toISOString(), kind, label:String(label || '').slice(0, 120) || b.name, note:String(note || '').slice(0, 500),
+    bankId:b.id, bank:clone(b), base:state.base, params:clone(state.params), period:b.range ? b.range.slice() : [yy[0], yy[yy.length - 1]], res:snapshotResults(b) };
+  state.history.unshift(e);
+  while (state.history.length > HIST_MAX) {
+    const i = state.history.map(x => x.kind).lastIndexOf('auto') >= 0 ? state.history.map(x => x.kind).lastIndexOf('auto') : state.history.map(x => x.kind).lastIndexOf('import') >= 0 ? state.history.map(x => x.kind).lastIndexOf('import') : state.history.length - 1;
+    state.history.splice(i, 1);
+  }
+  save();
+  return e;
+}
+const fmtDate = iso => { const d = new Date(iso); return isNaN(d) ? '' : d.toLocaleDateString('fr-FR', { day:'numeric', month:'short', year:'numeric' }) + ' à ' + d.toLocaleTimeString('fr-FR', { hour:'2-digit', minute:'2-digit' }); };
+const KIND_LBL = { manuel:'Enregistrée', import:'Import', auto:'Avant restauration' };
+const histFmt = (id, v) => { const k = HIST_KEYS.find(x => x[0] === id); return k && k[2] === 'm' ? fmtM(v) : fmtP(v, 2); };
+function histLastYear(e) { const p = e.period && e.period[1]; return e.res.years.includes(p) ? p : e.res.years[e.res.years.length - 1]; }
+function histValue(e, id, yr) { const i = e.res.years.indexOf(yr); const v = i >= 0 && e.res.vals[id] ? e.res.vals[id][i] : null; return fin(v) ? v : NaN; }
+function currentEntry(bankId) {
+  const b = state.banks[bankId]; if (!b) return null;
+  const yy = withFull(() => Y(), b);
+  return { id:'current', label:'État actuel', bank:b, bankId:b.id, period:b.range ? b.range.slice() : [yy[0], yy[yy.length - 1]], res:snapshotResults(b) };
+}
+function compareTable(A, B) {
+  const yA = histLastYear(A), yB = histLastYear(B);
+  const common = A.res.years.filter(y => B.res.years.includes(y));
+  const yr = common.includes(yA) ? yA : common.length ? common[common.length - 1] : null;
+  const ya = yr ?? yA, yb = yr ?? yB;
+  let h = '<p class="note">' + (yr ? 'Comparaison sur l’exercice ' + yr + '.' : 'Aucun exercice commun : comparaison de ' + ya + ' (A) avec ' + yb + ' (B).') + '</p>';
+  h += '<div class="tbl-wrap"><table><thead><tr><th>Indicateur</th><th>A · ' + esc(A.label) + '</th><th>B · ' + esc(B.label) + '</th><th>Écart B − A</th></tr></thead><tbody>';
+  HIST_KEYS.forEach(([id, l, f]) => {
+    const a = histValue(A, id, ya), b = histValue(B, id, yb), d = b - a;
+    const better = I[id] && I[id].thr ? (I[id].thr.dir === 'max' ? d < 0 : d > 0) : null;
+    const cls = !fin(d) || Math.abs(d) < 1e-12 || better === null ? '' : better ? 'diff-up' : 'diff-down';
+    h += '<tr><td>' + l + '</td><td>' + histFmt(id, a) + '</td><td>' + histFmt(id, b) + '</td><td class="' + cls + '">' + (!fin(d) ? '—' : f === 'm' ? fmtSigned(d) : fmtPts(d)) + '</td></tr>';
+  });
+  return h + '</tbody></table></div>';
+}
+function histDetail(e) {
+  const yrs = e.res.years;
+  let h = '<div class="tbl-wrap"><table><thead><tr><th>Indicateur</th>' + yrs.map(y => '<th>' + y + '</th>').join('') + '</tr></thead><tbody>';
+  HIST_KEYS.forEach(([id, l]) => { h += '<tr><td>' + l + '</td>' + yrs.map(y => '<td>' + histFmt(id, histValue(e, id, y)) + '</td>').join('') + '</tr>'; });
+  h += '</tbody></table></div>';
+  const diffs = PARAMS.filter(p => e.params && e.params[p.k] !== state.params[p.k]);
+  if (diffs.length) h += '<p class="note">Paramètres différents à l’époque : ' + diffs.slice(0, 6).map(p => p.l + ' ' + e.params[p.k] + ' % (aujourd’hui ' + state.params[p.k] + ' %)').map(esc).join(' · ') + (diffs.length > 6 ? '…' : '') + '.</p>';
+  h += '<p class="note">Base des rentabilités : ' + (e.base === 'moy' ? 'moyenne N / N−1' : 'fin d’exercice') + '.</p>';
+  return h;
+}
+function vHistorique() {
+  const all = state.history, banksIn = [...new Map(all.map(e => [e.bankId, e.bank.name])).entries()];
+  const f = state.histFilter && banksIn.some(([id]) => id === state.histFilter) ? state.histFilter : '';
+  const list = all.filter(e => !f || e.bankId === f);
+  let h = head('Suivi', 'Historique d’analyse', 'Chaque analyse enregistrée garde une copie des données et des résultats du moment. Tu peux la revoir, la comparer à l’état actuel ou à une autre analyse, et restaurer ses données. Un import ajoute automatiquement une entrée. L’historique est conservé sur cet appareil (60 analyses au plus) et inclus dans la sauvegarde JSON.');
+  h += '<div class="card"><h3>Enregistrer l’analyse actuelle</h3><div class="row"><label class="row note" for="hLabel" style="flex:1 1 220px">Nom <input type="text" id="hLabel" maxlength="120" style="flex:1;min-width:0" value="' + esc(bank().name + ' · ' + Y()[0] + '–' + Y()[Y().length - 1]) + '"></label></div>'
+    + '<label class="note" for="hNote" style="display:grid;gap:4px">Note (facultatif)<textarea id="hNote" maxlength="500" style="min-height:60px;font-family:inherit;font-size:.9rem" placeholder="ex. avant correction du compte de résultat, version rendue au professeur…"></textarea></label>'
+    + '<div class="row"><button class="btn pri" id="hSave">Enregistrer</button></div></div>';
+  if (!all.length) return h + '<div class="card"><h3>Aucune analyse enregistrée</h3><p class="note">Enregistre l’analyse actuelle ci-dessus, ou importe des données : chaque import crée une entrée.</p></div>';
+  const opts = sel => '<option value="current"' + (sel === 'current' ? ' selected' : '') + '>État actuel de « ' + esc(bank().name) + ' »</option>' + all.map(e => '<option value="' + e.id + '"' + (sel === e.id ? ' selected' : '') + '>' + esc(e.label) + ' · ' + fmtDate(e.at) + '</option>').join('');
+  h += '<div class="card"><h3>Comparer deux analyses</h3><div class="row"><label class="row note" for="hA">A <select id="hA" style="max-width:70vw">' + opts(all[0].id) + '</select></label><label class="row note" for="hB">B <select id="hB" style="max-width:70vw">' + opts('current') + '</select></label><button class="btn" id="hCmp">Comparer</button></div><div id="hCmpOut"></div></div>';
+  h += '<div class="row"><span class="eyebrow">' + list.length + ' analyse(s)</span>' + (banksIn.length > 1 ? '<select id="hFilter" aria-label="Filtrer par banque"><option value="">Toutes les banques</option>' + banksIn.map(([id, n]) => '<option value="' + esc(id) + '"' + (f === id ? ' selected' : '') + '>' + esc(n) + '</option>').join('') + '</select>' : '') + '</div>';
+  h += '<div class="hist-list">' + list.map(e => {
+    const yr = histLastYear(e);
+    const chips = HIST_CHIPS.map(([id, lbl]) => { const v = histValue(e, id, yr); const st = status(I[id], v); return '<span class="kv">' + lbl + ' <b>' + fmtP(v, 1) + '</b>' + (st === 'bad' || st === 'warn' ? ' <span style="color:var(--' + st + ')">' + ST_LABEL[st][0] + '</span>' : '') + '</span>'; }).join('');
+    return '<article class="hist" id="h-' + e.id + '"><div class="hist-top"><div class="t"><h3>' + esc(e.label) + '</h3><span class="note">' + fmtDate(e.at) + ' · ' + esc(e.bank.name) + ' · ' + (e.period ? e.period.join('–') : e.res.years.join(', ')) + '</span></div><span class="tag">' + KIND_LBL[e.kind] + '</span></div>'
+      + (e.note ? '<p class="note" style="color:var(--ink-2)">' + esc(e.note) + '</p>' : '')
+      + '<div class="chips"><span class="kv">Exercice <b>' + yr + '</b></span>' + chips + '</div>'
+      + '<div class="row"><button class="btn sm" data-hdet="' + e.id + '">Détails</button><button class="btn sm" data-hcmp="' + e.id + '">Comparer à l’état actuel</button><button class="btn sm" data-hres="' + e.id + '">Restaurer ces données</button><button class="btn sm danger" data-hdel="' + e.id + '">Supprimer</button></div>'
+      + '<div data-hbox="' + e.id + '"></div></article>';
+  }).join('') + '</div>';
+  h += '<div class="row"><button class="btn sm danger" id="hClear">Vider l’historique</button></div><div id="hClearBox"></div>';
+  return h;
+}
+function bindHistorique() {
+  const find = id => state.history.find(e => e.id === id);
+  const box = id => view.querySelector('[data-hbox="' + id + '"]');
+  if ($('#hSave')) $('#hSave').onclick = () => { addHistory('manuel', $('#hLabel').value.trim() || bank().name, $('#hNote').value.trim()); toast('Analyse enregistrée'); renderAll(true); };
+  if ($('#hFilter')) $('#hFilter').onchange = e => { state.histFilter = e.target.value; renderAll(true); };
+  if ($('#hCmp')) $('#hCmp').onclick = () => {
+    const pick = v => v === 'current' ? currentEntry(state.cur) : find(v);
+    const A = pick($('#hA').value), B = pick($('#hB').value);
+    $('#hCmpOut').innerHTML = A && B ? compareTable(A, B) : '<p class="miss">Choisis deux analyses.</p>';
+  };
+  view.querySelectorAll('[data-hdet]').forEach(b => b.onclick = () => { const e = find(b.dataset.hdet), x = box(e.id); x.innerHTML = x.dataset.open === 'det' ? '' : histDetail(e); x.dataset.open = x.dataset.open === 'det' ? '' : 'det'; });
+  view.querySelectorAll('[data-hcmp]').forEach(b => b.onclick = () => {
+    const e = find(b.dataset.hcmp), x = box(e.id), cur = currentEntry(e.bankId);
+    if (x.dataset.open === 'cmp') { x.innerHTML = ''; x.dataset.open = ''; return; }
+    x.dataset.open = 'cmp';
+    x.innerHTML = cur ? compareTable(e, cur) : '<p class="miss">La banque « ' + esc(e.bank.name) + ' » n’existe plus : restaure ces données pour la recréer.</p>';
+  });
+  view.querySelectorAll('[data-hres]').forEach(b => b.onclick = () => {
+    const e = find(b.dataset.hres), x = box(e.id); x.dataset.open = '';
+    const exists = !!state.banks[e.bankId];
+    x.innerHTML = '<div class="confirm" style="background:var(--accent-soft);color:var(--ink)">' + (exists ? 'Remplacer les données actuelles de « ' + esc(state.banks[e.bankId].name) + ' » par celles de cette analyse ? L’état actuel sera d’abord enregistré dans l’historique.' : 'Recréer la banque « ' + esc(e.bank.name) + ' » avec ces données ?') + '<button class="btn sm pri" data-hresok="1">Restaurer</button><button class="btn sm" data-hresno="1">Annuler</button></div>';
+    x.querySelector('[data-hresno]').onclick = () => { x.innerHTML = ''; };
+    x.querySelector('[data-hresok]').onclick = () => {
+      if (exists) addHistory('auto', 'Avant restauration de « ' + e.label + ' »', '', e.bankId);
+      state.banks[e.bankId] = Object.assign(clone(e.bank), { id:e.bankId });
+      state.cur = e.bankId; state.yi = 99; save(); toast('Données restaurées'); state.tab = 'synthese'; renderAll(); window.scrollTo(0, 0);
+    };
+  });
+  view.querySelectorAll('[data-hdel]').forEach(b => b.onclick = () => {
+    const e = find(b.dataset.hdel), x = box(e.id); x.dataset.open = '';
+    x.innerHTML = '<div class="confirm">Supprimer cette analyse de l’historique ?<button class="btn sm danger" data-hdelok="1">Supprimer</button><button class="btn sm" data-hdelno="1">Annuler</button></div>';
+    x.querySelector('[data-hdelno]').onclick = () => { x.innerHTML = ''; };
+    x.querySelector('[data-hdelok]').onclick = () => { state.history = state.history.filter(z => z.id !== e.id); save(); toast('Analyse supprimée'); renderAll(true); };
+  });
+  if ($('#hClear')) $('#hClear').onclick = () => {
+    $('#hClearBox').innerHTML = '<div class="confirm">Supprimer les ' + state.history.length + ' analyses de l’historique ? Les banques et leurs données ne sont pas touchées.<button class="btn sm danger" id="hClearOk">Tout supprimer</button><button class="btn sm" id="hClearNo">Annuler</button></div>';
+    $('#hClearNo').onclick = () => { $('#hClearBox').innerHTML = ''; };
+    $('#hClearOk').onclick = () => { state.history = []; save(); toast('Historique vidé'); renderAll(true); };
+  };
 }
 
 /* =====================================================================
@@ -1681,7 +1841,7 @@ function vR() {
 /* =====================================================================
    13. ORCHESTRATION
    ===================================================================== */
-const VIEWS = { r:vR, synthese:vSynthese, saisie:vSaisie, dynamique:vDynamique, structure:vStructure, renta:vRenta, faillite:vFaillite, bale:vBale, import:vImport, params:vParams, methode:vMethode };
+const VIEWS = { historique:vHistorique, r:vR, synthese:vSynthese, saisie:vSaisie, dynamique:vDynamique, structure:vStructure, renta:vRenta, faillite:vFaillite, bale:vBale, import:vImport, params:vParams, methode:vMethode };
 function renderHeader() {
   const b = bank();
   $('#hdrBank').textContent = b.name;
@@ -1689,7 +1849,7 @@ function renderHeader() {
   $('#hdrSub').textContent = [b.country, yy.length > 1 ? 'période ' + yy[0] + '–' + yy[yy.length - 1] : yy[0], b.unit].filter(Boolean).join(' · ');
   $('#bankSel').innerHTML = Object.values(state.banks).map(x => '<option value="' + x.id + '"' + (x.id === state.cur ? ' selected' : '') + '>' + esc(x.name) + '</option>').join('');
   const [ra, rz] = rng(), all = b.years;
-  const locked = state.tab === 'saisie' || state.tab === 'import';
+  const locked = state.tab === 'saisie' || state.tab === 'import' || state.tab === 'historique';
   $('#fromSel').innerHTML = all.map((y, i) => '<option value="' + y + '"' + (i === ra ? ' selected' : '') + (i > rz ? ' disabled' : '') + '>' + y + '</option>').join('');
   $('#toSel').innerHTML = all.map((y, i) => '<option value="' + y + '"' + (i === rz ? ' selected' : '') + (i < ra ? ' disabled' : '') + '>' + y + '</option>').join('');
   $('#fromSel').disabled = $('#toSel').disabled = locked;
@@ -1785,6 +1945,8 @@ function bindView() {
     view.querySelectorAll('input[data-p]').forEach(inp => inp.addEventListener('change', () => { const v = parseNum(inp.value); if (v === null || v < 0 || v > 1000) { toast('Valeur invalide : saisis un pourcentage entre 0 et 1000'); inp.value = state.params[inp.dataset.p]; return; } state.params[inp.dataset.p] = v; save(); toast('Paramètre appliqué'); }));
     $('#pReset').onclick = () => { state.params = Object.assign({}, DEFAULT_PARAMS); save(); renderAll(true); toast('Valeurs par défaut rétablies'); };
   }
+  if (state.tab === 'historique') bindHistorique();
+  view.querySelectorAll('[data-hsave]').forEach(b => b.onclick = () => { addHistory('manuel', bank().name + ' · ' + Y()[0] + '–' + Y()[Y().length - 1], ''); toast('Analyse enregistrée dans l’historique'); renderAll(true); });
   if (state.tab === 'r') { $('#rCopy').onclick = () => copyText(rScript()); if ($('#rDl')) $('#rDl').onclick = () => download(fileBase() + '.R', rScript()); }
   if (state.tab === 'import') {
     $('#impParse').onclick = () => previewImport(parseImport($('#impText').value));
@@ -1796,9 +1958,9 @@ function bindView() {
     dz.addEventListener('drop', e => { e.preventDefault(); importFiles([...(e.dataTransfer?.files || [])]); });
     $('#expCsv').onclick = () => copyText(toCsv(false), $('#expOut'));
     $('#expTpl').onclick = () => copyText(toCsv(true), $('#expOut'));
-    $('#expJson').onclick = () => copyText(JSON.stringify({ banks:state.banks, cur:state.cur, params:state.params }, null, 1), $('#expOut'));
+    $('#expJson').onclick = () => copyText(JSON.stringify({ banks:state.banks, cur:state.cur, params:state.params, history:state.history }, null, 1), $('#expOut'));
     if ($('#dlCsv')) $('#dlCsv').onclick = () => download(fileBase() + '.csv', '\ufeff' + toCsv(false), 'text/csv');
-    if ($('#dlJson')) $('#dlJson').onclick = () => download('sauvegarde_analyste_umoa.json', JSON.stringify({ banks:state.banks, cur:state.cur, params:state.params }, null, 1), 'application/json');
+    if ($('#dlJson')) $('#dlJson').onclick = () => download('sauvegarde_analyste_umoa.json', JSON.stringify({ banks:state.banks, cur:state.cur, params:state.params, history:state.history }, null, 1), 'application/json');
   }
 }
 $('#tabs').addEventListener('click', e => { const b = e.target.closest('[data-tab]'); if (!b) return; state.tab = b.dataset.tab; state.yi = 99; save(); renderAll(); window.scrollTo(0, 0); });

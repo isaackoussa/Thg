@@ -141,6 +141,9 @@ Valeurs par défaut issues du dispositif prudentiel UMOA (Bâle II/III, BCEAO). 
 - Chaque formule vit à un seul endroit du code, ce qui garantit que la formule affichée et le calcul effectué sont identiques
 - Code versionné dans ce dépôt
 
+## 6 ter. Historique d'analyse
+L'onglet « Historique » enregistre des instantanés : copie des données de la banque, paramètres et résultats clés de tous les exercices. Chaque entrée peut être revue, comparée à l'état actuel ou à une autre entrée, et restaurée (l'état remplacé est d'abord sauvegardé). Un import crée une entrée automatique. 60 entrées au plus, conservées sur l'appareil et incluses dans la sauvegarde JSON.
+
 ## 6 bis. Traduction en R
 L'onglet « Code R » génère un script R de base (sans package) à partir des mêmes arbres de formules que l'app : données, paramètres, grandeurs intermédiaires, indicateurs, conformité aux seuils et graphiques. Le script est vérifié : il produit les mêmes valeurs que l'app.
 
