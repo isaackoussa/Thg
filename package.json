@@ -1,0 +1,15 @@
+{
+  "name": "analyste-bancaire-umoa",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Analyse des états financiers des banques de l'UMOA (PCB révisé, Bâle III)",
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "icons": "node scripts/icons.mjs",
+    "test": "node scripts/build.mjs && node tests/run.mjs"
+  },
+  "devDependencies": {
+    "playwright": "1.56.1"
+  }
+}

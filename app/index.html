@@ -347,10 +347,32 @@ const SAMPLE = {
    4. ÉTAT & STOCKAGE LOCAL
    ===================================================================== */
 const LS_KEY = 'umoa-analyste-v1';
+/* Nettoie des données venues du stockage ou d'un import : jamais de plantage sur un fichier abîmé */
+function cleanParams(p) {
+  const out = Object.assign({}, DEFAULT_PARAMS);
+  if (p && typeof p === 'object') Object.keys(DEFAULT_PARAMS).forEach(k => { const v = Number(p[k]); if (p[k] !== null && p[k] !== '' && typeof p[k] !== 'boolean' && Number.isFinite(v)) out[k] = v; });
+  return out;
+}
+function cleanBanks(banks) {
+  const out = {};
+  if (!banks || typeof banks !== 'object') return out;
+  Object.entries(banks).forEach(([id, b]) => {
+    if (!b || typeof b !== 'object') return;
+    const nb = { id:String(id), name:String(b.name || 'Banque sans nom').slice(0, 120), country:String(b.country || '').slice(0, 60), unit:String(b.unit || 'millions FCFA').slice(0, 40), years:Array.isArray(b.years) ? b.years : [], v:(b.v && typeof b.v === 'object') ? b.v : {}, example:!!b.example };
+    if (b.source) nb.source = String(b.source).slice(0, 300);
+    if (Array.isArray(b.range) && b.range.length === 2) nb.range = b.range.map(Number);
+    normBank(nb);
+    if (nb.years.length) out[nb.id] = nb;
+  });
+  return out;
+}
 function normBank(b) {
-  b.years = (b.years || []).map(Number);
-  b.v = b.v || {};
-  Object.keys(b.v).forEach(k => { const a = b.v[k] || []; b.v[k] = b.years.map((_, i) => (typeof a[i] === 'number' && Number.isFinite(a[i])) ? a[i] : null); });
+  const seenY = new Set();
+  const keep = (b.years || []).map((y, i) => [parseInt(y, 10), i]).filter(([y]) => Number.isInteger(y) && y > 1900 && y < 2200 && !seenY.has(y) && seenY.add(y));
+  const src = b.v || {};
+  b.v = {};
+  Object.keys(src).forEach(k => { if (!F[k] || !Array.isArray(src[k])) return; b.v[k] = keep.map(([, i]) => { const x = src[k][i]; return (typeof x === 'number' && Number.isFinite(x)) ? x : null; }); });
+  b.years = keep.map(([y]) => y);
   const order = b.years.map((y, i) => [y, i]).sort((x, z) => x[0] - z[0]).map(x => x[1]);
   if (order.some((o, i) => o !== i)) { b.years = order.map(i => b.years[i]); Object.keys(b.v).forEach(k => { b.v[k] = order.map(i => b.v[k][i]); }); }
   return b;
@@ -359,12 +381,13 @@ const clone = o => JSON.parse(JSON.stringify(o));
 function loadState() {
   let s = null;
   try { s = JSON.parse(localStorage.getItem(LS_KEY) || 'null'); } catch (e) { s = null; }
-  if (!s || !s.banks || !Object.keys(s.banks).length) s = { banks:{ bab: clone(SAMPLE) }, cur:'bab' };
-  s.params = Object.assign({}, DEFAULT_PARAMS, s.params || {});
-  s.base = s.base || 'fin';
-  s.tab = s.tab || 'synthese';
+  if (!s || typeof s !== 'object' || !s.banks || typeof s.banks !== 'object') s = {};
+  s.banks = cleanBanks(s.banks);
+  if (!Object.keys(s.banks).length) s.banks = { bab: clone(SAMPLE) };
+  s.params = cleanParams(s.params);
+  s.base = s.base === 'moy' ? 'moy' : 'fin';
+  s.tab = typeof s.tab === 'string' ? s.tab : 'synthese';
   if (!s.banks[s.cur]) s.cur = Object.keys(s.banks)[0];
-  Object.values(s.banks).forEach(normBank);
   return s;
 }
 const state = loadState();
@@ -396,12 +419,14 @@ function removeYear(b, i) { b.years.splice(i, 1); Object.keys(b.v).forEach(k => 
    ===================================================================== */
 function parseNum(s) {
   if (s == null) return null;
-  s = String(s).trim().replace(/[\s  ]/g, '').replace(/−/g, '-');
+  s = String(s).trim().replace(/[\s  ']/g, '').replace(/[−–]/g, '-').replace(/%$/, '');
   if (s === '' || s === '-') return null;
   let neg = false;
   if (/^\(.*\)$/.test(s)) { neg = true; s = s.slice(1, -1); }
-  if (/^-?\d+,\d+$/.test(s)) s = s.replace(',', '.');
+  if (/^-?\d{1,3}(\.\d{3})+(,\d+)?$/.test(s)) s = s.replace(/\./g, '').replace(',', '.');
+  else if (/^-?\d+,\d+$/.test(s)) s = s.replace(',', '.');
   else s = s.replace(/,/g, '');
+  if (!/^-?(\d+\.?\d*|\.\d+)(e[-+]?\d+)?$/i.test(s)) return null;
   const v = Number(s);
   return Number.isFinite(v) ? (neg ? -v : v) : null;
 }
@@ -1129,7 +1154,8 @@ function vImport() {
     + '<div class="row"><button class="btn pri" id="impParse">Analyser le texte</button><label class="btn" for="impFile">Choisir un fichier</label><input type="file" id="impFile" accept=".csv,.txt,.tsv,.json" hidden></div>'
     + '<div id="impPreview"></div></div>';
   h += '<div class="card"><h3>2. Exporter</h3><p class="note">Copie les données de la banque courante au format CSV (point-virgule), pour Excel ou pour les recharger plus tard. Le modèle vide liste tous les codes attendus.</p>'
-    + '<div class="row"><button class="btn" id="expCsv">Copier mes données (CSV)</button><button class="btn" id="expTpl">Copier le modèle vide</button><button class="btn" id="expJson">Copier la sauvegarde complète (JSON)</button></div><textarea id="expOut" readonly hidden></textarea></div>';
+    + '<div class="row"><button class="btn" id="expCsv">Copier mes données (CSV)</button><button class="btn" id="expTpl">Copier le modèle vide</button><button class="btn" id="expJson">Copier la sauvegarde complète (JSON)</button></div>'
+    + (CAN_DOWNLOAD ? '<div class="row"><button class="btn" id="dlCsv">Télécharger le CSV</button><button class="btn" id="dlJson">Télécharger la sauvegarde (.json)</button></div>' : '') + '<textarea id="expOut" readonly hidden></textarea></div>';
   h += '<div class="card"><h3>3. Photo ou PDF</h3><p class="note">L’extraction automatique depuis une photo est prévue à l’étape 3 du projet. En attendant : sur iPhone, ouvre la capture dans Photos, appuie longuement sur le texte (Texte en direct), Tout sélectionner, Copier, puis colle-le ci-dessus. Vérifie toujours l’aperçu.</p></div>';
   return h;
 }
@@ -1142,6 +1168,7 @@ const ALIASES = (() => {
   return list.sort((x, y) => y.a.length - x.a.length);
 })();
 function splitNumbers(tokens, want = 3) {
+  if (tokens.length > 60 || want < 1) return null;
   const isLead = t => /^[-−(]?\d{1,3}\)?$/.test(t) && !(t.length > 1 && /^0/.test(t.replace(/^[-−(]/, '')));
   const best = { score:Infinity, parts:null };
   const rec = (i, parts) => {
@@ -1169,7 +1196,12 @@ function splitNumbers(tokens, want = 3) {
 function parseImport(text) {
   const yrs = Y(), out = { vals:{}, chk:{}, unknown:[], years:null };
   if (/^\s*\{/.test(text)) {
-    try { const j = JSON.parse(text); if (j.banks) return { json:j }; if (j.v) return { bankJson:j }; } catch (e) { out.unknown.push('JSON illisible'); return out; }
+    try {
+      const j = JSON.parse(text);
+      if (j && j.banks) { const banks = cleanBanks(j.banks); if (Object.keys(banks).length) return { json:{ banks, cur:j.cur, params:j.params } }; }
+      if (j && j.v) { const bb = cleanBanks({ x:j }); if (bb.x) return { bankJson:bb.x }; }
+      out.unknown.push('Fichier JSON reconnu mais sans données de banque exploitables'); return out;
+    } catch (e) { out.unknown.push('JSON illisible : ' + e.message); return out; }
   }
   let sec = 'actif', hb = 'donnes';
   text.split(/\r?\n/).forEach(line => {
@@ -1221,8 +1253,8 @@ function parseImport(text) {
 }
 function previewImport(res) {
   const el = $('#impPreview');
-  if (res.json) { el.innerHTML = '<div class="banner"><b>Sauvegarde complète détectée</b> (' + Object.keys(res.json.banks).length + ' banque(s)).<div class="row"><button class="btn pri" id="impApplyJson">Remplacer toutes mes données</button></div></div>'; $('#impApplyJson').onclick = () => { state.banks = res.json.banks; state.cur = res.json.cur || Object.keys(state.banks)[0]; if (res.json.params) state.params = Object.assign({}, DEFAULT_PARAMS, res.json.params); save(); toast('Sauvegarde restaurée'); renderAll(); }; return; }
-  if (res.bankJson) { el.innerHTML = '<div class="banner"><b>Banque détectée : ' + esc(res.bankJson.name || '?') + '</b><div class="row"><button class="btn pri" id="impApplyBank">Ajouter comme nouvelle banque</button></div></div>'; $('#impApplyBank').onclick = () => { const id = 'b' + Date.now(); state.banks[id] = Object.assign({ unit:'millions FCFA', years:[2021,2022,2023] }, res.bankJson, { id, example:false }); state.cur = id; save(); toast('Banque ajoutée'); renderAll(); }; return; }
+  if (res.json) { el.innerHTML = '<div class="banner"><b>Sauvegarde complète détectée</b> (' + Object.keys(res.json.banks).length + ' banque(s)).<div class="row"><button class="btn pri" id="impApplyJson">Remplacer toutes mes données</button></div></div>'; $('#impApplyJson').onclick = () => { state.banks = res.json.banks; state.cur = state.banks[res.json.cur] ? res.json.cur : Object.keys(state.banks)[0]; if (res.json.params) state.params = cleanParams(res.json.params); save(); toast('Sauvegarde restaurée'); renderAll(); }; return; }
+  if (res.bankJson) { el.innerHTML = '<div class="banner"><b>Banque détectée : ' + esc(res.bankJson.name || '?') + '</b><div class="row"><button class="btn pri" id="impApplyBank">Ajouter comme nouvelle banque</button></div></div>'; $('#impApplyBank').onclick = () => { const id = 'b' + Date.now(); state.banks[id] = Object.assign(clone(res.bankJson), { id, example:false }); state.cur = id; save(); toast('Banque ajoutée'); renderAll(); }; return; }
   const keys = Object.keys(res.vals), yrs = res.years || Y().slice(-Math.max(1, ...Object.values(res.vals).map(a => a.length)));
   let h = '<h3 style="margin-top:12px">Aperçu : ' + keys.length + ' poste(s) reconnu(s)</h3>';
   if (res.years) h += '<p class="note">Exercices détectés : ' + res.years.join(', ') + '</p>';
@@ -1321,9 +1353,9 @@ function rScript() {
   const pad = (x, n) => x + ' '.repeat(Math.max(1, n - x.length));
   const L = [];
   L.push('# =====================================================================');
-  L.push('# Analyse financière bancaire UMOA : ' + b.name);
+  L.push('# Analyse financière bancaire UMOA : ' + rComment(b.name));
   L.push('# Script généré par Analyste Bancaire UMOA le ' + new Date().toLocaleDateString('fr-FR'));
-  L.push('# Montants en ' + b.unit + '. Les ratios sont des proportions (0.15 = 15 %).');
+  L.push('# Montants en ' + rComment(b.unit) + '. Les ratios sont des proportions (0.15 = 15 %).');
   L.push('# Base des rentabilités : ' + (state.base === 'moy' ? 'moyenne N / N-1' : "fin d'exercice"));
   L.push('# Aucun package requis (R de base).');
   L.push('# =====================================================================', '');
@@ -1398,7 +1430,7 @@ function vR() {
   const code = rScript();
   let h = head('Reproductibilité', 'Code R', 'Le script ci-dessous refait tous les calculs de l’app en R : données, paramètres, grandeurs intermédiaires, indicateurs, contrôle des seuils et graphiques. Il est généré à partir des mêmes formules que l’app, il donne donc les mêmes résultats. Il fonctionne en R de base, sans package à installer.');
   h += '<div class="card"><h3>Comment l’utiliser</h3><ul style="margin:0;padding-left:1.1em;display:grid;gap:4px"><li>Sur ordinateur : colle le script dans RStudio, puis Ctrl + Entrée (ou « Source »).</li><li>Sur iPhone, sans installation : ouvre posit.cloud ou rdrr.io/snippets dans Safari et colle le script.</li><li>Chaque bloc commenté correspond à un onglet de l’app. Tu peux modifier une donnée ou un seuil dans les sections 1 et 2, puis relancer.</li></ul>'
-    + '<div class="row"><button class="btn pri" id="rCopy">Copier le script R</button><span class="note">' + code.split('\n').length + ' lignes · exercices ' + bank().years.join(', ') + '</span></div></div>';
+    + '<div class="row"><button class="btn pri" id="rCopy">Copier le script R</button>' + (CAN_DOWNLOAD ? '<button class="btn" id="rDl">Télécharger le fichier .R</button>' : '') + '<span class="note">' + code.split('\n').length + ' lignes · exercices ' + bank().years.join(', ') + '</span></div></div>';
   h += '<div class="card"><h3>Exemples de traduction</h3><div class="method-list">' + ['transfo', 'roe', 'solva', 'pnbc'].map(id => { const ind = I[id]; return '<div class="method-item"><b>' + ind.n + '</b><div class="f-line">' + R(nodeOf(ind), 'sym') + '</div><pre class="rcode">' + esc(rIndLine(ind)) + '</pre></div>'; }).join('') + '</div></div>';
   h += '<div class="card"><h3>Script complet</h3><pre class="rcode" id="rOut">' + esc(code) + '</pre></div>';
   return h;
@@ -1423,6 +1455,8 @@ function renderHeader() {
   $('#tabs').innerHTML = TABS.map(([k, l]) => '<button class="tab" role="tab" data-tab="' + k + '" aria-selected="' + (state.tab === k) + '">' + l + '</button>').join('');
 }
 function renderAll(keepScroll) {
+  if (!VIEWS[state.tab]) state.tab = 'synthese';
+  if (!state.banks[state.cur]) state.cur = Object.keys(state.banks)[0];
   if (state.yi >= Y().length || state.yi < 0) state.yi = Y().length - 1;
   renderHeader();
   const sy = window.scrollY;
@@ -1431,6 +1465,17 @@ function renderAll(keepScroll) {
   if (keepScroll) window.scrollTo(0, sy);
 }
 function toast(msg) { const t = $('#toast'); t.textContent = msg; t.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(() => { t.hidden = true; }, 2600); }
+/* Téléchargement de fichiers : possible sur le site déployé, bloqué dans un cadre intégré (aperçu) */
+const CAN_DOWNLOAD = (() => { try { return window.self === window.top; } catch (e) { return false; } })();
+function download(name, txt, type) {
+  try {
+    const url = URL.createObjectURL(new Blob([txt], { type: (type || 'text/plain') + ';charset=utf-8' }));
+    const a = document.createElement('a'); a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+    toast('Fichier ' + name + ' téléchargé');
+  } catch (e) { toast('Téléchargement impossible : utilise le bouton Copier'); }
+}
+const fileBase = () => (bank().name || 'banque').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^A-Za-z0-9]+/g, '_').replace(/^_|_$/g, '').slice(0, 40) || 'banque';
 async function copyText(txt, out) {
   try { await navigator.clipboard.writeText(txt); toast('Copié dans le presse-papiers'); }
   catch (e) { toast('Copie bloquée : sélectionne le texte ci-dessous'); }
@@ -1495,16 +1540,18 @@ function bindView() {
     bindSim();
   }
   if (state.tab === 'params') {
-    view.querySelectorAll('input[data-p]').forEach(inp => inp.addEventListener('change', () => { const v = parseNum(inp.value); if (v === null) return; state.params[inp.dataset.p] = v; save(); toast('Paramètre appliqué'); }));
+    view.querySelectorAll('input[data-p]').forEach(inp => inp.addEventListener('change', () => { const v = parseNum(inp.value); if (v === null || v < 0 || v > 1000) { toast('Valeur invalide : saisis un pourcentage entre 0 et 1000'); inp.value = state.params[inp.dataset.p]; return; } state.params[inp.dataset.p] = v; save(); toast('Paramètre appliqué'); }));
     $('#pReset').onclick = () => { state.params = Object.assign({}, DEFAULT_PARAMS); save(); renderAll(true); toast('Valeurs par défaut rétablies'); };
   }
-  if (state.tab === 'r') $('#rCopy').onclick = () => copyText(rScript());
+  if (state.tab === 'r') { $('#rCopy').onclick = () => copyText(rScript()); if ($('#rDl')) $('#rDl').onclick = () => download(fileBase() + '.R', rScript()); }
   if (state.tab === 'import') {
     $('#impParse').onclick = () => previewImport(parseImport($('#impText').value));
     $('#impFile').onchange = e => { const f = e.target.files[0]; if (!f) return; const r = new FileReader(); r.onload = () => { $('#impText').value = r.result; previewImport(parseImport(r.result)); }; r.readAsText(f); };
     $('#expCsv').onclick = () => copyText(toCsv(false), $('#expOut'));
     $('#expTpl').onclick = () => copyText(toCsv(true), $('#expOut'));
     $('#expJson').onclick = () => copyText(JSON.stringify({ banks:state.banks, cur:state.cur, params:state.params }, null, 1), $('#expOut'));
+    if ($('#dlCsv')) $('#dlCsv').onclick = () => download(fileBase() + '.csv', '\ufeff' + toCsv(false), 'text/csv');
+    if ($('#dlJson')) $('#dlJson').onclick = () => download('sauvegarde_analyste_umoa.json', JSON.stringify({ banks:state.banks, cur:state.cur, params:state.params }, null, 1), 'application/json');
   }
 }
 $('#tabs').addEventListener('click', e => { const b = e.target.closest('[data-tab]'); if (!b) return; state.tab = b.dataset.tab; state.yi = 99; save(); renderAll(); window.scrollTo(0, 0); });
