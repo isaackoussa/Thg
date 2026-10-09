@@ -4,7 +4,7 @@ Document de référence validé avant le développement. Toute évolution de l'a
 
 ## 1. Objectif
 
-Une app web (iPhone et ordinateur, sans installation) qui analyse les états financiers d'une banque de l'UEMOA sur **3 exercices (N-2, N-1, N)**.
+Une app web (iPhone et ordinateur, sans installation) qui analyse les états financiers d'une banque de l'UEMOA sur **autant d'exercices que voulu** (ajout ou retrait libre), avec une **période d'analyse au choix** (du … au …).
 L'utilisateur saisit les données, l'app calcule tout, **montre les formules** et donne une première interprétation.
 
 Chaque indicateur est affiché en 4 temps :
@@ -140,6 +140,9 @@ Valeurs par défaut issues du dispositif prudentiel UMOA (Bâle II/III, BCEAO). 
 - Formules rendues en notation mathématique
 - Chaque formule vit à un seul endroit du code, ce qui garantit que la formule affichée et le calcul effectué sont identiques
 - Code versionné dans ce dépôt
+
+## 6 bis. Traduction en R
+L'onglet « Code R » génère un script R de base (sans package) à partir des mêmes arbres de formules que l'app : données, paramètres, grandeurs intermédiaires, indicateurs, conformité aux seuils et graphiques. Le script est vérifié : il produit les mêmes valeurs que l'app.
 
 ## 7. Livraison par étapes
 1. Cœur : saisie manuelle et modules 1 à 4 avec formules, graphiques et interprétations

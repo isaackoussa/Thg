@@ -62,6 +62,8 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .ctrls label { display: flex; flex-direction: column; font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-3); gap: 2px; }
 select, input[type="text"], input[type="number"], textarea { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; }
 .ctrls select { min-width: 0; max-width: 46vw; }
+#bankSel { max-width: 60vw; }
+@media (max-width: 700px) { .top { position: static; } }
 .tabs { display: flex; gap: 2px; overflow-x: auto; scrollbar-width: none; margin: 0 -16px; padding: 0 16px; }
 .tabs::-webkit-scrollbar { display: none; }
 .tab { background: none; border: 0; border-bottom: 3px solid transparent; padding: 8px 10px 9px; font-weight: 600; color: var(--ink-2); white-space: nowrap; cursor: pointer; font-size: 0.92rem; }
@@ -88,7 +90,7 @@ main { max-width: 1180px; margin: 0 auto; padding: 18px 16px 60px; display: grid
 .st-warn { color: var(--warn); background: var(--warn-bg); }
 .st-bad { color: var(--bad); background: var(--bad-bg); }
 .st-na, .st-info { color: var(--na); background: var(--na-bg); }
-.results { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.results { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(92px, 1fr); border: 1px solid var(--line); border-radius: 8px; overflow-x: auto; }
 .res { padding: 8px 10px; display: grid; gap: 1px; border-left: 1px solid var(--line); }
 .res:first-child { border-left: 0; }
 .res .y { font-size: 0.72rem; color: var(--ink-3); font-weight: 600; letter-spacing: 0.04em; }
@@ -157,6 +159,8 @@ td.muted { color: var(--ink-3); }
 .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .meta-grid { display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
 .meta-grid label { display: grid; gap: 3px; font-size: 0.78rem; color: var(--ink-2); font-weight: 600; }
+.yr-pill { display: inline-flex; gap: 4px; align-items: center; }
+.yr-pill input { width: 84px; }
 .confirm { background: var(--bad-bg); color: var(--bad); border-radius: 8px; padding: 10px 12px; display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
 textarea { width: 100%; min-height: 180px; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 0.82rem; }
 .banner { background: var(--accent-soft); border-radius: 10px; padding: 12px 14px; display: grid; gap: 4px; }
@@ -177,6 +181,7 @@ textarea { width: 100%; min-height: 180px; font-family: ui-monospace, Menlo, Con
 .tip { position: fixed; z-index: 50; pointer-events: none; background: var(--ink); color: var(--bg); font-size: 0.8rem; padding: 6px 9px; border-radius: 6px; max-width: 260px; box-shadow: 0 4px 14px rgba(0,0,0,.18); }
 .toast { position: fixed; bottom: calc(16px + env(safe-area-inset-bottom, 0px)); left: 50%; transform: translateX(-50%); background: var(--ink); color: var(--bg); padding: 8px 14px; border-radius: 8px; font-weight: 600; z-index: 60; }
 .method-list { display: grid; gap: 10px; }
+.rcode { margin: 0; background: var(--surface-2); border-radius: 8px; padding: 10px 12px; overflow-x: auto; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 0.78rem; line-height: 1.5; white-space: pre; max-height: 70vh; }
 .method-item { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; display: grid; gap: 4px; overflow-x: auto; }
 @media (prefers-reduced-motion: no-preference) { .card, .tile { transition: border-color .15s; } }
 </style>
@@ -193,7 +198,9 @@ textarea { width: 100%; min-height: 180px; font-family: ui-monospace, Menlo, Con
       </div>
       <div class="ctrls">
         <label for="bankSel">Banque<select id="bankSel"></select></label>
-        <label for="yearSel">Formules détaillées<select id="yearSel"></select></label>
+        <label for="fromSel">Période : du<select id="fromSel"></select></label>
+        <label for="toSel">au<select id="toSel"></select></label>
+        <label for="yearSel">Année détaillée<select id="yearSel"></select></label>
       </div>
     </div>
     <nav class="tabs" id="tabs" role="tablist"></nav>
@@ -340,6 +347,14 @@ const SAMPLE = {
    4. ÉTAT & STOCKAGE LOCAL
    ===================================================================== */
 const LS_KEY = 'umoa-analyste-v1';
+function normBank(b) {
+  b.years = (b.years || []).map(Number);
+  b.v = b.v || {};
+  Object.keys(b.v).forEach(k => { const a = b.v[k] || []; b.v[k] = b.years.map((_, i) => (typeof a[i] === 'number' && Number.isFinite(a[i])) ? a[i] : null); });
+  const order = b.years.map((y, i) => [y, i]).sort((x, z) => x[0] - z[0]).map(x => x[1]);
+  if (order.some((o, i) => o !== i)) { b.years = order.map(i => b.years[i]); Object.keys(b.v).forEach(k => { b.v[k] = order.map(i => b.v[k][i]); }); }
+  return b;
+}
 const clone = o => JSON.parse(JSON.stringify(o));
 function loadState() {
   let s = null;
@@ -349,13 +364,32 @@ function loadState() {
   s.base = s.base || 'fin';
   s.tab = s.tab || 'synthese';
   if (!s.banks[s.cur]) s.cur = Object.keys(s.banks)[0];
+  Object.values(s.banks).forEach(normBank);
   return s;
 }
 const state = loadState();
-state.yi = 2;
+state.yi = 99;
 function save() { try { localStorage.setItem(LS_KEY, JSON.stringify({ banks:state.banks, cur:state.cur, params:state.params, base:state.base, tab:state.tab })); } catch (e) {} }
 const bank = () => state.banks[state.cur];
-const Y = () => bank().years;
+/* Période analysée : sous-ensemble contigu des exercices saisis (Saisie et Import travaillent toujours sur tous les exercices) */
+function rng() {
+  const b = bank(), n = b.years.length;
+  if (state.tab === 'saisie' || state.tab === 'import' || !b.range) return [0, n - 1];
+  let a = b.years.indexOf(b.range[0]), z = b.years.indexOf(b.range[1]);
+  if (a < 0) a = 0; if (z < 0) z = n - 1; if (a > z) [a, z] = [z, a];
+  return [a, z];
+}
+const OFF = () => rng()[0];
+const Y = () => { const [a, z] = rng(); return bank().years.slice(a, z + 1); };
+const yearAt = y => bank().years[y + OFF()];
+function addYear(b, yr) {
+  if (b.years.includes(yr)) return false;
+  let pos = b.years.findIndex(y => y > yr); if (pos < 0) pos = b.years.length;
+  b.years.splice(pos, 0, yr);
+  Object.keys(b.v).forEach(k => b.v[k].splice(pos, 0, null));
+  return true;
+}
+function removeYear(b, i) { b.years.splice(i, 1); Object.keys(b.v).forEach(k => b.v[k].splice(i, 1)); if (b.range && !b.years.includes(b.range[0]) || b.range && !b.years.includes(b.range[1])) delete b.range; }
 
 /* =====================================================================
    5. NOMBRES
@@ -413,7 +447,7 @@ const ZERO_OK = new Set();
 function raw(k, y) {
   const a = bank().v[k];
   if (!a) return null;
-  const x = a[y];
+  const x = a[y + OFF()];
   return fin(x) ? x : null;
 }
 function newCtx() { return { miss:new Set(), notes:new Set(), decl:new Set(), est:new Set() }; }
@@ -423,7 +457,7 @@ function ev(n, y, ctx) {
   switch (n.t) {
     case 'v': {
       const yy = y + n.off;
-      if (yy < 0) { ctx.notes.add('Exercice précédent indisponible pour ' + Y()[y]); return NaN; }
+      if (yy + OFF() < 0) { ctx.notes.add('Exercice précédent indisponible pour ' + yearAt(y)); return NaN; }
       const x = raw(n.k, yy);
       if (x === null) { ctx.miss.add(n.k); return NaN; }
       return x;
@@ -436,7 +470,7 @@ function ev(n, y, ctx) {
     case '/': { const a = ev(n.a[0], y, ctx), b = ev(n.a[1], y, ctx); return b === 0 ? NaN : a / b; }
     case 'm3': {
       const vals = [];
-      for (let k = 0; k < 3; k++) { if (y - k < 0) break; const c2 = newCtx(); const v = ev(shift(n.x, -k), y, c2); if (fin(v) && v > 0) vals.push(v); else if (k === 0) mergeCtx(ctx, c2); }
+      for (let k = 0; k < 3; k++) { if (y - k + OFF() < 0) break; const c2 = newCtx(); const v = ev(shift(n.x, -k), y, c2); if (fin(v) && v > 0) vals.push(v); else if (k === 0) mergeCtx(ctx, c2); }
       return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : NaN;
     }
   }
@@ -444,7 +478,7 @@ function ev(n, y, ctx) {
 }
 function evQ(id, y, ctx) {
   const q = QTY[id];
-  if (y < 0) { ctx.notes.add('Exercice précédent indisponible'); return NaN; }
+  if (y + OFF() < 0) { ctx.notes.add('Exercice précédent indisponible'); return NaN; }
   if (q.decl && raw(q.decl, y) !== null) { ctx.decl.add(id); return raw(q.decl, y); }
   if (q.decl) ctx.est.add(id);
   const c1 = newCtx();
@@ -467,8 +501,8 @@ function R(n, mode, y) {
     case 'v': {
       const lab = (SHORT[n.k] || F[n.k].l) + (n.off ? ' <sub>N' + n.off + '</sub>' : '');
       if (mode === 'sym') return '<span title="' + esc(F[n.k].l) + '">' + lab + '</span>';
-      const x = (y + n.off >= 0) ? raw(n.k, y + n.off) : null;
-      return x === null ? '<span class="miss">?</span>' : '<span class="v-num" data-tip="' + esc(F[n.k].l + ' ' + (Y()[y + n.off] || '')) + '">' + (x < 0 ? '(' + fmtM(x) + ')' : fmtM(x)) + '</span>';
+      const x = (y + n.off + OFF() >= 0) ? raw(n.k, y + n.off) : null;
+      return x === null ? '<span class="miss">?</span>' : '<span class="v-num" data-tip="' + esc(F[n.k].l + ' ' + (yearAt(y + n.off) || '')) + '">' + (x < 0 ? '(' + fmtM(x) + ')' : fmtM(x)) + '</span>';
     }
     case 'c': return n.lbl || nf(n.v % 1 ? 1 : 0).format(n.v);
     case 'p': {
@@ -479,8 +513,8 @@ function R(n, mode, y) {
       const q = QTY[n.id];
       const lab = '<span class="q">' + q.n + '</span>' + (n.off ? ' <sub>N' + n.off + '</sub>' : '');
       if (mode === 'sym') return '<span data-tip="' + esc(q.long || q.n) + '">' + lab + '</span>';
-      const v = (y + n.off >= 0) ? qv(n.id, y + n.off) : NaN;
-      return '<span class="v-num" data-tip="' + esc((q.long || q.n) + ' ' + (Y()[y + n.off] || '')) + '">' + (fin(v) ? (v < 0 ? '(' + fmtM(v) + ')' : fmtM(v)) : '<span class="miss">?</span>') + '</span>';
+      const v = (y + n.off + OFF() >= 0) ? qv(n.id, y + n.off) : NaN;
+      return '<span class="v-num" data-tip="' + esc((q.long || q.n) + ' ' + (yearAt(y + n.off) || '')) + '">' + (fin(v) ? (v < 0 ? '(' + fmtM(v) + ')' : fmtM(v)) : '<span class="miss">?</span>') + '</span>';
     }
     case 's': return n.a.map(([sg, x], i) => (i === 0 ? (sg < 0 ? '− ' : '') : (sg < 0 ? ' − ' : ' + ')) + wrapIf(x, R(x, mode, y))).join('');
     case '*': return n.a.map(x => wrapIf(x, R(x, mode, y))).join(' × ');
@@ -488,7 +522,7 @@ function R(n, mode, y) {
     case 'm3': {
       if (mode === 'sym') return 'moyenne<sub>3 ans</sub>(' + R(n.x, mode, y) + ' &gt; 0)';
       const parts = [];
-      for (let k = 2; k >= 0; k--) if (y - k >= 0) { const v = val(shift(n.x, -k), y); parts.push(fin(v) ? fmtM(v) : '?'); }
+      for (let k = 2; k >= 0; k--) if (y - k + OFF() >= 0) { const v = val(shift(n.x, -k), y); parts.push(fin(v) ? fmtM(v) : '?'); }
       return 'moy(' + parts.join(' ; ') + ')';
     }
   }
@@ -632,10 +666,10 @@ function interpret(ind, vals) {
   const fmtD = (a, b) => f === 'pct' ? fmtPts(b - a) : f === 'x' ? (b - a >= 0 ? '+' : '−') + nf(2).format(Math.abs(b - a)) : fmtSigned(b - a) + ' M';
   if (first !== last) {
     let s = 'Passe de <b>' + fmtBy(f, vals[first]) + '</b> en ' + yrs[first] + ' à <b>' + fmtBy(f, vals[last]) + '</b> en ' + yrs[last] + ' (' + fmtD(vals[first], vals[last]) + ')';
-    if (idx.length === 3) {
-      const d1 = vals[1] - vals[0], d2 = vals[2] - vals[1];
+    if (idx.length >= 3) {
       const w = d => d > 0 ? 'hausse' : d < 0 ? 'baisse' : 'stabilité';
-      s += w(d1) === w(d2) ? ', ' + w(d1) + ' continue sur la période' : ', avec une ' + w(d1) + ' en ' + yrs[1] + ' puis une ' + w(d2) + ' en ' + yrs[2];
+      const steps = idx.slice(1).map((i, j) => [w(vals[i] - vals[idx[j]]), yrs[i]]);
+      s += steps.every(x => x[0] === steps[0][0]) ? ', ' + steps[0][0] + ' continue sur la période' : ', avec ' + steps.map(([d, yr]) => 'une ' + d + ' en ' + yr).join(', ').replace(/, (?=[^,]*$)/, ' puis ');
     }
     out.push(s + '.');
     const rel = Math.abs(vals[last] - vals[first]) / (Math.abs(vals[first]) || 1);
@@ -682,7 +716,7 @@ function barChart(ind, vals) {
   if (hi === lo) hi = lo + 1;
   hi += (hi - lo) * 0.12;
   const sy = v => pt + (hi - v) / (hi - lo) * (H - pt - pb);
-  const n = vals.length, bw = 54, gap = (W - pl - pr - n * bw) / (n + 1);
+  const n = vals.length, bw = Math.min(54, (W - pl - pr) / n * 0.62), gap = (W - pl - pr - n * bw) / (n + 1);
   let g = '<line x1="' + pl + '" x2="' + (W - pr) + '" y1="' + sy(0) + '" y2="' + sy(0) + '" style="stroke:var(--line)" stroke-width="1"/>';
   vals.forEach((v, i) => {
     const x = pl + gap + i * (bw + gap);
@@ -696,7 +730,7 @@ function barChart(ind, vals) {
       g += '<path d="' + d + '" style="fill:var(' + (i === state.yi ? '--s1' : '--s1-soft') + ')" data-tip="' + Y()[i] + ' : ' + esc(fmtBy(f, v)) + '"/>';
       g += '<rect x="' + (x - gap / 2) + '" y="' + pt + '" width="' + (bw + gap) + '" height="' + (H - pt - pb) + '" style="fill:transparent" data-tip="' + Y()[i] + ' : ' + esc(fmtBy(f, v)) + '"/>';
     }
-    g += '<text x="' + (x + bw / 2) + '" y="' + (H - 6) + '" text-anchor="middle" font-size="11" style="fill:var(--ink-3)">' + Y()[i] + '</text>';
+    g += '<text x="' + (x + bw / 2) + '" y="' + (H - 6) + '" text-anchor="middle" font-size="' + (n > 6 ? 9 : 11) + '" style="fill:var(--ink-3)">' + Y()[i] + '</text>';
   });
   if (thr != null && f === 'pct') {
     const ty = sy(thr);
@@ -763,7 +797,8 @@ function card(ind) {
   if (missing.length) html += '<p class="miss">Données manquantes pour ' + yrs[y] + ' : ' + missing.join(', ') + '. Complète-les dans Saisie.</p>';
   if (c.notes.size) html += '<p class="note">' + [...c.notes].map(esc).join(' · ') + '</p>';
   if (anyVal) html += barChart(ind, vals) + '<p class="interp">' + interpret(ind, vals) + '</p>';
-  html += '<details><summary>Ce que mesure cet indicateur</summary><div><p>' + ind.about + '</p>' + (ind.thr ? '<p>Seuil retenu : ' + (ind.thr.dir === 'min' ? 'minimum ' : 'maximum ') + fmtP(thrVal(ind), 1) + ' (' + esc(PARAMS.find(p => p.k === ind.thr.k).src) + '). Modifiable dans Paramètres.</p>' : '') + subFormulas(node) + '</div></details>';
+  html += '<details><summary>Ce que mesure cet indicateur</summary><div><p>' + ind.about + '</p>' + (ind.thr ? '<p>Seuil retenu : ' + (ind.thr.dir === 'min' ? 'minimum ' : 'maximum ') + fmtP(thrVal(ind), 1) + ' (' + esc(PARAMS.find(p => p.k === ind.thr.k).src) + '). Modifiable dans Paramètres.</p>' : '') + subFormulas(node) + '</div></details>'
+    + '<details><summary>Formule en R</summary><div><pre class="rcode">' + esc(rIndLine(ind)) + '</pre><span class="note">Les grandeurs utilisées et les données sont définies dans le script complet (onglet Code R).</span></div></details>';
   return html + '</article>';
 }
 function collectVars(n, acc = []) {
@@ -792,7 +827,7 @@ function subFormulas(node) {
    12. VUES
    ===================================================================== */
 const TABS = [
-  ['synthese','Synthèse'], ['saisie','Saisie'], ['dynamique','Dynamique'], ['structure','Ratios de structure'], ['renta','Rentabilité'], ['faillite','Faillite'], ['bale','Bâle III'], ['import','Import'], ['params','Paramètres'], ['methode','Formules']
+  ['synthese','Synthèse'], ['saisie','Saisie'], ['dynamique','Dynamique'], ['structure','Ratios de structure'], ['renta','Rentabilité'], ['faillite','Faillite'], ['bale','Bâle III'], ['import','Import'], ['params','Paramètres'], ['methode','Formules'], ['r','Code R']
 ];
 const $ = s => document.querySelector(s);
 const view = $('#view');
@@ -810,7 +845,7 @@ function vSynthese() {
     const st = ind ? status(ind, v) : null;
     const d = fin(v) && fin(prev) ? (f === 'm' ? (prev ? fmtP((v - prev) / Math.abs(prev), 1).replace(/^(?!−)/, '+') : '') : f === 'x' ? '' : fmtPts(v - prev)) : '';
     return '<button class="tile" data-go="' + tab + '"><span class="k">' + label + '</span><span class="v">' + (f === 'm' ? fmtM(v) : fmtBy(f, v)) + '</span>'
-      + '<span class="d">' + (d ? d + ' vs ' + yrs[n - 1] : (f === 'm' ? 'M FCFA' : '&nbsp;')) + '</span>' + (st && st !== 'info' ? chip(ind, st) : '') + '</button>';
+      + '<span class="d">' + (d ? d + ' vs ' + yearAt(n - 1) : (f === 'm' ? 'M FCFA' : '&nbsp;')) + '</span>' + (st && st !== 'info' ? chip(ind, st) : '') + '</button>';
   };
   const qq = id => [qv(id, n), qv(id, n - 1)];
   const ii = id => { const s = series(I[id]); return [s[n], s[n - 1]]; };
@@ -841,7 +876,7 @@ function vSynthese() {
     else if (st === 'ok') good.push(txt + (better ? ', en amélioration.' : '.'));
   });
   const cp = qv('CP', n), cp0 = qv('CP', 0);
-  if (fin(cp) && fin(cp0) && cp > cp0) good.push('<b>Capitaux propres</b> en hausse de ' + fmtM(cp0) + ' à ' + fmtM(cp) + ' M sur la période.');
+  if (n > 0 && fin(cp) && fin(cp0) && cp > cp0) good.push('<b>Capitaux propres</b> en hausse de ' + fmtM(cp0) + ' à ' + fmtM(cp) + ' M sur la période ' + yrs[0] + '-' + yrs[n] + '.');
   const ran = raw('P9f', n);
   if (ran !== null && ran < 0) watch.push('<b>Report à nouveau négatif</b> (' + fmtM(ran) + ' M) : pertes antérieures non encore apurées.');
   const cap0 = raw('P9a', n - 1), cap1 = raw('P9a', n);
@@ -856,8 +891,8 @@ function completeness() {
   const out = [];
   ['actif','passif','cp','hb','cr'].forEach(s => {
     const ks = FIELDS.filter(f => f.s === s).map(f => f.k);
-    Y().forEach((yr, y) => {});
-    const filled = ks.reduce((a, k) => a + Y().filter((_, y) => raw(k, y) !== null).length, 0), tot = ks.length * Y().length;
+    const b = bank();
+    const filled = ks.reduce((a, k) => a + b.years.filter((_, i) => b.v[k] && fin(b.v[k][i])).length, 0), tot = ks.length * b.years.length;
     const st = filled === tot ? 'ok' : filled === 0 ? 'bad' : 'warn';
     out.push('<div class="check"><span class="chip st-' + st + '"><i>' + ST_LABEL[st][0] + '</i>' + filled + '/' + tot + '</span><span>' + SECTIONS[s] + (st !== 'ok' ? ' : <a href="#" data-go="saisie">compléter</a>' : '') + '</span></div>');
   });
@@ -873,8 +908,12 @@ function vSaisie() {
     + '<label>Nom<input type="text" id="m-name" value="' + esc(b.name) + '"></label>'
     + '<label>Pays<input type="text" id="m-country" value="' + esc(b.country || '') + '"></label>'
     + '<label>Unité<input type="text" id="m-unit" value="' + esc(b.unit) + '"></label>'
-    + yrs.map((yr, i) => '<label>Exercice ' + (i + 1) + '<input type="number" id="m-y' + i + '" value="' + yr + '"></label>').join('')
-    + '</div><div id="confirmBox" style="padding:0 12px 12px"></div></div>';
+    + '</div>'
+    + '<div style="padding:0 12px 12px;display:grid;gap:8px"><span class="eyebrow">Exercices saisis (' + yrs.length + ')</span><div class="row">'
+    + yrs.map((yr, i) => '<span class="yr-pill"><input type="number" id="m-y' + i + '" value="' + yr + '" aria-label="Exercice ' + (i + 1) + '"><button class="btn sm" data-rmy="' + i + '" aria-label="Retirer ' + yr + '"' + (yrs.length < 2 ? ' disabled' : '') + '>✕</button></span>').join('')
+    + '</div><div class="row"><button class="btn sm" id="yPrev">+ Exercice ' + (yrs[0] - 1) + '</button><button class="btn sm" id="yNext">+ Exercice ' + (yrs[yrs.length - 1] + 1) + '</button><label class="row note" for="yAny">Autre : <input type="number" id="yAny" placeholder="ex. 2015" style="width:100px"></label><button class="btn sm" id="yAnyBtn">Ajouter</button></div>'
+    + '<p class="note">Saisis autant d’exercices que tu veux, consécutifs ou non. Choisis ensuite la période à analyser dans l’en-tête (du … au …).</p></div>'
+    + '<div id="confirmBox" style="padding:0 12px 12px"></div></div>';
   h += '<div class="card"><h3>Contrôles de cohérence</h3><div class="checks" id="checks"></div></div>';
   const calcRows = { actif:[['TA','Total de l’actif']], passif:[], cp:[['CP','Capitaux propres et ressources assimilées'],['TP','Total du passif']], hb:[], cr:[] };
   const crCalc = { R2:['MI',"Marge d'intérêts"], R9:['PNB','Produit net bancaire'], R12:['RBE',"Résultat brut d'exploitation"], R13:['RE',"Résultat d'exploitation"], R14:['RAI','Résultat avant impôt'], R15:['RNCR','Résultat net'] };
@@ -932,7 +971,8 @@ function dynTable(kind) {
       h += '<td class="' + (fin(d) ? '' : 'muted') + '">' + (fin(d) ? fmtSigned(d) : '—') + '</td><td class="' + cls + '">' + (fin(p) ? (p >= 0 ? '+' : '') + fmtP(p, 1) : '—') + '</td>';
     }
     const a = v[0], z = v[n - 1];
-    const t = fin(a) && fin(z) && a > 0 && z > 0 ? Math.pow(z / a, 1 / (n - 1)) - 1 : NaN;
+    const gapY = yrs[n - 1] - yrs[0];
+    const t = gapY > 0 && fin(a) && fin(z) && a > 0 && z > 0 ? Math.pow(z / a, 1 / gapY) - 1 : NaN;
     const den = qv(denomQ, n - 1);
     h += '<td>' + (fin(t) ? fmtP(t, 1) : '—') + '</td><td class="muted">' + (fin(z) && fin(den) && den ? fmtP(z / den, 1) : '—') + '</td></tr>';
   });
@@ -940,6 +980,7 @@ function dynTable(kind) {
 }
 function highlights(kind) {
   const yrs = Y(), n = yrs.length - 1;
+  if (n < 1) return '';
   const rows = dynRows(kind).filter(r => r.k && !r.sub).map(r => { const v = rowVals(r); return { r, d: v[n] - v[n - 1], p: v[n - 1] ? (v[n] - v[n - 1]) / Math.abs(v[n - 1]) : NaN, v }; }).filter(x => fin(x.d) && x.d !== 0);
   rows.sort((a, b) => Math.abs(b.d) - Math.abs(a.d));
   if (!rows.length) return '';
@@ -954,11 +995,12 @@ function vDynamique() {
   let h = head('Analyse horizontale & verticale', 'Dynamique du bilan et du compte de résultat', 'Pour chaque poste : variation en valeur, taux de variation, taux de croissance annuel moyen (TCAM) et poids dans le total. Les variations d’au moins 10 % sont colorées.');
   h += exampleBanner();
   const ta = qv('TA', y), ta0 = qv('TA', y - 1);
-  const tcamA = qv('TA', 0), tcamZ = qv('TA', n - 1);
-  h += '<div class="card"><h3>Formules utilisées</h3><div class="formula">'
+  const tcamA = qv('TA', 0), tcamZ = qv('TA', n - 1), gY = yrs[n - 1] - yrs[0];
+  if (n < 2) h += '<div class="banner warn">Choisis une période d’au moins deux exercices pour voir les variations.</div>';
+  else h += '<div class="card"><h3>Formules utilisées</h3><div class="formula">'
     + '<div class="f-line"><span class="lbl">Variation absolue (exemple : total actif ' + yrs[y] + ')</span>ΔX = X<sub>N</sub> − X<sub>N−1</sub> = ' + fmtM(ta) + ' − ' + fmtM(ta0) + ' <span class="f-res">= ' + fmtSigned(ta - ta0) + '</span></div>'
     + '<div class="f-line"><span class="lbl">Taux de variation</span>ΔX % = <span class="frac"><span class="n">X<sub>N</sub> − X<sub>N−1</sub></span><span class="d">X<sub>N−1</sub></span></span> = <span class="frac"><span class="n">' + fmtSigned(ta - ta0) + '</span><span class="d">' + fmtM(ta0) + '</span></span> <span class="f-res">= ' + fmtP((ta - ta0) / ta0, 1) + '</span></div>'
-    + '<div class="f-line"><span class="lbl">Taux de croissance annuel moyen sur ' + (n - 1) + ' ans</span>TCAM = (<span class="frac"><span class="n">X<sub>' + yrs[n - 1] + '</sub></span><span class="d">X<sub>' + yrs[0] + '</sub></span></span>)<sup>1/' + (n - 1) + '</sup> − 1 = (<span class="frac"><span class="n">' + fmtM(tcamZ) + '</span><span class="d">' + fmtM(tcamA) + '</span></span>)<sup>1/' + (n - 1) + '</sup> − 1 <span class="f-res">= ' + fmtP(Math.pow(tcamZ / tcamA, 1 / (n - 1)) - 1, 1) + '</span></div>'
+    + '<div class="f-line"><span class="lbl">Taux de croissance annuel moyen sur ' + gY + ' an(s)</span>TCAM = (<span class="frac"><span class="n">X<sub>' + yrs[n - 1] + '</sub></span><span class="d">X<sub>' + yrs[0] + '</sub></span></span>)<sup>1/' + gY + '</sup> − 1 = (<span class="frac"><span class="n">' + fmtM(tcamZ) + '</span><span class="d">' + fmtM(tcamA) + '</span></span>)<sup>1/' + gY + '</sup> − 1 <span class="f-res">= ' + fmtP(Math.pow(tcamZ / tcamA, 1 / gY) - 1, 1) + '</span></div>'
     + '<div class="f-line"><span class="lbl">Poids (structure)</span>Poids = <span class="frac"><span class="n">Poste</span><span class="d">Total actif (bilan) ou PNB (compte de résultat)</span></span></div>'
     + '</div></div>';
   h += '<div class="grid2"><div class="card"><h3>Structure de l’actif</h3>' + stackChart('actif') + highlights('actif') + '</div><div class="card"><h3>Structure du passif</h3>' + stackChart('passif') + highlights('passif') + '</div></div>';
@@ -1140,14 +1182,16 @@ function parseImport(text) {
       label = labCells.join(' '); nums = numCells;
     } else {
       const toks = line.trim().split(/\s+/);
+      if (toks.length && toks.every(t => /^(19|20)\d\d$/.test(t))) { out.years = toks.map(Number); return; }
       let i = toks.length;
       while (i > 0 && /^[-−(]?\d+[,.]?\d*\)?$/.test(toks[i - 1])) i--;
       label = toks.slice(0, i).join(' ');
       const numToks = toks.slice(i);
-      nums = numToks.length ? (splitNumbers(numToks, Math.min(yrs.length, numToks.length)) || splitNumbers(numToks, Math.min(numToks.length, 2)) || splitNumbers(numToks, 1) || []) : [];
+      const want = (out.years || yrs).length;
+      nums = numToks.length ? (splitNumbers(numToks, Math.min(want, numToks.length)) || splitNumbers(numToks, Math.min(numToks.length, 2)) || splitNumbers(numToks, 1) || []) : [];
     }
     const L = norm(label);
-    if (!L && nums.length === yrs.length && nums.every(v => v >= 1990 && v <= 2100)) { out.years = nums; return; }
+    if (nums.length && nums.every(v => Number.isInteger(v) && v >= 1990 && v <= 2100) && (!L || /^(CODE|POSTE|LIBELLE|ANNEE|EXERCICE|RUBRIQUE)/.test(L))) { out.years = nums; return; }
     if (/^PASSIF\b/.test(L) || /TOTAL DE L ACTIF/.test(L)) sec = 'passif';
     if (/^HORS BILAN/.test(L)) sec = 'hb';
     if (/^ENGAGEMENTS DONNES/.test(L)) hb = 'donnes';
@@ -1165,8 +1209,9 @@ function parseImport(text) {
       }
     }
     if (!hit) { out.unknown.push(line.trim()); return; }
-    if (hit.chk) { if (hit.chk !== 'skip') out.chk[hit.chk] = nums.slice(-yrs.length); return; }
-    out.vals[hit.k] = nums.slice(-yrs.length);
+    const nk = (out.years || yrs).length;
+    if (hit.chk) { if (hit.chk !== 'skip') out.chk[hit.chk] = nums.slice(-nk); return; }
+    out.vals[hit.k] = nums.slice(-nk);
     if (F[hit.k].s === 'cp') sec = 'passif';
   });
   // Coût du risque, gains sur immobilisations et impôt : déduits des soldes si le fascicule les fournit (évite les erreurs de signe)
@@ -1178,7 +1223,7 @@ function previewImport(res) {
   const el = $('#impPreview');
   if (res.json) { el.innerHTML = '<div class="banner"><b>Sauvegarde complète détectée</b> (' + Object.keys(res.json.banks).length + ' banque(s)).<div class="row"><button class="btn pri" id="impApplyJson">Remplacer toutes mes données</button></div></div>'; $('#impApplyJson').onclick = () => { state.banks = res.json.banks; state.cur = res.json.cur || Object.keys(state.banks)[0]; if (res.json.params) state.params = Object.assign({}, DEFAULT_PARAMS, res.json.params); save(); toast('Sauvegarde restaurée'); renderAll(); }; return; }
   if (res.bankJson) { el.innerHTML = '<div class="banner"><b>Banque détectée : ' + esc(res.bankJson.name || '?') + '</b><div class="row"><button class="btn pri" id="impApplyBank">Ajouter comme nouvelle banque</button></div></div>'; $('#impApplyBank').onclick = () => { const id = 'b' + Date.now(); state.banks[id] = Object.assign({ unit:'millions FCFA', years:[2021,2022,2023] }, res.bankJson, { id, example:false }); state.cur = id; save(); toast('Banque ajoutée'); renderAll(); }; return; }
-  const keys = Object.keys(res.vals), yrs = res.years || Y();
+  const keys = Object.keys(res.vals), yrs = res.years || Y().slice(-Math.max(1, ...Object.values(res.vals).map(a => a.length)));
   let h = '<h3 style="margin-top:12px">Aperçu : ' + keys.length + ' poste(s) reconnu(s)</h3>';
   if (res.years) h += '<p class="note">Exercices détectés : ' + res.years.join(', ') + '</p>';
   if (keys.length) {
@@ -1191,13 +1236,19 @@ function previewImport(res) {
   if (keys.length) h += '<div class="row" style="margin-top:8px"><button class="btn pri" id="impApply">Appliquer à « ' + esc(bank().name) + ' »</button><button class="btn" id="impApplyNew">Créer une nouvelle banque</button></div>';
   el.innerHTML = h;
   const apply = target => {
-    keys.forEach(k => { target.v[k] = Y().map((_, i) => res.vals[k][i] ?? null); });
-    if (res.years) target.years = res.years.slice(0, 3);
+    if (res.years) res.years.forEach(yr => addYear(target, yr));
+    keys.forEach(k => {
+      const arr = res.vals[k];
+      target.v[k] = target.v[k] || target.years.map(() => null);
+      const ys = res.years ? res.years.slice(-arr.length) : target.years.slice(-arr.length);
+      ys.forEach((yr, j) => { const i = target.years.indexOf(yr); if (i >= 0) target.v[k][i] = arr[j]; });
+    });
+    delete target.range;
     target.example = false; save(); toast(keys.length + ' poste(s) importé(s)'); state.tab = 'saisie'; renderAll();
-    if (res.chk.PNB) setTimeout(() => { const ok = Y().every((_, y) => !fin(qv('PNB', y)) || Math.abs(qv('PNB', y) - res.chk.PNB[y]) < 1); if (!ok) toast('Attention : le PNB recalculé diffère du PNB lu'); }, 300);
+    if (res.chk.PNB) setTimeout(() => { const ys = (res.years || Y()).slice(-res.chk.PNB.length); const ok = ys.every((yr, j) => { const y = Y().indexOf(yr); const v = y >= 0 ? qv('PNB', y) : NaN; return !fin(v) || Math.abs(v - res.chk.PNB[j]) < 1; }); if (!ok) toast('Attention : le PNB recalculé diffère du PNB lu'); }, 300);
   };
   if ($('#impApply')) $('#impApply').onclick = () => apply(bank());
-  if ($('#impApplyNew')) $('#impApplyNew').onclick = () => { const id = 'b' + Date.now(); state.banks[id] = { id, name:'Nouvelle banque importée', country:'', unit:'millions FCFA', years:Y().slice(), v:{} }; state.cur = id; apply(state.banks[id]); };
+  if ($('#impApplyNew')) $('#impApplyNew').onclick = () => { const id = 'b' + Date.now(); state.banks[id] = { id, name:'Nouvelle banque importée', country:'', unit:'millions FCFA', years:(res.years || Y()).slice(), v:{} }; state.cur = id; apply(state.banks[id]); };
 }
 function toCsv(tpl) {
   const b = bank();
@@ -1223,19 +1274,156 @@ function vMethode() {
 }
 
 /* =====================================================================
+   12 bis. TRADUCTION EN R — générée depuis les mêmes arbres de formules
+   ===================================================================== */
+const rName = k => F[k].s === 'prud' ? k + '_decl' : k;
+const rLag = (x, k) => { for (let i = 0; i < k; i++) x = 'lag1(' + x + ')'; return x; };
+const rNum = v => String(Math.round(v * 1e6) / 1e6);
+function toR(n) {
+  const simple = x => /^[\w.$]+$/.test(x) || /^lag1\(.*\)$/.test(x) || /^moy_pos3\(.*\)$/.test(x);
+  switch (n.t) {
+    case 'v': return rLag(rName(n.k), -n.off);
+    case 'q': return rLag(n.id, -n.off);
+    case 'c': return rNum(n.v);
+    case 'p': return 'p$' + n.k;
+    case 's': { const t = n.a.map(([sg, x], i) => (i === 0 ? (sg < 0 ? '-' : '') : (sg < 0 ? ' - ' : ' + ')) + toR(x)).join(''); return n.a.length > 1 ? '(' + t + ')' : t; }
+    case '*': return n.a.map(toR).join(' * ');
+    case '/': { const a = toR(n.a[0]), b = toR(n.a[1]); return (simple(a) || a[0] === '(' && a.endsWith(')') ? a : '(' + a + ')') + ' / ' + (simple(b) || b[0] === '(' && b.endsWith(')') ? b : '(' + b + ')'); }
+    case 'm3': return 'moy_pos3(' + toR(n.x) + ')';
+  }
+  return 'NA';
+}
+const stripOuter = x => (x[0] === '(' && x.endsWith(')') && balanced(x.slice(1, -1))) ? x.slice(1, -1) : x;
+function balanced(x) { let d = 0; for (const c of x) { if (c === '(') d++; if (c === ')') { d--; if (d < 0) return false; } } return d === 0; }
+function rQtyExpr(id) {
+  const q = QTY[id];
+  let e = stripOuter(toR(q.node));
+  if (q.alt) e = 'si_absent(' + e + ', ' + stripOuter(toR(q.alt)) + ')';
+  if (q.decl) e = 'si_absent(' + rName(q.decl) + ', ' + e + ')';
+  return e;
+}
+function qtyOrder() {
+  const seen = new Set(), out = [];
+  const visit = id => { if (seen.has(id)) return; seen.add(id); const q = QTY[id]; [q.node, q.alt].filter(Boolean).forEach(n => directQ(n).forEach(visit)); out.push(id); };
+  Object.keys(QTY).forEach(visit);
+  return out;
+}
+function directQ(n, acc = new Set()) {
+  if (n.t === 'q') acc.add(n.id);
+  if (n.a) n.a.forEach(x => directQ(Array.isArray(x) ? x[1] : x, acc));
+  if (n.x) directQ(n.x, acc);
+  return acc;
+}
+const rComment = t => t.replace(/\s+/g, ' ');
+function rIndLine(ind) { return 'd$' + ind.id + ' <- with(d, ' + stripOuter(toR(nodeOf(ind))) + ')'; }
+function rScript() {
+  const b = bank(), yrs = b.years, Yv = Y();
+  const pad = (x, n) => x + ' '.repeat(Math.max(1, n - x.length));
+  const L = [];
+  L.push('# =====================================================================');
+  L.push('# Analyse financière bancaire UMOA : ' + b.name);
+  L.push('# Script généré par Analyste Bancaire UMOA le ' + new Date().toLocaleDateString('fr-FR'));
+  L.push('# Montants en ' + b.unit + '. Les ratios sont des proportions (0.15 = 15 %).');
+  L.push('# Base des rentabilités : ' + (state.base === 'moy' ? 'moyenne N / N-1' : "fin d'exercice"));
+  L.push('# Aucun package requis (R de base).');
+  L.push('# =====================================================================', '');
+  L.push('# 0. Fonctions utilitaires');
+  L.push('lag1 <- function(x) c(NA, head(x, -1))          # valeur de l\'exercice précédent');
+  L.push('si_absent <- function(x, remplacement) ifelse(is.na(x), remplacement, x)');
+  L.push('moy_pos3 <- function(x) sapply(seq_along(x), function(i) {  # moyenne des valeurs > 0 sur 3 exercices');
+  L.push('  v <- x[max(1, i - 2):i]; v <- v[!is.na(v) & v > 0]');
+  L.push('  if (length(v)) mean(v) else NA');
+  L.push('})', '');
+  L.push('# 1. Données (NA = non saisi)');
+  L.push('d <- data.frame(');
+  const cols = ['  annee = c(' + yrs.join(', ') + ')'];
+  FIELDS.forEach(f => {
+    const arr = yrs.map((_, i) => { const x = b.v[f.k] && b.v[f.k][i]; return fin(x) ? rNum(x) : 'NA'; });
+    cols.push(pad('  ' + rName(f.k) + ' = c(' + arr.join(', ') + ')', 52) + '# ' + rComment(f.l));
+  });
+  L.push(cols.map((c, i) => i < cols.length - 1 ? c.replace(/(\))(\s+#|$)/, '),$2') : c).join('\n'));
+  L.push(')', '');
+  L.push('# 2. Paramètres (en %, convertis en proportions)');
+  L.push('p <- list(');
+  L.push(PARAMS.map((pp, i) => pad('  ' + pp.k + ' = ' + rNum(state.params[pp.k]) + (i < PARAMS.length - 1 ? ',' : ''), 30) + '# ' + rComment(pp.l)).join('\n'));
+  L.push(')');
+  L.push('p <- lapply(p, function(x) x / 100)', '');
+  L.push('# 3. Grandeurs intermédiaires');
+  qtyOrder().forEach(id => { const q = QTY[id]; L.push('# ' + rComment(q.long || q.n)); L.push('d$' + id + ' <- with(d, ' + rQtyExpr(id) + ')'); });
+  L.push('', '# 4. Indicateurs');
+  IND.forEach(ind => { L.push('# ' + rComment(ind.n) + (ind.thr ? ' (seuil ' + (ind.thr.dir === 'min' ? '>= ' : '<= ') + state.params[ind.thr.k] + ' %)' : '')); L.push(rIndLine(ind)); });
+  L.push('', '# 5. Effet de levier : décomposition de la variation du ROE');
+  L.push('d$effet_rentabilite_actifs <- with(d, (roa - lag1(roa)) * lag1(mult))');
+  L.push('d$effet_levier <- with(d, roa * (mult - lag1(mult)))', '');
+  L.push('# 6. Résultats sur la période analysée');
+  L.push('periode <- d$annee >= ' + Yv[0] + ' & d$annee <= ' + Yv[Yv.length - 1]);
+  const pct = IND.filter(i => (i.fmt || 'pct') === 'pct').map(i => i.id);
+  const oth = IND.filter(i => (i.fmt || 'pct') !== 'pct').map(i => i.id);
+  L.push('ratios_pct <- c(' + pct.map(x => '"' + x + '"').join(', ') + ')');
+  L.push('autres <- c(' + oth.map(x => '"' + x + '"').join(', ') + ')');
+  L.push('resultats <- d[periode, c("annee", ratios_pct, autres)]');
+  L.push('resultats[ratios_pct] <- round(100 * resultats[ratios_pct], 2)   # en %');
+  L.push('resultats[autres] <- round(resultats[autres], 2)');
+  L.push('tableau <- t(resultats[, -1]); colnames(tableau) <- resultats$annee');
+  L.push('print(tableau)', '');
+  L.push('# 7. Conformité aux seuils (TRUE = conforme)');
+  const th = IND.filter(i => i.thr);
+  L.push('seuils <- data.frame(');
+  L.push('  indicateur = c(' + th.map(i => '"' + i.id + '"').join(', ') + '),');
+  L.push('  seuil = unlist(p[c(' + th.map(i => '"' + i.thr.k + '"').join(', ') + ')]),');
+  L.push('  sens = c(' + th.map(i => '"' + i.thr.dir + '"').join(', ') + ')');
+  L.push(')');
+  L.push('conformite <- sapply(seq_len(nrow(seuils)), function(i) {');
+  L.push('  v <- d[[seuils$indicateur[i]]][periode]');
+  L.push('  if (seuils$sens[i] == "min") v >= seuils$seuil[i] else v <= seuils$seuil[i]');
+  L.push('})');
+  L.push('conformite <- matrix(conformite, ncol = nrow(seuils), dimnames = list(d$annee[periode], seuils$indicateur))');
+  L.push('print(t(conformite))', '');
+  L.push('# 8. Graphiques (R de base)');
+  L.push('graph <- function(var, titre, seuil = NA) {');
+  L.push('  v <- 100 * d[[var]][periode]');
+  L.push('  barplot(v, names.arg = d$annee[periode], main = titre, ylab = "%", col = "steelblue",');
+  L.push('          ylim = range(0, v, 100 * seuil, na.rm = TRUE) * 1.15)');
+  L.push('  if (!is.na(seuil)) abline(h = 100 * seuil, lty = 2)');
+  L.push('}');
+  L.push('op <- par(mfrow = c(2, 2))');
+  L.push('graph("roe", "ROE", p$rep_roe)');
+  L.push('graph("roa", "ROA", p$rep_roa)');
+  L.push('graph("transfo", "Ratio de transformation", p$rep_transfo)');
+  L.push('graph("solva", "Solvabilité globale (Bâle, estimée)", p$seuil_solva)');
+  L.push('par(op)');
+  return L.join('\n');
+}
+function vR() {
+  const code = rScript();
+  let h = head('Reproductibilité', 'Code R', 'Le script ci-dessous refait tous les calculs de l’app en R : données, paramètres, grandeurs intermédiaires, indicateurs, contrôle des seuils et graphiques. Il est généré à partir des mêmes formules que l’app, il donne donc les mêmes résultats. Il fonctionne en R de base, sans package à installer.');
+  h += '<div class="card"><h3>Comment l’utiliser</h3><ul style="margin:0;padding-left:1.1em;display:grid;gap:4px"><li>Sur ordinateur : colle le script dans RStudio, puis Ctrl + Entrée (ou « Source »).</li><li>Sur iPhone, sans installation : ouvre posit.cloud ou rdrr.io/snippets dans Safari et colle le script.</li><li>Chaque bloc commenté correspond à un onglet de l’app. Tu peux modifier une donnée ou un seuil dans les sections 1 et 2, puis relancer.</li></ul>'
+    + '<div class="row"><button class="btn pri" id="rCopy">Copier le script R</button><span class="note">' + code.split('\n').length + ' lignes · exercices ' + bank().years.join(', ') + '</span></div></div>';
+  h += '<div class="card"><h3>Exemples de traduction</h3><div class="method-list">' + ['transfo', 'roe', 'solva', 'pnbc'].map(id => { const ind = I[id]; return '<div class="method-item"><b>' + ind.n + '</b><div class="f-line">' + R(nodeOf(ind), 'sym') + '</div><pre class="rcode">' + esc(rIndLine(ind)) + '</pre></div>'; }).join('') + '</div></div>';
+  h += '<div class="card"><h3>Script complet</h3><pre class="rcode" id="rOut">' + esc(code) + '</pre></div>';
+  return h;
+}
+
+/* =====================================================================
    13. ORCHESTRATION
    ===================================================================== */
-const VIEWS = { synthese:vSynthese, saisie:vSaisie, dynamique:vDynamique, structure:vStructure, renta:vRenta, faillite:vFaillite, bale:vBale, import:vImport, params:vParams, methode:vMethode };
+const VIEWS = { r:vR, synthese:vSynthese, saisie:vSaisie, dynamique:vDynamique, structure:vStructure, renta:vRenta, faillite:vFaillite, bale:vBale, import:vImport, params:vParams, methode:vMethode };
 function renderHeader() {
   const b = bank();
   $('#hdrBank').textContent = b.name;
-  $('#hdrSub').textContent = [b.country, b.years.join(' · '), b.unit].filter(Boolean).join(' · ');
+  const yy = Y();
+  $('#hdrSub').textContent = [b.country, yy.length > 1 ? 'période ' + yy[0] + '–' + yy[yy.length - 1] : yy[0], b.unit].filter(Boolean).join(' · ');
   $('#bankSel').innerHTML = Object.values(state.banks).map(x => '<option value="' + x.id + '"' + (x.id === state.cur ? ' selected' : '') + '>' + esc(x.name) + '</option>').join('');
-  $('#yearSel').innerHTML = b.years.map((y, i) => '<option value="' + i + '"' + (i === state.yi ? ' selected' : '') + '>' + y + '</option>').join('');
+  const [ra, rz] = rng(), all = b.years;
+  const locked = state.tab === 'saisie' || state.tab === 'import';
+  $('#fromSel').innerHTML = all.map((y, i) => '<option value="' + y + '"' + (i === ra ? ' selected' : '') + (i > rz ? ' disabled' : '') + '>' + y + '</option>').join('');
+  $('#toSel').innerHTML = all.map((y, i) => '<option value="' + y + '"' + (i === rz ? ' selected' : '') + (i < ra ? ' disabled' : '') + '>' + y + '</option>').join('');
+  $('#fromSel').disabled = $('#toSel').disabled = locked;
+  $('#yearSel').innerHTML = Y().map((y, i) => '<option value="' + i + '"' + (i === state.yi ? ' selected' : '') + '>' + y + '</option>').join('');
   $('#tabs').innerHTML = TABS.map(([k, l]) => '<button class="tab" role="tab" data-tab="' + k + '" aria-selected="' + (state.tab === k) + '">' + l + '</button>').join('');
 }
 function renderAll(keepScroll) {
-  if (state.yi >= Y().length) state.yi = Y().length - 1;
+  if (state.yi >= Y().length || state.yi < 0) state.yi = Y().length - 1;
   renderHeader();
   const sy = window.scrollY;
   view.innerHTML = VIEWS[state.tab]();
@@ -1249,7 +1437,7 @@ async function copyText(txt, out) {
   if (out) { out.hidden = false; out.value = txt; out.select(); }
 }
 function bindView() {
-  view.querySelectorAll('[data-go]').forEach(el => el.addEventListener('click', e => { e.preventDefault(); state.tab = el.dataset.go; save(); renderAll(); window.scrollTo(0, 0); }));
+  view.querySelectorAll('[data-go]').forEach(el => el.addEventListener('click', e => { e.preventDefault(); state.tab = el.dataset.go; state.yi = 99; save(); renderAll(); window.scrollTo(0, 0); }));
   if (state.tab === 'saisie') {
     refreshCalcs();
     view.querySelectorAll('input[data-k]').forEach(inp => {
@@ -1268,7 +1456,21 @@ function bindView() {
     meta('m-name', v => { bank().name = v.trim() || 'Banque sans nom'; });
     meta('m-country', v => { bank().country = v.trim(); });
     meta('m-unit', v => { bank().unit = v.trim() || 'millions FCFA'; });
-    bank().years.forEach((_, i) => meta('m-y' + i, v => { const n = parseInt(v, 10); if (n) bank().years[i] = n; }));
+    bank().years.forEach((_, i) => { const el = $('#m-y' + i); el.addEventListener('change', () => {
+      const b = bank(), n = parseInt(el.value, 10);
+      if (!n || (b.years.includes(n) && b.years[i] !== n)) { toast(n ? 'L’exercice ' + n + ' existe déjà' : 'Année invalide'); el.value = b.years[i]; return; }
+      b.years[i] = n; delete b.range; normBank(b); save(); renderAll(true);
+    }); });
+    const addY = yr => { const b = bank(); if (!yr || !addYear(b, yr)) { toast(yr ? 'L’exercice ' + yr + ' existe déjà' : 'Année invalide'); return; } delete b.range; b.example = false; save(); renderAll(true); toast('Exercice ' + yr + ' ajouté'); };
+    $('#yPrev').onclick = () => addY(bank().years[0] - 1);
+    $('#yNext').onclick = () => addY(bank().years[bank().years.length - 1] + 1);
+    $('#yAnyBtn').onclick = () => addY(parseInt($('#yAny').value, 10));
+    view.querySelectorAll('[data-rmy]').forEach(btn => btn.addEventListener('click', () => {
+      const i = +btn.dataset.rmy, yr = bank().years[i];
+      $('#confirmBox').innerHTML = '<div class="confirm">Retirer l’exercice ' + yr + ' et toutes ses données ?<button class="btn sm danger" id="yRmYes">Retirer</button><button class="btn sm" id="yRmNo">Annuler</button></div>';
+      $('#yRmNo').onclick = () => { $('#confirmBox').innerHTML = ''; };
+      $('#yRmYes').onclick = () => { removeYear(bank(), i); save(); renderAll(true); toast('Exercice ' + yr + ' retiré'); };
+    }));
     view.querySelectorAll('[data-zero]').forEach(btn => btn.addEventListener('click', () => {
       const b = bank();
       FIELDS.filter(f => f.s === btn.dataset.zero).forEach(f => { b.v[f.k] = b.years.map((_, y) => raw(f.k, y) ?? 0); });
@@ -1296,6 +1498,7 @@ function bindView() {
     view.querySelectorAll('input[data-p]').forEach(inp => inp.addEventListener('change', () => { const v = parseNum(inp.value); if (v === null) return; state.params[inp.dataset.p] = v; save(); toast('Paramètre appliqué'); }));
     $('#pReset').onclick = () => { state.params = Object.assign({}, DEFAULT_PARAMS); save(); renderAll(true); toast('Valeurs par défaut rétablies'); };
   }
+  if (state.tab === 'r') $('#rCopy').onclick = () => copyText(rScript());
   if (state.tab === 'import') {
     $('#impParse').onclick = () => previewImport(parseImport($('#impText').value));
     $('#impFile').onchange = e => { const f = e.target.files[0]; if (!f) return; const r = new FileReader(); r.onload = () => { $('#impText').value = r.result; previewImport(parseImport(r.result)); }; r.readAsText(f); };
@@ -1304,9 +1507,17 @@ function bindView() {
     $('#expJson').onclick = () => copyText(JSON.stringify({ banks:state.banks, cur:state.cur, params:state.params }, null, 1), $('#expOut'));
   }
 }
-$('#tabs').addEventListener('click', e => { const b = e.target.closest('[data-tab]'); if (!b) return; state.tab = b.dataset.tab; save(); renderAll(); window.scrollTo(0, 0); });
-$('#bankSel').addEventListener('change', e => { state.cur = e.target.value; save(); renderAll(); });
+$('#tabs').addEventListener('click', e => { const b = e.target.closest('[data-tab]'); if (!b) return; state.tab = b.dataset.tab; state.yi = 99; save(); renderAll(); window.scrollTo(0, 0); });
+$('#bankSel').addEventListener('change', e => { state.cur = e.target.value; state.yi = 99; save(); renderAll(); });
 $('#yearSel').addEventListener('change', e => { state.yi = +e.target.value; renderAll(true); });
+function setRange() {
+  const b = bank(), a = +$('#fromSel').value, z = +$('#toSel').value;
+  b.range = [Math.min(a, z), Math.max(a, z)];
+  if (b.range[0] === b.years[0] && b.range[1] === b.years[b.years.length - 1]) delete b.range;
+  state.yi = Y().length - 1; save(); renderAll(true);
+}
+$('#fromSel').addEventListener('change', setRange);
+$('#toSel').addEventListener('change', setRange);
 
 /* Info-bulles (survol, focus, toucher) */
 const tip = $('#tip');
