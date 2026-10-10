@@ -1,7 +1,7 @@
 // Tests de robustesse de l'app : à lancer avec `npm test` (construit dist/ puis le teste dans Chromium).
 import { chromium } from 'playwright';
 import { createServer } from 'node:http';
-import { readFileSync, existsSync, writeFileSync, mkdtempSync } from 'node:fs';
+import { readFileSync, existsSync, writeFileSync, mkdtempSync, readdirSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join, extname } from 'node:path';
@@ -346,6 +346,14 @@ else {
         });
       });
       ok(mism.length === 0, 'R ' + label + ' (' + base + ') : mêmes résultats que l’app', mism.slice(0, 5));
+      ok(!/[^\x00-\x7f]/.test(code), 'R ' + label + ' (' + base + ') : script 100 % ASCII (lisible quel que soit l’encodage)', (code.match(/.{0,30}[^\x00-\x7f].{0,10}/) || [])[0]);
+      if (base === 'fin') {
+        const gd = readdirSync(dir).find(f => f.startsWith('graphiques_'));
+        const files = gd ? readdirSync(join(dir, gd)) : [];
+        ok(files.filter(f => f.endsWith('.png')).length === 14 && files.includes('graphiques.pdf'), 'R ' + label + ' : 14 graphiques PNG et un PDF produits', files);
+        let hasOfficer = false; try { hasOfficer = execFileSync(rscript, ['-e', 'cat(requireNamespace("officer", quietly=TRUE))'], { encoding: 'utf8' }).trim() === 'TRUE'; } catch (e) {}
+        if (hasOfficer) ok(files.includes('graphiques_R.docx'), 'R ' + label + ' : document Word des graphiques créé par officer', files);
+      }
     }
     await ctx.close();
   }
@@ -553,6 +561,12 @@ else {
 
 /* ---------- 10. Rapport Word ---------- */
 {
+  {
+    const { page, ctx } = await openApp();
+    const tk = await page.evaluate(() => [niceTicks(0, 27613), niceTicks(-37258, 27613), niceTicks(0, 0.3), niceTicks(0, 1.2)]);
+    ok(tk.every((t, i) => t[t.length - 1] >= [27613, 27613, 0.3, 1.2][i] && t[0] <= [0, -37258, 0, 0][i]), 'graphiques du rapport : l’axe couvre toutes les valeurs', tk);
+    await ctx.close();
+  }
   const JSZip = require('jszip');
   const hasSoffice = (() => { try { execFileSync('soffice', ['--version'], { stdio: 'ignore' }); return true; } catch (e) { return false; } })();
   const checkDocx = async (buf, label, expect) => {
@@ -592,7 +606,7 @@ else {
   const b64 = await page.evaluate(async () => { const blob = await buildReport({ title: 'Analyse BAB', author: 'Isaac', sections: REPORT_SECTIONS.map(s => s[0]), charts: true, allYears: true, comment: 'Banque en redressement.\nÀ suivre.' }); const u = new Uint8Array(await blob.arrayBuffer()); let s = ''; u.forEach(c => s += String.fromCharCode(c)); return btoa(s); });
   const full = await checkDocx(Buffer.from(b64, 'base64'), 'rapport complet', ['Analyse BAB', 'Réalisé par Isaac', 'Synthèse et points clés', 'Banque en redressement.', 'Dynamique du bilan', 'Ratio de transformation', 'Test de faillite', 'Bâle III', 'Méthodologie', '76,68 %', '10,66 %', /150\s?766/, /196\s?626/, 'Figure 1', /Ratio de transformation\s*=/, /ROE\s*=/]);
   ok(/<m:f>/.test(full.doc) && (full.doc.match(/<m:oMathPara>/g) || []).length > 40, 'rapport : formules en équations Word (fractions)', (full.doc.match(/<m:oMathPara>/g) || []).length);
-  ok(Number(full.info.split(' ')[2]) >= 20 && Number(full.info.split(' ')[1]) >= 20, 'rapport : graphiques et tableaux inclus', full.info);
+  ok(Number(full.info.split(' ')[2]) >= 25 && Number(full.info.split(' ')[1]) >= 20, 'rapport : graphiques et tableaux inclus', full.info);
   if (full.pages) ok(full.pages >= 15, 'rapport complet : plusieurs pages', full.pages);
   // rapport minimal, sans graphiques, une seule partie, banque vide et un seul exercice
   for (const [label, storage, opt, expect] of [

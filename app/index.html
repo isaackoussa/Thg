@@ -1699,6 +1699,87 @@ const M = {
 };
 /* Graphiques : le SVG de l'app, aux couleurs du thème clair, converti en PNG */
 const LIGHT_VARS = { '--s1':'#2a78d6', '--s1-soft':'#86b6ef', '--s2':'#eb6834', '--s3':'#1baf7a', '--s4':'#eda100', '--s5':'#e87ba4', '--line':'#d3dbd5', '--ink':'#13201a', '--ink-2':'#45524b', '--ink-3':'#6b7770' };
+/* Graphiques pour l'impression (rapport Word) : titre, axe gradué, valeurs, seuil nommé, légende */
+const PC = { s:['#2a78d6', '#eb6834', '#1baf7a', '#eda100', '#e87ba4'], soft:'#9cc3f1', bad:'#c0392b', badSoft:'#e6a199', ink:'#1f2a25', ink2:'#4a5650', grid:'#e3e8e4', axis:'#9aa59f' };
+function niceTicks(lo, hi, n = 5) {
+  if (!(hi > lo)) { hi = lo + 1; }
+  const raw = (hi - lo) / n, mag = Math.pow(10, Math.floor(Math.log10(raw))), f = raw / mag;
+  const step = (f <= 1 ? 1 : f <= 2 ? 2 : f <= 2.5 ? 2.5 : f <= 5 ? 5 : 10) * mag;
+  const t = []; let v = Math.floor(lo / step + 1e-9) * step; t.push(+v.toFixed(10)); while (v < hi - step * 1e-9 && t.length < 30) { v += step; t.push(+v.toFixed(10)); }
+  return t;
+}
+const svgT = (x, y, txt, o = {}) => '<text x="' + x.toFixed(1) + '" y="' + y.toFixed(1) + '" font-size="' + (o.size || 13) + '"' + (o.anchor ? ' text-anchor="' + o.anchor + '"' : '') + (o.weight ? ' font-weight="' + o.weight + '"' : '') + ' fill="' + (o.color || PC.ink) + '">' + esc(txt) + '</text>';
+/* Barres verticales : séries[k] = {name, values}, format 'pct' ou 'm' ; thr = {value, label} */
+function printBars({ title, subtitle, years, series, fmt, thr, badIdx }) {
+  const W = 640, H = 330, pl = 64, pr = 16, pt = subtitle ? 62 : 46, pb = series.length > 1 ? 64 : 40;
+  const vals = series.flatMap(s => s.values).filter(fin);
+  const lo0 = Math.min(0, ...vals, thr ? thr.value : 0), hi0 = Math.max(0, ...vals, thr ? thr.value : 0);
+  const ticks = niceTicks(lo0, hi0 + (hi0 - lo0) * 0.18 || 1);
+  const lo = ticks[0], hi = ticks[ticks.length - 1];
+  const sy = v => pt + (hi - v) / (hi - lo) * (H - pt - pb);
+  const f = fmt === 'pct' ? (v => fmtP(v, 1)) : fmt === 'x' ? (v => fmtX(v)) : (v => fmtM(v));
+  const tf = fmt === 'pct' ? (v => nf(Number.isInteger(+(v * 100).toFixed(6)) ? 0 : 1).format(v * 100) + ' %') : fmt === 'x' ? (v => nf(Number.isInteger(v) ? 0 : 1).format(v) + ' ×') : (v => fmtM(v));
+  let g = svgT(12, 26, title, { size:17, weight:700 });
+  if (subtitle) g += svgT(12, 46, subtitle, { size:12.5, color:PC.ink2 });
+  ticks.forEach(t => { const y = sy(t); g += '<line x1="' + pl + '" x2="' + (W - pr) + '" y1="' + y + '" y2="' + y + '" stroke="' + (t === 0 ? PC.axis : PC.grid) + '" stroke-width="1"/>' + svgT(pl - 8, y + 4, tf(t), { size:11.5, anchor:'end', color:PC.ink2 }); });
+  const n = years.length, k = series.length, slot = (W - pl - pr) / n, bw = Math.min(70, slot * 0.7 / k);
+  years.forEach((yr, i) => {
+    const x0 = pl + slot * i + (slot - bw * k - (k - 1) * 4) / 2;
+    series.forEach((s, j) => {
+      const v = s.values[i], x = x0 + j * (bw + 4);
+      if (fin(v)) {
+        const y0 = sy(0), y1 = sy(v), top = Math.min(y0, y1), h = Math.max(1.5, Math.abs(y0 - y1));
+        const isBad = badIdx && badIdx.includes(i) && k === 1;
+        const col = k > 1 ? PC.s[j % PC.s.length] : isBad ? (i === n - 1 ? PC.bad : PC.badSoft) : (i === n - 1 ? PC.s[0] : PC.soft);
+        g += '<rect x="' + x.toFixed(1) + '" y="' + top.toFixed(1) + '" width="' + bw.toFixed(1) + '" height="' + h.toFixed(1) + '" rx="3" fill="' + col + '"/>';
+        g += svgT(x + bw / 2, (v >= 0 ? top - 6 : top + h + 15), f(v), { size:k > 2 ? 10.5 : 12.5, anchor:'middle', weight:700 });
+      } else g += svgT(x + bw / 2, sy(0) - 6, 'n.d.', { size:11, anchor:'middle', color:PC.ink2 });
+    });
+    g += svgT(pl + slot * i + slot / 2, H - pb + 20, String(yr), { size:13, anchor:'middle', color:PC.ink2 });
+  });
+  if (thr && fin(thr.value)) {
+    const y = sy(thr.value);
+    g += '<line x1="' + pl + '" x2="' + (W - pr) + '" y1="' + y + '" y2="' + y + '" stroke="' + PC.ink + '" stroke-width="1.6" stroke-dasharray="6 4"/>';
+    const lw = 26 + thr.label.length * 6.6;
+    g += '<line x1="' + (W - pr - lw) + '" x2="' + (W - pr - lw + 20) + '" y1="22" y2="22" stroke="' + PC.ink + '" stroke-width="1.6" stroke-dasharray="6 4"/>' + svgT(W - pr, 26, thr.label, { size:12.5, anchor:'end', weight:700 });
+  }
+  if (k > 1) {
+    let lx = pl;
+    series.forEach((s, j) => { g += '<rect x="' + lx + '" y="' + (H - 22) + '" width="12" height="12" rx="2" fill="' + PC.s[j % PC.s.length] + '"/>' + svgT(lx + 17, H - 12, s.name, { size:12.5, color:PC.ink2 }); lx += 30 + s.name.length * 7; });
+  } else if (badIdx && badIdx.length) g += svgT(W - pr, H - 8, 'En rouge : exercice hors seuil', { size:11, anchor:'end', color:PC.bad });
+  return '<svg viewBox="0 0 ' + W + ' ' + H + '" width="' + W + '" height="' + H + '">' + g + '</svg>';
+}
+function printIndicator(ind, vals) {
+  const yrs = Y(), fmt = ind.fmt === 'm' ? 'm' : ind.fmt === 'x' ? 'x' : 'pct';
+  const thrV = thrVal(ind);
+  const thr = ind.thr && fmt === 'pct' ? { value:thrV, label:(ind.thr.dir === 'min' ? (ind.thr.reg ? 'minimum ' : 'repère min. ') : (ind.thr.reg ? 'plafond ' : 'repère max. ')) + fmtP(thrV, 1) } : null;
+  const badIdx = ind.thr ? vals.map((v, i) => status(ind, v) === 'bad' ? i : -1).filter(i => i >= 0) : [];
+  return printBars({ title:ind.n, subtitle:(KIND[ind.kind] + (fmt === 'm' ? ' · millions FCFA' : fmt === 'x' ? ' · en nombre de fois' : '')), years:yrs, series:[{ name:ind.n, values:vals }], fmt, thr, badIdx });
+}
+function printStack(kind) {
+  const groups = STRUCT[kind], yrs = Y(), W = 640, rowH = 34, gap = 14, pl = 58, pr = 16, pt = 52;
+  const legendRows = Math.ceil(groups.length / 2), H = pt + yrs.length * (rowH + gap) + 18 + legendRows * 20;
+  let g = svgT(12, 26, 'Structure du ' + kind + ' (en % du total)', { size:17, weight:700 });
+  g += svgT(12, 44, 'Chaque barre représente 100 % du ' + (kind === 'actif' ? 'total actif' : 'total passif') + ' de l’exercice', { size:12, color:PC.ink2 });
+  const avail = W - pl - pr;
+  yrs.forEach((yr, y) => {
+    const parts = groups.map(([, ks]) => ks.reduce((a, k) => a + (raw(k, y) ?? 0), 0)), tot = parts.reduce((a, b) => a + b, 0), ty = pt + y * (rowH + gap);
+    g += svgT(pl - 8, ty + rowH / 2 + 5, String(yr), { size:13, anchor:'end', color:PC.ink2 });
+    if (tot <= 0) { g += svgT(pl, ty + rowH / 2 + 5, 'données manquantes', { size:12, color:PC.ink2 }); return; }
+    let x = pl;
+    parts.forEach((p, i) => {
+      const w = Math.max(0, p / tot * avail);
+      if (w > 0) {
+        g += '<rect x="' + x.toFixed(1) + '" y="' + ty + '" width="' + Math.max(0.5, w - 1.5).toFixed(1) + '" height="' + rowH + '" fill="' + PC.s[i] + '"/>';
+        if (w > 44) g += svgT(x + w / 2, ty + rowH / 2 + 5, nf(0).format(p / tot * 100) + ' %', { size:12.5, anchor:'middle', weight:700, color:'#ffffff' });
+      }
+      x += w;
+    });
+  });
+  const ly = pt + yrs.length * (rowH + gap) + 6;
+  groups.forEach(([l], i) => { const cx = pl + (i % 2) * 290, cy = ly + Math.floor(i / 2) * 20; g += '<rect x="' + cx + '" y="' + cy + '" width="12" height="12" rx="2" fill="' + PC.s[i] + '"/>' + svgT(cx + 18, cy + 11, l, { size:12.5, color:PC.ink2 }); });
+  return '<svg viewBox="0 0 ' + W + ' ' + H + '" width="' + W + '" height="' + H + '">' + g + '</svg>';
+}
 async function svgToPng(svg, wPx) {
   svg = svg.replace(/var\((--[\w-]+)\)/g, (m, v) => LIGHT_VARS[v] || '#000000').replace('<svg ', '<svg xmlns="http://www.w3.org/2000/svg" ').replace(/(<svg[^>]*>)/, '$1<style>text{font-family:Arial,Helvetica,sans-serif}</style>');
   const vb = svg.match(/viewBox="0 0 ([\d.]+) ([\d.]+)"/), vw = vb ? +vb[1] : 320, vh = vb ? +vb[2] : 132;
@@ -1719,7 +1800,7 @@ async function buildReport(opt) {
   const addChart = async (svg, caption) => {
     if (!opt.charts || !svg) return;
     try {
-      const png = await svgToPng(svg, 960);
+      const png = await svgToPng(svg, 1600);
       media.push(png.bytes); const id = media.length;
       const cx = 5400000, cy = Math.round(cx * png.h / png.w);
       fig++;
@@ -1745,7 +1826,7 @@ async function buildReport(opt) {
     const miss = calc(node, y).c.miss;
     if (miss.size) body.push(W.note('Données manquantes pour ' + yrs[y] + ' : ' + [...miss].map(k => F[k].l).join(', ') + '.'));
     body.push(W.table([['Exercice', ...yrs.map(String)], ['Valeur', ...vals.map(v => fmtCell(ind, v))], ['Appréciation', ...vals.map(v => stCell(ind, v))]], { firstCol:22 }));
-    if (vals.some(fin)) { await addChart(barChart(ind, vals), ind.n + ' par exercice'); body.push(W.fromHtml(interpret(ind, vals))); }
+    if (vals.some(fin)) { await addChart(printIndicator(ind, vals), ind.n + ' par exercice'); body.push(W.fromHtml(interpret(ind, vals))); }
   };
   const has = k => opt.sections.includes(k);
 
@@ -1794,7 +1875,9 @@ async function buildReport(opt) {
       body.push(W.table(tbl, { boldRows:bold, firstCol:yrs.length > 3 ? 30 : 38 }));
       const hl = highlights(kind);
       if (hl) body.push(W.fromHtml(hl));
-      if (kind !== 'cr') await addChart(stackChart(kind).replace(/^[\s\S]*?(<svg)/, '$1'), 'Structure du ' + kind + ' par exercice (' + STRUCT[kind].map(g => g[0]).join(', ') + ')');
+      if (kind !== 'cr') await addChart(printStack(kind), 'Structure du ' + kind + ' par exercice');
+      if (kind === 'passif') await addChart(printBars({ title:'Total du bilan, crédits et dépôts', subtitle:'Millions FCFA', years:yrs, series:[{ name:'Total actif', values:yrs.map((_, i) => qv('TA', i)) }, { name:'Crédits clientèle', values:yrs.map((_, i) => raw('A4', i) ?? NaN) }, { name:'Dépôts clientèle', values:yrs.map((_, i) => raw('P3', i) ?? NaN) }], fmt:'m' }), 'Total du bilan, crédits et dépôts');
+      if (kind === 'cr') await addChart(printBars({ title:'PNB, résultat brut d’exploitation et résultat net', subtitle:'Millions FCFA', years:yrs, series:[{ name:'PNB', values:yrs.map((_, i) => qv('PNB', i)) }, { name:'RBE', values:yrs.map((_, i) => qv('RBE', i)) }, { name:'Résultat net', values:yrs.map((_, i) => qv('RN', i)) }], fmt:'m' }), 'PNB, RBE et résultat net');
     }
   }
   if (has('structure')) {
@@ -1822,6 +1905,7 @@ async function buildReport(opt) {
     body.push(W.p(W.run('Une banque est en faillite lorsque ses pertes effacent ses capitaux propres. On détermine d’abord la perte critique, puis le niveau de produit net bancaire (PNB) qui la provoque, toutes charges égales par ailleurs. L’impôt est nul en cas de perte.')));
     body.push(M.para(M.r('RN*') + M.r(' = ') + M.r('−') + M.r('Capitaux propres')));
     M.lines('PNB* = ', QTY.PNBC.node, 'sym').forEach(l => body.push(l));
+    await addChart(printBars({ title:'Test de faillite : PNB réel et PNB critique', subtitle:'Millions FCFA · la banque fait faillite si le PNB tombe au niveau critique', years:yrs, series:[{ name:'PNB réel', values:yrs.map((_, i) => qv('PNB', i)) }, { name:'PNB critique (PNB*)', values:yrs.map((_, i) => qv('PNBC', i)) }], fmt:'m' }), 'PNB réel et PNB critique');
     body.push(W.table([['Étape', ...yrs.map(String)],
       ['Capitaux propres', ...yrs.map((_, i) => fmtM(qv('CP', i)))], ['Perte critique RN*', ...yrs.map((_, i) => fmtM(-qv('CP', i)))],
       ['PNB réel', ...yrs.map((_, i) => fmtM(qv('PNB', i)))], ['PNB critique PNB*', ...yrs.map((_, i) => fmtM(qv('PNBC', i)))],
@@ -2223,6 +2307,149 @@ function directQ(n, acc = new Set()) {
 }
 const rComment = t => t.replace(/\s+/g, ' ');
 function rIndLine(ind) { return 'd$' + ind.id + ' <- with(d, ' + stripOuter(toR(nodeOf(ind))) + ')'; }
+const R_GRAPHS = `# =====================================================================
+# 8. Graphiques (R de base, sans package)
+#    Chaque graphique est affiche a l'ecran puis enregistre en PNG (haute
+#    resolution) dans le dossier ci-dessous, avec un PDF qui les regroupe.
+#    Si le package officer est installe, un document Word des graphiques
+#    est aussi cree.
+# =====================================================================
+dossier <- "@@DOSSIER@@"
+dir.create(dossier, showWarnings = FALSE)
+pal <- c("#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#4a3aa7")
+an <- d$annee[periode]
+fr_nb <- function(x, dec = 0) ifelse(is.na(x), "n.d.", formatC(x, format = "f", digits = dec, big.mark = " ", decimal.mark = ","))
+fr_pct <- function(x, dec = 1) ifelse(is.na(x), "n.d.", paste0(fr_nb(100 * x, dec), " %"))
+style <- function() par(mar = c(3.2, 4.6, 3.6, 1), mgp = c(2.4, 0.6, 0), las = 1, cex.main = 1.15, font.main = 2, col.axis = "grey30", fg = "grey45", family = "sans")
+grille <- function(lim) abline(h = pretty(lim), col = "grey90", lwd = 1)
+fr_axe <- function(t) { pas <- if (length(t) > 1) diff(t)[1] else 1; fr_nb(t, max(0, -floor(log10(pas) + 1e-9))) }
+
+# Ratio par exercice, avec valeurs, seuil et appreciation
+graph_ratio <- function(var, titre, seuil = NA, sens = "min") {
+  style()
+  v <- 100 * d[[var]][periode]
+  if (all(is.na(v))) { plot.new(); title(titre); text(0.5, 0.5, "Donn\\u00e9es non disponibles", col = "grey40"); return(invisible()) }
+  s <- if (is.na(seuil)) NA else 100 * seuil
+  lim <- range(c(0, v, s), na.rm = TRUE); lim <- lim + c(-0.08, 0.22) * diff(lim); if (lim[1] > 0) lim[1] <- 0
+  ok <- if (is.na(s)) rep(TRUE, length(v)) else if (sens == "min") v >= s else v <= s
+  cols <- ifelse(is.na(ok) | ok, pal[1], "#b3302a")
+  cols[seq_along(cols) < length(cols)] <- adjustcolor(cols[seq_along(cols) < length(cols)], alpha.f = 0.55)
+  bp <- barplot(ifelse(is.na(v), 0, v), names.arg = an, ylim = lim, col = NA, border = NA, axes = FALSE, main = titre, ylab = "%")
+  grille(lim); axis(2, at = pretty(lim), labels = fr_axe(pretty(lim)), lwd = 0, lwd.ticks = 0)
+  barplot(ifelse(is.na(v), 0, v), col = cols, border = NA, add = TRUE, axes = FALSE, names.arg = rep("", length(v)))
+  abline(h = 0, col = "grey55")
+  if (!is.na(s)) {
+    abline(h = s, lty = 2, lwd = 1.6, col = "grey20")
+    text(par("usr")[2], s, paste(if (sens == "min") "minimum" else "plafond", fr_pct(s / 100)), adj = c(1.02, -0.5), cex = 0.8, col = "grey20")
+  }
+  text(bp, ifelse(is.na(v), 0, pmax(v, 0)), fr_pct(v / 100), pos = 3, cex = 0.9, font = 2, col = "grey15", xpd = TRUE)
+  if (!is.na(s)) mtext("Rouge : hors seuil", side = 1, line = 2.2, adj = 1, cex = 0.7, col = "grey40")
+}
+
+# Montants en millions, plusieurs series cote a cote
+graph_montants <- function(vars, noms, titre) {
+  style()
+  m <- do.call(rbind, lapply(vars, function(x) d[[x]][periode]))
+  colnames(m) <- an
+  if (all(is.na(m))) { plot.new(); title(titre); text(0.5, 0.5, "Donn\\u00e9es non disponibles", col = "grey40"); return(invisible()) }
+  lim <- range(c(0, m), na.rm = TRUE); lim <- lim + c(-0.05, 0.2) * diff(lim); if (lim[1] > 0) lim[1] <- 0
+  par(mar = c(3.2, 6.2, 3.6, 1), mgp = c(4.6, 0.6, 0))
+  bp <- barplot(ifelse(is.na(m), 0, m), beside = TRUE, ylim = lim, col = NA, border = NA, axes = FALSE, main = titre, ylab = "Millions FCFA")
+  grille(lim); axis(2, at = pretty(lim), labels = fr_axe(pretty(lim)), lwd = 0, lwd.ticks = 0, cex.axis = 0.85)
+  barplot(ifelse(is.na(m), 0, m), beside = TRUE, col = pal[seq_len(nrow(m))], border = NA, add = TRUE, axes = FALSE)
+  abline(h = 0, col = "grey55")
+  text(bp, ifelse(is.na(m), 0, pmax(m, 0)), fr_nb(m), pos = 3, cex = 0.7, col = "grey15", xpd = TRUE)
+  legend("topleft", legend = noms, fill = pal[seq_len(nrow(m))], border = NA, bty = "n", cex = 0.85, horiz = TRUE)
+}
+
+# Structure (100 %) d'un cote du bilan, une barre par exercice
+graph_structure <- function(groupes, titre) {
+  style(); par(mar = c(5.2, 4.6, 3.6, 1))
+  m <- sapply(groupes, function(cols) rowSums(d[periode, cols, drop = FALSE], na.rm = TRUE))
+  if (is.null(dim(m))) m <- matrix(m, nrow = 1)
+  tot <- rowSums(m); p <- m / ifelse(tot == 0, NA, tot)
+  bp <- barplot(t(100 * p), horiz = TRUE, names.arg = an, col = pal[seq_along(groupes)], border = "white", xlim = c(0, 100), main = titre, xlab = "% du total", axes = FALSE)
+  axis(1, at = seq(0, 100, 20), labels = paste0(seq(0, 100, 20), " %"), lwd = 0, lwd.ticks = 0, cex.axis = 0.85)
+  for (i in seq_len(nrow(p))) {
+    x0 <- 0
+    for (j in seq_len(ncol(p))) { w <- 100 * p[i, j]; if (!is.na(w) && w >= 7) text(x0 + w / 2, bp[i], paste0(fr_nb(w), " %"), col = "white", cex = 0.8, font = 2); x0 <- x0 + ifelse(is.na(w), 0, w) }
+  }
+  legend("bottom", inset = c(0, -0.32), legend = names(groupes), fill = pal[seq_along(groupes)], border = NA, bty = "n", cex = 0.8, ncol = 3, xpd = TRUE)
+}
+
+# Du Pont : ROE = ROA x multiplicateur
+graph_dupont <- function() {
+  style(); par(mar = c(3.2, 4.6, 3.6, 4.6))
+  roe <- 100 * d$roe[periode]; roa <- 100 * d$roa[periode]
+  if (all(is.na(roe))) { plot.new(); title("Rentabilit\\u00e9 : ROE et ROA"); return(invisible()) }
+  lim <- range(c(0, roe, roa), na.rm = TRUE) * c(1, 1.25)
+  plot(an, roe, type = "n", ylim = lim, xaxt = "n", xlab = "", ylab = "%", main = "Rentabilit\\u00e9 : ROE et ROA", axes = FALSE)
+  grille(lim); axis(1, at = an, lwd = 0); axis(2, at = pretty(lim), labels = fr_axe(pretty(lim)), lwd = 0)
+  lines(an, roe, lwd = 2.5, col = pal[1]); points(an, roe, pch = 19, col = pal[1], cex = 1.3)
+  lines(an, roa, lwd = 2.5, col = pal[2]); points(an, roa, pch = 19, col = pal[2], cex = 1.3)
+  text(an, roe, fr_pct(roe / 100), pos = 3, cex = 0.85, col = pal[1], font = 2)
+  text(an, roa, fr_pct(roa / 100), pos = 3, cex = 0.85, col = pal[2], font = 2)
+  legend("topright", legend = c("ROE (r\\u00e9sultat net / capitaux propres)", "ROA (r\\u00e9sultat net / total actif)"), col = pal[1:2], lwd = 2.5, pch = 19, bty = "n", cex = 0.8)
+}
+
+graphiques <- list(
+  list("01_structure_actif", function() graph_structure(list("Tr\\u00e9sorerie et interbancaire" = c("A1", "A3"), "Titres" = c("A2", "A5", "A6"), "Cr\\u00e9dits client\\u00e8le" = "A4", "Immobilisations et participations" = c("A10", "A11", "A12", "A13", "A14"), "Autres" = c("A7", "A8", "A9")), "Structure de l'actif"), "Structure de l'actif"),
+  list("02_structure_passif", function() graph_structure(list("Interbancaire et BCEAO" = c("P1", "P2"), "D\\u00e9p\\u00f4ts client\\u00e8le" = "P3", "Autres dettes et provisions" = c("P4", "P5", "P6", "P7"), "Subordonn\\u00e9s" = "P8", "Capitaux propres" = "CP"), "Structure du passif"), "Structure du passif"),
+  list("03_bilan", function() graph_montants(c("TA", "A4", "P3"), c("Total actif", "Cr\\u00e9dits client\\u00e8le", "D\\u00e9p\\u00f4ts client\\u00e8le"), "Bilan : total, cr\\u00e9dits et d\\u00e9p\\u00f4ts"), "Total du bilan, cr\\u00e9dits et d\\u00e9p\\u00f4ts"),
+  list("04_resultats", function() graph_montants(c("PNB", "RBE", "RN"), c("PNB", "RBE", "R\\u00e9sultat net"), "Compte de r\\u00e9sultat : PNB, RBE, r\\u00e9sultat net"), "PNB, r\\u00e9sultat brut d'exploitation et r\\u00e9sultat net"),
+  list("05_transformation", function() graph_ratio("transfo", "Ratio de transformation (cr\\u00e9dits / d\\u00e9p\\u00f4ts)", p$rep_transfo, "max"), "Ratio de transformation"),
+  list("06_liquidite", function() graph_ratio("liq", "Ratio de liquidit\\u00e9 (bilan)", p$rep_liq, "min"), "Ratio de liquidit\\u00e9"),
+  list("07_levier", function() graph_ratio("levier_b", "Ratio de levier B\\u00e2le III (estim\\u00e9)", p$seuil_levier, "min"), "Ratio de levier B\\u00e2le III"),
+  list("08_solvabilite", function() graph_ratio("solva", "Solvabilit\\u00e9 globale B\\u00e2le (estim\\u00e9e)", p$seuil_solva, "min"), "Ratio de solvabilit\\u00e9 global"),
+  list("09_cet1", function() graph_ratio("cet1", "Ratio CET1 (estim\\u00e9)", p$seuil_cet1, "min"), "Ratio CET1"),
+  list("10_rentabilite", graph_dupont, "ROE et ROA"),
+  list("11_roe", function() graph_ratio("roe", "ROE (rentabilit\\u00e9 des capitaux propres)", p$rep_roe, "min"), "ROE"),
+  list("12_coef_exploitation", function() graph_ratio("coef", "Coefficient d'exploitation", p$rep_coef, "max"), "Coefficient d'exploitation"),
+  list("13_cout_du_risque", function() graph_ratio("cdr", "Co\\u00fbt du risque / cr\\u00e9dits", p$rep_cdr, "max"), "Co\\u00fbt du risque rapport\\u00e9 aux cr\\u00e9dits"),
+  list("14_faillite", function() graph_montants(c("PNB", "PNBC"), c("PNB r\\u00e9el", "PNB critique (faillite)"), "Test de faillite : PNB r\\u00e9el et PNB critique"), "PNB r\\u00e9el et PNB critique")
+)
+
+# Affichage a l'ecran (tableau de bord)
+op <- par(mfrow = c(2, 2))
+for (g in graphiques[c(3, 5, 8, 10)]) g[[2]]()
+par(op)
+
+# Enregistrement : un PNG par graphique et un PDF qui les regroupe
+for (g in graphiques) { png(file.path(dossier, paste0(g[[1]], ".png")), width = 2000, height = 1150, res = 220); g[[2]](); dev.off() }
+pdf(file.path(dossier, "graphiques.pdf"), width = 8.27, height = 11.69)
+par(mfrow = c(3, 1)); for (g in graphiques) g[[2]](); dev.off()
+
+# Document Word des graphiques (si le package officer est installe)
+if (requireNamespace("officer", quietly = TRUE)) {
+  doc <- officer::read_docx()
+  doc <- officer::body_add_par(doc, "@@TITRE@@", style = "heading 1")
+  doc <- officer::body_add_par(doc, "Graphiques g\\u00e9n\\u00e9r\\u00e9s par R. Montants en millions FCFA.", style = "Normal")
+  for (g in graphiques) {
+    doc <- officer::body_add_par(doc, g[[3]], style = "heading 2")
+    doc <- officer::body_add_img(doc, src = file.path(dossier, paste0(g[[1]], ".png")), width = 6.3, height = 3.62)
+  }
+  print(doc, target = file.path(dossier, "graphiques_R.docx"))
+  cat("Document Word cree :", file.path(dossier, "graphiques_R.docx"), "\\n")
+} else cat("Pour obtenir aussi un document Word des graphiques : install.packages(\\"officer\\")\\n")
+cat("Graphiques enregistres dans :", normalizePath(dossier), "\\n")
+`;
+
+/* Le script R est 100 % ASCII : commentaires sans accents, accents des textes écrits \uXXXX.
+   Il s'ouvre donc correctement dans RStudio, R sous Windows, posit.cloud, quel que soit l'encodage. */
+const R_TRANSLIT = { '≥':'>=', '≤':'<=', '−':'-', '–':'-', '—':'-', '×':'x', '’':"'", '‘':"'", '“':'"', '”':'"', '…':'...', 'œ':'oe', 'Œ':'OE', 'æ':'ae', 'α':'alpha', '\u00a0':' ', '\u202f':' ', '«':'"', '»':'"', '·':'-', '→':'->', 'Δ':'Delta ' };
+function rPlain(t) { return t.replace(/[^\x00-\x7f]/g, c => R_TRANSLIT[c] ?? c.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^\x00-\x7f]/g, '?')); }
+function rStr(t) { return String(t).replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/[^\x00-\x7f]/g, c => '\\u' + c.charCodeAt(0).toString(16).padStart(4, '0')); }
+function rAscii(line) {
+  let out = '', inStr = false;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (inStr) { if (c === '\\') { out += c + (line[i + 1] ?? ''); i++; continue; } if (c === '"') inStr = false; out += c.charCodeAt(0) > 127 ? '\\u' + c.charCodeAt(0).toString(16).padStart(4, '0') : c; continue; }
+    if (c === '"') { inStr = true; out += c; continue; }
+    if (c === '#') return out + rPlain(line.slice(i));
+    out += c.charCodeAt(0) > 127 ? rPlain(c) : c;
+  }
+  return out;
+}
 function rScript() {
   const b = bank(), yrs = b.years, Yv = Y();
   const pad = (x, n) => x + ' '.repeat(Math.max(1, n - x.length));
@@ -2286,20 +2513,8 @@ function rScript() {
   L.push('})');
   L.push('conformite <- matrix(conformite, ncol = nrow(seuils), dimnames = list(d$annee[periode], seuils$indicateur))');
   L.push('print(t(conformite))', '');
-  L.push('# 8. Graphiques (R de base)');
-  L.push('graph <- function(var, titre, seuil = NA) {');
-  L.push('  v <- 100 * d[[var]][periode]');
-  L.push('  barplot(v, names.arg = d$annee[periode], main = titre, ylab = "%", col = "steelblue",');
-  L.push('          ylim = range(0, v, 100 * seuil, na.rm = TRUE) * 1.15)');
-  L.push('  if (!is.na(seuil)) abline(h = 100 * seuil, lty = 2)');
-  L.push('}');
-  L.push('op <- par(mfrow = c(2, 2))');
-  L.push('graph("roe", "ROE", p$rep_roe)');
-  L.push('graph("roa", "ROA", p$rep_roa)');
-  L.push('graph("transfo", "Ratio de transformation", p$rep_transfo)');
-  L.push('graph("solva", "Solvabilité globale (Bâle, estimée)", p$seuil_solva)');
-  L.push('par(op)');
-  return L.join('\n');
+  L.push(R_GRAPHS.replace('@@DOSSIER@@', 'graphiques_' + fileBase()).replace('@@TITRE@@', rStr(b.name)));
+  return L.map(rAscii).join('\n');
 }
 function vR() {
   const code = rScript();
