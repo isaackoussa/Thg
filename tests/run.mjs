@@ -639,6 +639,134 @@ else {
   if (full.dir) console.log('Rapport d’exemple : ' + full.dir);
 }
 
+/* ---------- 11. Compte par e-mail : fonction serveur et synchronisation entre appareils ---------- */
+{
+  const { handleHistorique, mergeHistory, HIST_MAX } = await import('../server/historique.mjs');
+  const memStore = () => { const m = new Map(); return { m, async get(k) { return m.has(k) ? JSON.parse(m.get(k)) : null; }, async setJSON(k, v) { m.set(k, JSON.stringify(v)); return { modified: true }; } }; };
+  const entry = (id, at, kind = 'manuel') => ({ id, at, kind, label: id, bank: { name: 'B', years: [2023], v: {} }, res: { years: [2023], vals: {} } });
+  const call = (store, user, method, body, origin = 'https://app.test') => handleHistorique(new Request('https://app.test/api/historique', { method, headers: origin ? { origin, 'content-type': 'application/json' } : { 'content-type': 'application/json' }, body: body === undefined ? undefined : typeof body === 'string' ? body : JSON.stringify(body) }), { getUser: async () => user, store });
+  const st = memStore(), alice = { id: 'a1', email: 'alice@test.sn' }, bob = { id: 'b2', email: 'bob@test.ci' };
+  let r = await call(st, null, 'GET');
+  ok(r.status === 401, 'serveur : connexion requise', r.status);
+  r = await call(st, alice, 'GET'); let d = await r.json();
+  ok(r.status === 200 && d.history.length === 0, 'serveur : historique vide au départ');
+  r = await call(st, alice, 'PUT', { history: [entry('h1', '2026-10-01T10:00:00Z'), entry('h2', '2026-10-02T10:00:00Z')], deleted: [] }); d = await r.json();
+  ok(r.status === 200 && d.history.map(e => e.id).join() === 'h2,h1', 'serveur : enregistrement, plus récent d’abord', d.history.map(e => e.id));
+  r = await call(st, alice, 'PUT', { history: [entry('h3', '2026-10-03T10:00:00Z')], deleted: ['h1'] }); d = await r.json();
+  ok(d.history.map(e => e.id).join() === 'h3,h2' && d.deleted.includes('h1'), 'serveur : fusion d’un autre appareil et suppression propagée', d.history.map(e => e.id));
+  r = await call(st, alice, 'PUT', { history: [entry('h1', '2026-10-01T10:00:00Z')], deleted: [] }); d = await r.json();
+  ok(!d.history.some(e => e.id === 'h1'), 'serveur : une entrée supprimée ne revient pas depuis un appareil en retard');
+  r = await call(st, bob, 'GET'); d = await r.json();
+  ok(d.history.length === 0, 'serveur : chaque compte a son propre historique');
+  r = await call(st, alice, 'PUT', { history: [] }, 'https://pirate.test');
+  ok(r.status === 403, 'serveur : écriture refusée depuis un autre site', r.status);
+  r = await call(st, alice, 'PUT', { history: [] }, null);
+  ok(r.status === 403, 'serveur : écriture refusée sans origine', r.status);
+  r = await call(st, alice, 'PUT', '{ cassé');
+  ok(r.status === 400, 'serveur : JSON invalide refusé', r.status);
+  r = await call(st, alice, 'PUT', { history: 'x' });
+  ok(r.status === 400, 'serveur : format invalide refusé', r.status);
+  r = await call(st, alice, 'PUT', 'x'.repeat(3_600_000));
+  ok(r.status === 413, 'serveur : envoi trop volumineux refusé', r.status);
+  r = await call(st, alice, 'DELETE');
+  ok(r.status === 405, 'serveur : méthode non prévue refusée', r.status);
+  r = await call(st, alice, 'PUT', { history: [{ id: 'bad' }, null, 5, entry('h4', '2026-10-04T10:00:00Z')] }); d = await r.json();
+  ok(d.history.map(e => e.id).join() === 'h4,h3,h2', 'serveur : entrées mal formées ignorées', d.history.map(e => e.id));
+  const many = Array.from({ length: 80 }, (_, i) => entry('m' + i, new Date(Date.UTC(2026, 0, 1, 0, i)).toISOString(), i % 3 ? 'manuel' : 'import'));
+  const mg = mergeHistory({ history: [] }, { history: many });
+  ok(mg.history.length === HIST_MAX && mg.history.filter(e => e.kind === 'import').length < many.filter(e => e.kind === 'import').length, 'serveur : plafond, les imports partent d’abord', mg.history.length);
+
+  // Deux appareils dans le navigateur, même compte : fausse bibliothèque Identity, vraie fonction serveur
+  const shared = memStore();
+  const FAKE_ID = `
+    const read = () => { try { return JSON.parse(localStorage.getItem('fakeIdUser') || 'null'); } catch (e) { return null; } };
+    const setUser = u => { if (u) { localStorage.setItem('fakeIdUser', JSON.stringify(u)); document.cookie = 'fake_uid=' + encodeURIComponent(u.id) + '; path=/'; } else { localStorage.removeItem('fakeIdUser'); document.cookie = 'fake_uid=; path=/; max-age=0'; } };
+    const accounts = { 'isaac@test.ci': 'motdepasse1' };
+    export async function getUser() { return read(); }
+    export async function login(email, pw) { if (accounts[email] !== pw) { const e = new Error('invalid_grant: Email or password is incorrect'); e.status = 400; throw e; } const u = { id: 'u-' + email, email }; setUser(u); return u; }
+    export async function signup(email, pw) { window.__signup = email; return { id: 'u-' + email, email }; }
+    export async function logout() { setUser(null); }
+    export async function handleAuthCallback() { return null; }
+    export async function requestPasswordRecovery(email) { window.__recovery = email; }
+    export async function updateUser() { return read(); }
+    export function onAuthChange() { return () => {}; }
+  `;
+  const device = async () => {
+    const ctx = await browser.newContext({ viewport: { width: 400, height: 900 } });
+    await routeCdn(ctx);
+    await ctx.route(/@netlify\/identity@2\.0\.0\/\+esm$/, r => r.fulfill({ status: 200, contentType: 'text/javascript', body: FAKE_ID, headers: { 'Access-Control-Allow-Origin': '*' } }));
+    await ctx.route(/\/api\/historique$/, async route => {
+      const rq = route.request();
+      const uid = ((await rq.allHeaders()).cookie || '').match(/fake_uid=([^;]+)/);
+      const user = uid ? { id: decodeURIComponent(uid[1]), email: decodeURIComponent(uid[1]).slice(2) } : null;
+      const res = await handleHistorique(new Request(rq.url(), { method: rq.method(), headers: { origin: (await rq.allHeaders()).origin || '', 'content-type': 'application/json' }, body: rq.method() === 'PUT' ? rq.postData() : undefined }), { getUser: async () => user, store: shared });
+      route.fulfill({ status: res.status, contentType: 'application/json', body: await res.text() });
+    });
+    const page = await ctx.newPage(); const errors = []; page.on('pageerror', e => errors.push(e.message));
+    await page.goto(BASE); await page.waitForSelector('#view .section-head');
+    return { ctx, page, errors };
+  };
+  const A = await device(), B = await device();
+  await A.page.click('[data-tab="historique"]');
+  ok(/Se connecter/.test(await A.page.innerText('#accountCard')), 'compte : formulaire de connexion affiché');
+  await A.page.fill('#accEmail', 'isaac@test.ci'); await A.page.fill('#accPw', 'mauvais'); await A.page.click('#accGo');
+  await A.page.waitForSelector('#accStatus.err');
+  ok(/incorrect/.test(await A.page.innerText('#accStatus')), 'compte : mauvais mot de passe signalé');
+  await A.page.fill('#accPw', 'motdepasse1'); await A.page.click('#accGo');
+  await A.page.waitForFunction(() => /Connecté avec/.test(document.querySelector('#accountCard').innerText));
+  await A.page.fill('#hLabel', 'Analyse depuis l’iPhone'); await A.page.click('#hSave');
+  for (let i = 0; i < 100 && ![...shared.m.values()].some(v => v.includes('Analyse depuis l’iPhone')); i++) await A.page.waitForTimeout(100);
+  const stored = [...shared.m.values()].map(v => JSON.parse(v));
+  ok(stored.length === 1 && stored[0].history.some(e => e.label === 'Analyse depuis l’iPhone') && stored[0].email === 'isaac@test.ci', 'compte : analyse enregistrée sur le compte', stored.map(x => x.history.length));
+  // appareil B : se connecte et retrouve l'analyse
+  await B.page.click('[data-tab="historique"]');
+  await B.page.fill('#accEmail', 'isaac@test.ci'); await B.page.fill('#accPw', 'motdepasse1'); await B.page.click('#accGo');
+  await B.page.waitForFunction(() => state.history.some(e => e.label === 'Analyse depuis l’iPhone'), null, { timeout: 15000 });
+  ok(/Analyse depuis l’iPhone/.test(await B.page.innerText('.hist-list')), 'compte : l’analyse apparaît sur le deuxième appareil');
+  // B supprime, A le voit à la synchronisation suivante
+  const hid = await B.page.evaluate(() => state.history.find(e => e.label === 'Analyse depuis l’iPhone').id);
+  await B.page.click('[data-hdel="' + hid + '"]'); await B.page.click('[data-hdelok]');
+  await B.page.waitForFunction(id => ![...document.querySelectorAll('.hist')].some(x => x.id === 'h-' + id), hid);
+  await B.page.waitForTimeout(2500);
+  await A.page.click('#accSync');
+  await A.page.waitForFunction(id => !state.history.some(e => e.id === id), hid, { timeout: 15000 });
+  ok(true, 'compte : une suppression faite sur un appareil se propage à l’autre');
+  // reconnexion automatique au rechargement
+  await A.page.reload(); await A.page.waitForSelector('#view .section-head'); await A.page.click('[data-tab="historique"]');
+  await A.page.waitForFunction(() => /Connecté avec/.test(document.querySelector('#accountCard').innerText), null, { timeout: 15000 });
+  ok(true, 'compte : session retrouvée au rechargement');
+  // déconnexion avec effacement local
+  await A.page.fill('#hLabel', 'Deuxième analyse'); await A.page.click('#hSave');
+  for (let i = 0; i < 100 && ![...shared.m.values()].some(v => v.includes('Deuxième analyse')); i++) await A.page.waitForTimeout(100);
+  await A.page.click('#accLogoutWipe');
+  await A.page.waitForFunction(() => /Déconnecté/.test(document.querySelector('#accountCard').innerText));
+  ok(await A.page.evaluate(() => state.history.length === 0), 'compte : déconnexion avec effacement de l’historique local');
+  ok([...shared.m.values()].map(v => JSON.parse(v))[0].history.length > 0, 'compte : l’historique reste sur le compte après effacement local');
+  // création de compte et mot de passe oublié
+  await A.page.click('#accSwitch'); await A.page.fill('#accEmail', 'nouvel@test.bj'); await A.page.fill('#accPw', 'court'); await A.page.click('#accGo');
+  await A.page.waitForSelector('#accStatus.err');
+  ok(/8 caractères/.test(await A.page.innerText('#accStatus')), 'compte : mot de passe trop court refusé');
+  await A.page.fill('#accPw', 'longmotdepasse'); await A.page.click('#accGo');
+  await A.page.waitForFunction(() => /e-mail de confirmation/.test(document.querySelector('#accountCard').innerText));
+  ok(await A.page.evaluate(() => window.__signup) === 'nouvel@test.bj', 'compte : création, avec e-mail de confirmation');
+  await A.page.fill('#accEmail', 'isaac@test.ci'); await A.page.click('#accForgot');
+  await A.page.waitForFunction(() => /réinitialisation/.test(document.querySelector('#accountCard').innerText));
+  ok(await A.page.evaluate(() => window.__recovery) === 'isaac@test.ci', 'compte : mot de passe oublié envoie un e-mail');
+  ok(A.errors.length === 0 && B.errors.length === 0, 'compte : aucune erreur JavaScript', [...A.errors, ...B.errors].slice(0, 3));
+  ok(await A.page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), 'compte : pas de débordement sur téléphone');
+  await A.ctx.close(); await B.ctx.close();
+  // service de connexion injoignable : message clair
+  {
+    const { page, ctx, errors } = await openApp({ storage: undefined });
+    await page.click('[data-tab="historique"]');
+    await page.fill('#accEmail', 'isaac@test.ci'); await page.fill('#accPw', 'x'); await page.click('#accGo');
+    await page.waitForSelector('#accStatus.err');
+    ok(/ne répond pas|connexion internet/.test(await page.innerText('#accStatus')), 'compte : service injoignable signalé', await page.innerText('#accStatus'));
+    ok(errors.length === 0, 'compte injoignable : aucune erreur JavaScript', errors);
+    await ctx.close();
+  }
+}
+
 await browser.close();
 server.close();
 console.log(`\n${pass} tests réussis, ${fail} en échec`);

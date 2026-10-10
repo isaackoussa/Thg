@@ -17,6 +17,12 @@ npm run build      # construit dist/
 npm test           # construit puis teste (Rscript pour la parité R ; LibreOffice avec libreoffice-math pour vérifier le rapport Word)
 ```
 
+## Comptes (historique lié à une adresse e-mail)
+- `netlify/functions/historique.mjs` : point d'entrée `/api/historique` (GET, PUT), utilisateur via `@netlify/identity`, stockage `@netlify/blobs` (store `historiques`).
+- `server/historique.mjs` : logique (fusion, validation, contrôle d'origine), testée sans Netlify.
+- À activer une fois : tableau de bord Netlify → projet → **Identity** → *Enable Identity*. Garder les e-mails de confirmation actifs.
+- Les fonctions ne sont déployées que si le dépôt est relié à Netlify (ou via la CLI) : le dépôt manuel du dossier `dist` ne les contient pas.
+
 ## Déploiement Netlify
 `netlify.toml` configure tout : commande `node scripts/build.mjs`, dossier publié `dist`, en-têtes de sécurité.
 Sur iPhone, ouvre le site dans Safari puis Partager → « Sur l'écran d'accueil » pour l'installer avec son icône.

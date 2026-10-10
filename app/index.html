@@ -415,6 +415,7 @@ function loadState() {
   if (!Object.keys(s.banks).length) s.banks = { bab: clone(SAMPLE) };
   s.params = cleanParams(s.params);
   s.history = cleanHistory(s.history);
+  s.histDeleted = Array.isArray(s.histDeleted) ? s.histDeleted.filter(x => typeof x === 'string').slice(-1000) : [];
   s.base = s.base === 'moy' ? 'moy' : 'fin';
   s.tab = typeof s.tab === 'string' ? s.tab : 'synthese';
   if (!s.banks[s.cur]) s.cur = Object.keys(s.banks)[0];
@@ -422,7 +423,7 @@ function loadState() {
 }
 const state = loadState();
 state.yi = 99;
-function save() { try { localStorage.setItem(LS_KEY, JSON.stringify({ banks:state.banks, cur:state.cur, params:state.params, base:state.base, tab:state.tab, history:state.history })); } catch (e) {} }
+function save() { try { localStorage.setItem(LS_KEY, JSON.stringify({ banks:state.banks, cur:state.cur, params:state.params, base:state.base, tab:state.tab, history:state.history, histDeleted:state.histDeleted })); } catch (e) {} }
 const bank = () => state.banks[state.cur];
 /* Période analysée : sous-ensemble contigu des exercices saisis (Saisie et Import travaillent toujours sur tous les exercices) */
 let FULL_RANGE = false;
@@ -1946,7 +1947,7 @@ function addHistory(kind, label, note, bankId) {
     const i = state.history.map(x => x.kind).lastIndexOf('auto') >= 0 ? state.history.map(x => x.kind).lastIndexOf('auto') : state.history.map(x => x.kind).lastIndexOf('import') >= 0 ? state.history.map(x => x.kind).lastIndexOf('import') : state.history.length - 1;
     state.history.splice(i, 1);
   }
-  save();
+  save(); scheduleSync();
   return e;
 }
 const fmtDate = iso => { const d = new Date(iso); return isNaN(d) ? '' : d.toLocaleDateString('fr-FR', { day:'numeric', month:'short', year:'numeric' }) + ' à ' + d.toLocaleTimeString('fr-FR', { hour:'2-digit', minute:'2-digit' }); };
@@ -1984,11 +1985,140 @@ function histDetail(e) {
   h += '<p class="note">Base des rentabilités : ' + (e.base === 'moy' ? 'moyenne N / N−1' : 'fin d’exercice') + '.</p>';
   return h;
 }
+/* ---- Compte par adresse e-mail (Netlify Identity) et synchronisation de l'historique ---- */
+const ID_LIB = 'https://cdn.jsdelivr.net/npm/@netlify/identity@2.0.0/+esm';
+const ACC_KEY = 'umoa-compte-v1';
+const acct = { user:null, status:'', err:false, syncing:false, lastSync:null, pending:false, mode:'login', recovery:false };
+function accountsPossible() { try { return CAN_DOWNLOAD && /^https?:$/.test(location.protocol); } catch (e) { return false; } }
+let idMod = null;
+async function identity() {
+  if (!idMod) idMod = import(ID_LIB).catch(e => { idMod = null; throw new Error('Le service de connexion ne répond pas. Vérifie ta connexion internet.'); });
+  return idMod;
+}
+function accRemember(on) { try { if (on) localStorage.setItem(ACC_KEY, '1'); else localStorage.removeItem(ACC_KEY); } catch (e) {} }
+function accRemembered() { try { return localStorage.getItem(ACC_KEY) === '1'; } catch (e) { return false; } }
+function accMsg(e) {
+  const m = String(e && e.message || '');
+  if (e && e.name === 'MissingIdentityError' || /identity.*(not|n.est pas).*(config|activ)/i.test(m)) return 'Les comptes ne sont pas encore activés sur ce site : il faut activer Netlify Identity dans le tableau de bord Netlify.';
+  if (/invalid.*(grant|password|credentials|login)|no user found|incorrect/i.test(m) || (e && e.status === 400)) return 'Adresse e-mail ou mot de passe incorrect.';
+  if (/not.*confirmed|confirm/i.test(m)) return 'Adresse e-mail pas encore confirmée : clique sur le lien reçu par e-mail.';
+  if (/already.*(registered|exists)/i.test(m)) return 'Un compte existe déjà avec cette adresse : connecte-toi.';
+  if (/password.*(short|least|characters)/i.test(m)) return 'Mot de passe trop court.';
+  if (/signup.*disabled/i.test(m)) return 'Les inscriptions sont fermées sur ce site.';
+  return m && m.length < 160 ? m : 'Opération impossible pour le moment. Réessaie.';
+}
+function accSet(status, err) { acct.status = status; acct.err = !!err; renderAccount(); }
+async function accountBoot() {
+  if (!accountsPossible()) return;
+  const hasToken = /(confirmation|recovery|invite|email_change)_token=|access_token=/.test(location.hash || '');
+  if (!hasToken && !accRemembered()) return;
+  try {
+    const id = await identity();
+    if (hasToken) {
+      try {
+        const r = await id.handleAuthCallback();
+        if (r && r.type === 'recovery') { acct.recovery = true; acct.status = 'Choisis un nouveau mot de passe.'; }
+        if (r && r.type === 'confirmation') acct.status = 'Adresse confirmée : tu es connecté.';
+      } catch (e) { acct.status = 'Ce lien n’est plus valable. Demande un nouvel e-mail.'; acct.err = true; }
+      try { history.replaceState(null, '', location.pathname + location.search); } catch (e) {}
+    }
+    acct.user = await id.getUser();
+    accRemember(!!acct.user);
+    if (acct.user) await syncHistory(true);
+  } catch (e) { acct.status = accMsg(e); acct.err = true; }
+  renderAccount();
+}
+async function syncHistory(quiet) {
+  if (!acct.user || acct.syncing) { if (acct.user) acct.pending = true; return; }
+  acct.syncing = true; renderAccount();
+  try {
+    const res = await fetch('/api/historique', { method:'PUT', credentials:'same-origin', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify({ history:state.history, deleted:state.histDeleted }) });
+    if (res.status === 401) { acct.user = null; accRemember(false); throw new Error('Session expirée : reconnecte-toi.'); }
+    if (!res.ok) { let m = ''; try { m = (await res.json()).error; } catch (e) {} throw new Error(m || 'Synchronisation refusée (' + res.status + ').'); }
+    const doc = await res.json();
+    state.history = cleanHistory(doc.history);
+    state.histDeleted = Array.isArray(doc.deleted) ? doc.deleted.filter(x => typeof x === 'string').slice(-1000) : state.histDeleted;
+    acct.lastSync = new Date(); save();
+    if (!quiet) accSet('Historique synchronisé.');
+    if (state.tab === 'historique') renderAll(true);
+  } catch (e) {
+    acct.status = e && e.message && !/fetch|network|load failed/i.test(e.message) ? e.message : 'Pas de connexion : la synchronisation reprendra plus tard.'; acct.err = true;
+  } finally {
+    acct.syncing = false; renderAccount();
+    if (acct.pending) { acct.pending = false; setTimeout(() => syncHistory(true), 300); }
+  }
+}
+let syncTimer = null;
+function scheduleSync() { if (!acct.user) return; clearTimeout(syncTimer); syncTimer = setTimeout(() => syncHistory(true), 1500); }
+function accountCard() {
+  if (!accountsPossible()) return '<div class="card" id="accountCard"><h3>Compte et synchronisation</h3><p class="note">La connexion par adresse e-mail, qui retrouve ton historique sur tous tes appareils, se fait sur le site de l’app (version Netlify). Ici, l’historique reste sur cet appareil ; tu peux le transférer avec la sauvegarde JSON de l’onglet Import.</p></div>';
+  return '<div class="card" id="accountCard">' + accountInner() + '</div>';
+}
+function accountInner() {
+  const st = acct.status ? '<div class="file-status' + (acct.err ? ' err' : '') + '" id="accStatus">' + esc(acct.status) + '</div>' : '';
+  if (acct.user && acct.recovery) return '<h3>Nouveau mot de passe</h3><div class="meta-grid"><label>Nouveau mot de passe<input type="password" id="accNewPw" autocomplete="new-password" minlength="8"></label></div><div class="row"><button class="btn pri" id="accSetPw">Enregistrer le mot de passe</button></div>' + st;
+  if (acct.user) return '<h3>Compte</h3><p>Connecté avec <b>' + esc(acct.user.email || '') + '</b>. Ton historique est enregistré sur ce compte et se retrouve sur tous les appareils où tu te connectes.</p>'
+    + '<p class="note">' + (acct.syncing ? 'Synchronisation en cours…' : acct.lastSync ? 'Dernière synchronisation : ' + acct.lastSync.toLocaleTimeString('fr-FR', { hour:'2-digit', minute:'2-digit' }) : 'Pas encore synchronisé.') + '</p>'
+    + '<div class="row"><button class="btn pri" id="accSync"' + (acct.syncing ? ' disabled' : '') + '>Synchroniser maintenant</button><button class="btn" id="accLogout">Se déconnecter</button><button class="btn danger" id="accLogoutWipe">Se déconnecter et effacer l’historique de cet appareil</button></div>' + st;
+  const signup = acct.mode === 'signup';
+  return '<h3>' + (signup ? 'Créer un compte' : 'Se connecter') + '</h3><p class="note">Avec un compte, ton historique d’analyses est lié à ton adresse e-mail : tu le retrouves sur ton iPhone comme sur ton ordinateur.</p>'
+    + '<form id="accForm" class="meta-grid" autocomplete="on" novalidate><label>Adresse e-mail<input type="email" id="accEmail" autocomplete="email" required></label><label>Mot de passe' + (signup ? ' (8 caractères minimum)' : '') + '<input type="password" id="accPw" autocomplete="' + (signup ? 'new-password' : 'current-password') + '" required minlength="' + (signup ? 8 : 1) + '"></label></form>'
+    + '<div class="row"><button class="btn pri" id="accGo" type="submit" form="accForm">' + (signup ? 'Créer le compte' : 'Se connecter') + '</button><button class="btn" id="accSwitch">' + (signup ? 'J’ai déjà un compte' : 'Créer un compte') + '</button>' + (signup ? '' : '<button class="btn sm" id="accForgot">Mot de passe oublié ?</button>') + '</div>' + st;
+}
+function renderAccount() {
+  const el = document.getElementById('accountCard');
+  if (!el || !accountsPossible()) return;
+  const keepEmail = $('#accEmail') ? $('#accEmail').value : '';
+  el.innerHTML = accountInner();
+  if ($('#accEmail') && keepEmail) $('#accEmail').value = keepEmail;
+  bindAccount();
+}
+function bindAccount() {
+  const busy = on => view.querySelectorAll('#accountCard button').forEach(b => { b.disabled = on; });
+  const run = async (fn, msg) => { busy(true); accSet(msg || 'Un instant…'); try { await fn(await identity()); } catch (e) { accSet(accMsg(e), true); } finally { busy(false); } };
+  if ($('#accForm')) $('#accForm').addEventListener('submit', e => {
+    e.preventDefault();
+    const email = $('#accEmail').value.trim(), pw = $('#accPw').value;
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { accSet('Adresse e-mail invalide.', true); return; }
+    if (acct.mode === 'signup') {
+      if (pw.length < 8) { accSet('Le mot de passe doit faire au moins 8 caractères.', true); return; }
+      run(async id => {
+        await id.signup(email, pw);
+        const u = await id.getUser();
+        if (u) { acct.user = u; accRemember(true); acct.mode = 'login'; accSet('Compte créé.'); await syncHistory(true); }
+        else { acct.mode = 'login'; accSet('Compte créé : un e-mail de confirmation a été envoyé à ' + email + '. Clique sur le lien qu’il contient, puis reviens te connecter ici.'); }
+      }, 'Création du compte…');
+    } else run(async id => { acct.user = await id.login(email, pw); accRemember(true); acct.status = ''; await syncHistory(true); accSet('Connecté. Historique synchronisé.'); }, 'Connexion…');
+  });
+  if ($('#accSwitch')) $('#accSwitch').onclick = () => { acct.mode = acct.mode === 'signup' ? 'login' : 'signup'; acct.status = ''; renderAccount(); };
+  if ($('#accForgot')) $('#accForgot').onclick = () => {
+    const email = $('#accEmail').value.trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { accSet('Saisis d’abord ton adresse e-mail.', true); return; }
+    run(async id => { await id.requestPasswordRecovery(email); accSet('Si un compte existe pour ' + email + ', un e-mail de réinitialisation vient d’être envoyé.'); }, 'Envoi…');
+  };
+  if ($('#accSetPw')) $('#accSetPw').onclick = () => {
+    const pw = $('#accNewPw').value;
+    if (pw.length < 8) { accSet('Le mot de passe doit faire au moins 8 caractères.', true); return; }
+    run(async id => { await id.updateUser({ password:pw }); acct.recovery = false; accSet('Mot de passe modifié.'); }, 'Enregistrement…');
+  };
+  if ($('#accSync')) $('#accSync').onclick = () => syncHistory(false);
+  const logout = wipe => run(async id => {
+    try { await id.logout(); } catch (e) {}
+    acct.user = null; accRemember(false); acct.lastSync = null;
+    if (wipe) { state.history = []; state.histDeleted = []; save(); }
+    acct.status = wipe ? 'Déconnecté. L’historique a été effacé de cet appareil ; il reste sur ton compte.' : 'Déconnecté. L’historique reste sur cet appareil.';
+    acct.err = false;
+    if (state.tab === 'historique') renderAll(true);
+  }, 'Déconnexion…');
+  if ($('#accLogout')) $('#accLogout').onclick = () => logout(false);
+  if ($('#accLogoutWipe')) $('#accLogoutWipe').onclick = () => logout(true);
+}
 function vHistorique() {
   const all = state.history, banksIn = [...new Map(all.map(e => [e.bankId, e.bank.name])).entries()];
   const f = state.histFilter && banksIn.some(([id]) => id === state.histFilter) ? state.histFilter : '';
   const list = all.filter(e => !f || e.bankId === f);
-  let h = head('Suivi', 'Historique d’analyse', 'Chaque analyse enregistrée garde une copie des données et des résultats du moment. Tu peux la revoir, la comparer à l’état actuel ou à une autre analyse, et restaurer ses données. Un import ajoute automatiquement une entrée. L’historique est conservé sur cet appareil (60 analyses au plus) et inclus dans la sauvegarde JSON.');
+  let h = head('Suivi', 'Historique d’analyse', 'Chaque analyse enregistrée garde une copie des données et des résultats du moment. Tu peux la revoir, la comparer à l’état actuel ou à une autre analyse, et restaurer ses données. Un import ajoute automatiquement une entrée. L’historique est conservé sur cet appareil (60 analyses au plus), inclus dans la sauvegarde JSON, et lié à ton adresse e-mail si tu te connectes.');
+  h += accountCard();
   h += '<div class="card"><h3>Enregistrer l’analyse actuelle</h3><div class="row"><label class="row note" for="hLabel" style="flex:1 1 220px">Nom <input type="text" id="hLabel" maxlength="120" style="flex:1;min-width:0" value="' + esc(bank().name + ' · ' + Y()[0] + '–' + Y()[Y().length - 1]) + '"></label></div>'
     + '<label class="note" for="hNote" style="display:grid;gap:4px">Note (facultatif)<textarea id="hNote" maxlength="500" style="min-height:60px;font-family:inherit;font-size:.9rem" placeholder="ex. avant correction du compte de résultat, version rendue au professeur…"></textarea></label>'
     + '<div class="row"><button class="btn pri" id="hSave">Enregistrer</button></div></div>';
@@ -2009,6 +2139,7 @@ function vHistorique() {
   return h;
 }
 function bindHistorique() {
+  if (accountsPossible() && $('#accountCard')) bindAccount();
   const find = id => state.history.find(e => e.id === id);
   const box = id => view.querySelector('[data-hbox="' + id + '"]');
   if ($('#hSave')) $('#hSave').onclick = () => { addHistory('manuel', $('#hLabel').value.trim() || bank().name, $('#hNote').value.trim()); toast('Analyse enregistrée'); renderAll(true); };
@@ -2040,12 +2171,12 @@ function bindHistorique() {
     const e = find(b.dataset.hdel), x = box(e.id); x.dataset.open = '';
     x.innerHTML = '<div class="confirm">Supprimer cette analyse de l’historique ?<button class="btn sm danger" data-hdelok="1">Supprimer</button><button class="btn sm" data-hdelno="1">Annuler</button></div>';
     x.querySelector('[data-hdelno]').onclick = () => { x.innerHTML = ''; };
-    x.querySelector('[data-hdelok]').onclick = () => { state.history = state.history.filter(z => z.id !== e.id); save(); toast('Analyse supprimée'); renderAll(true); };
+    x.querySelector('[data-hdelok]').onclick = () => { state.history = state.history.filter(z => z.id !== e.id); state.histDeleted.push(e.id); save(); scheduleSync(); toast('Analyse supprimée'); renderAll(true); };
   });
   if ($('#hClear')) $('#hClear').onclick = () => {
     $('#hClearBox').innerHTML = '<div class="confirm">Supprimer les ' + state.history.length + ' analyses de l’historique ? Les banques et leurs données ne sont pas touchées.<button class="btn sm danger" id="hClearOk">Tout supprimer</button><button class="btn sm" id="hClearNo">Annuler</button></div>';
     $('#hClearNo').onclick = () => { $('#hClearBox').innerHTML = ''; };
-    $('#hClearOk').onclick = () => { state.history = []; save(); toast('Historique vidé'); renderAll(true); };
+    $('#hClearOk').onclick = () => { state.histDeleted.push(...state.history.map(z => z.id)); state.history = []; save(); scheduleSync(); toast('Historique vidé'); renderAll(true); };
   };
 }
 
@@ -2326,4 +2457,5 @@ document.addEventListener('pointerdown', e => { const el = e.target.closest && e
 window.addEventListener('scroll', () => { tip.hidden = true; }, { passive:true });
 
 renderAll();
+accountBoot();
 </script>

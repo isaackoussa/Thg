@@ -141,6 +141,9 @@ Valeurs par défaut issues du dispositif prudentiel UMOA (Bâle II/III, BCEAO). 
 - Chaque formule vit à un seul endroit du code, ce qui garantit que la formule affichée et le calcul effectué sont identiques
 - Code versionné dans ce dépôt
 
+## 6 quinquies. Compte par adresse e-mail
+Sur le site Netlify, l'historique peut être lié à un compte (adresse e-mail + mot de passe, Netlify Identity : e-mail de confirmation, mot de passe oublié). La fonction `/api/historique` (netlify/functions/historique.mjs, logique dans server/historique.mjs) garde un document par compte dans Netlify Blobs et fusionne les historiques des appareils (union, suppressions propagées, plafond de 60). Écriture limitée à la même origine. Dans claude.ai, l'historique reste local à l'appareil.
+
 ## 6 quater. Rapport Word
 L'onglet « Rapport Word » génère un .docx : page de titre, sommaire, synthèse (points forts, vigilance, commentaire), dynamique des comptes, ratios de structure, rentabilité et Du Pont, test de faillite, Bâle III, méthodologie. Les formules sont de vraies équations Word produites par le même moteur que l'app (formule puis application numérique), suivies du tableau des valeurs, du graphique et de l'interprétation. Parties, graphiques et applications numériques sont au choix.
 
