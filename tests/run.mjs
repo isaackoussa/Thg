@@ -309,6 +309,20 @@ for (const [label, storage] of cases) {
   ok(await page.evaluate(() => Object.keys(state.banks).length) === 1, 'suppression avec confirmation');
   await page.reload(); await page.waitForSelector('#view .section-head');
   ok(await page.evaluate(() => bank().years.length === 5 && raw('R1', 4) === 23000), 'données conservées après rechargement');
+  // import comme nouvelle analyse : nom détecté, modifiable, banque actuelle intacte
+  await page.click('[data-tab="import"]');
+  await page.fill('#impText', 'BANQUE ATLANTIQUE BENIN\n2022 2023\nCREANCES SUR LA CLIENTELE 5 000 6 000');
+  await page.click('#impParse');
+  ok(await page.inputValue('#impName') === 'BANQUE ATLANTIQUE BENIN', 'import : nom de la banque pré-rempli depuis le texte', await page.inputValue('#impName'));
+  const before = await page.evaluate(() => [state.cur, JSON.stringify(bank().v), Object.keys(state.banks).length]);
+  await page.fill('#impName', ''); await page.click('#impApplyNew');
+  ok(await page.evaluate(n => Object.keys(state.banks).length === n, before[2]), 'import : nom vide refusé');
+  await page.fill('#impName', 'BANQUE DE DAKAR'); await page.click('#impApplyNew');
+  const after = await page.evaluate(() => [bank().name, bank().years, bank().v.A4, state.tab, state.history[0].label, state.history[0].kind]);
+  ok(after[0] === 'BANQUE DE DAKAR' && JSON.stringify(after[1]) === '[2022,2023]' && JSON.stringify(after[2]) === '[5000,6000]' && after[3] === 'synthese', 'import : nouvelle analyse créée avec le nom saisi, ouverte sur la synthèse', after);
+  ok(/^BANQUE DE DAKAR · 2022–2023$/.test(after[4]) && after[5] === 'import', 'import : l’historique porte le nom de la banque', after[4]);
+  ok(await page.evaluate(b => JSON.stringify(state.banks[b[0]].v) === b[1], before), 'import : la banque précédente n’est pas modifiée');
+  await page.selectOption('#bankSel', before[0]);
   ok(errors.length === 0, 'parcours : aucune erreur JavaScript', errors.slice(0, 3));
   await ctx.close();
 }
@@ -408,8 +422,9 @@ else {
   const waitPreview = async () => { await page.waitForFunction(() => /reconnu|Sauvegarde|Banque détectée/.test(document.querySelector('#impPreview')?.innerText || '') || document.querySelector('#fileStatus.err'), null, { timeout: 120000 }); };
   const parsed = () => page.evaluate(() => parseImport(document.querySelector('#impText').value));
 
-  await upload('etats.xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', xlsxBuf); await waitPreview();
+  await upload('Bilan_CITIBANK_2021-2023.xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', xlsxBuf); await waitPreview();
   let r = await parsed();
+  ok(await page.inputValue('#impName') === 'CITIBANK', 'Excel : nom de la banque tiré du nom du fichier', await page.inputValue('#impName'));
   ok(JSON.stringify(r.years) === '[2021,2022,2023]' && JSON.stringify(r.vals.A4) === '[131072,130602,150766]' && JSON.stringify(r.vals.P3) === '[218985,187843,196626]', 'Excel : bilan lu', r.vals);
   ok(JSON.stringify(r.vals.A12) === '[238,null,258]', 'Excel : case vide gardée à sa place', r.vals.A12);
   ok(JSON.stringify(r.vals.R1) === '[20000,21000,23000]' && JSON.stringify(r.vals.R2) === '[8000,8200,9000]', 'Excel : deuxième feuille lue', [r.vals.R1, r.vals.R2]);

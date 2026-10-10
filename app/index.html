@@ -1518,7 +1518,10 @@ async function importFiles(files) {
     fileStatus(esc(e && e.message ? e.message : 'Lecture impossible.'), { err:true });
   }
 }
+let importSource = '';
+const nameFromFile = f => String(f || '').replace(/\.[a-z0-9]+$/i, '').replace(/\s*\(p\..*\)$/, '').replace(/^(analyse|bilan|etats?|états?|compte[s]?|fascicule|rapport)[_\s-]+/i, '').replace(/[_-]+/g, ' ').replace(/\b(19|20)\d\d\b/g, '').replace(/\s+/g, ' ').trim();
 function finishExtraction(text, names) {
+  importSource = names.length === 1 ? names[0] : '';
   if (!text.trim()) { fileStatus('Aucun texte trouvé dans ' + esc(names.join(', ')) + '. Pour une photo, essaie une image plus nette ; sinon colle le texte.', { err:true }); return; }
   const isJson = /^\s*\{/.test(text);
   $('#impText').value = text;
@@ -1569,9 +1572,14 @@ function previewImport(res) {
   const chkK = Object.keys(res.chk);
   if (chkK.length) h += '<p class="note">Totaux lus pour contrôle : ' + chkK.map(k => k + ' ' + res.chk[k].map(fmtM).join(' / ')).join(' · ') + '</p>';
   if (res.unknown.length) h += '<p class="miss">Lignes non reconnues (' + res.unknown.length + ') : ' + res.unknown.slice(0, 6).map(esc).join(' · ') + (res.unknown.length > 6 ? '…' : '') + '</p>';
-  if (keys.length) h += '<div class="row" style="margin-top:8px"><button class="btn pri" id="impApply">Appliquer à « ' + esc(bank().name) + ' »</button><button class="btn" id="impApplyNew">Créer une nouvelle banque</button></div>';
+  if (keys.length) {
+    const guess = res.bankName || (/\.(xlsx?|xlsm|ods|docx|pdf|csv|txt|tsv|jpe?g|png|heic|webp)$/i.test(importSource) ? nameFromFile(importSource) : '');
+    h += '<div class="meta-grid" style="margin-top:10px;grid-template-columns:1fr"><label>Nom de la banque (modifiable)<input type="text" id="impName" maxlength="120" value="' + esc(guess) + '" placeholder="ex. BANQUE DE DAKAR"></label></div>'
+      + '<div class="row" style="margin-top:8px"><button class="btn pri" id="impApplyNew">Créer comme nouvelle analyse</button></div>'
+      + '<p class="note" style="margin-top:6px">L’import crée une nouvelle banque avec ce nom ; « ' + esc(bank().name) + ' » n’est pas modifiée. <button class="btn sm" id="impApply">Compléter « ' + esc(bank().name) + ' » à la place</button> (par exemple pour ajouter son compte de résultat).</p>';
+  }
   el.innerHTML = h;
-  const apply = target => {
+  const apply = (target, isNew) => {
     if (res.years) res.years.forEach(yr => addYear(target, yr));
     keys.forEach(k => {
       const arr = res.vals[k];
@@ -1580,14 +1588,20 @@ function previewImport(res) {
       ys.forEach((yr, j) => { const i = target.years.indexOf(yr); if (i >= 0 && fin(arr[j])) target.v[k][i] = arr[j]; });
     });
     delete target.range;
-    if (res.bankName && /^(Nouvelle banque( importée)?|Banque sans nom)$/.test(target.name)) target.name = res.bankName;
     target.example = false; save();
-    addHistory('import', 'Après import de ' + keys.length + ' poste(s)', '', target.id);
-    toast(keys.length + ' poste(s) importé(s), analyse ajoutée à l’historique'); state.tab = 'saisie'; renderAll();
+    const yy = target.years;
+    addHistory('import', target.name + ' · ' + yy[0] + (yy.length > 1 ? '–' + yy[yy.length - 1] : ''), 'Import de ' + keys.length + ' poste(s)' + (importSource ? ' depuis ' + importSource : ''), target.id);
+    toast(keys.length + ' poste(s) importé(s) dans « ' + target.name + ' », analyse ajoutée à l’historique'); state.tab = isNew ? 'synthese' : 'saisie'; state.yi = 99; renderAll(); window.scrollTo(0, 0);
     if (res.chk.PNB) setTimeout(() => { const ys = (res.years || Y()).slice(-res.chk.PNB.length); const ok = ys.every((yr, j) => { const y = Y().indexOf(yr); const v = y >= 0 ? qv('PNB', y) : NaN; return !fin(v) || Math.abs(v - res.chk.PNB[j]) < 1; }); if (!ok) toast('Attention : le PNB recalculé diffère du PNB lu'); }, 300);
   };
   if ($('#impApply')) $('#impApply').onclick = () => apply(bank());
-  if ($('#impApplyNew')) $('#impApplyNew').onclick = () => { const id = 'b' + Date.now(); state.banks[id] = { id, name:res.bankName || 'Nouvelle banque importée', country:'', unit:'millions FCFA', years:(res.years || Y()).slice(), v:{} }; state.cur = id; apply(state.banks[id]); };
+  if ($('#impApplyNew')) $('#impApplyNew').onclick = () => {
+    const name = ($('#impName').value || '').replace(/\s+/g, ' ').trim();
+    if (!name) { toast('Donne un nom à la banque avant de créer l’analyse'); $('#impName').focus(); return; }
+    const id = 'b' + Date.now();
+    const yrs = (res.years || Y()).slice(-Math.max(...keys.map(k => res.vals[k].length)));
+    state.banks[id] = { id, name:name.slice(0, 120), country:'', unit:'millions FCFA', years:yrs, v:{} }; state.cur = id; apply(state.banks[id], true);
+  };
 }
 function toCsv(tpl) {
   const b = bank();
@@ -2640,7 +2654,7 @@ function bindView() {
   view.querySelectorAll('[data-hsave]').forEach(b => b.onclick = () => { addHistory('manuel', bank().name + ' · ' + Y()[0] + '–' + Y()[Y().length - 1], ''); toast('Analyse enregistrée dans l’historique'); renderAll(true); });
   if (state.tab === 'r') { $('#rCopy').onclick = () => copyText(rScript()); if ($('#rDl')) $('#rDl').onclick = () => download(fileBase() + '.R', rScript()); }
   if (state.tab === 'import') {
-    $('#impParse').onclick = () => previewImport(parseImport($('#impText').value));
+    $('#impParse').onclick = () => { importSource = ''; previewImport(parseImport($('#impText').value)); };
     $('#impFile').onchange = e => { importFiles([...e.target.files]); e.target.value = ''; };
     $('#impCam').onchange = e => { importFiles([...e.target.files]); e.target.value = ''; };
     const dz = $('#dropZone');
