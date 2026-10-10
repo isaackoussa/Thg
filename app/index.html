@@ -1261,8 +1261,102 @@ function splitNumbers(tokens, want = 3) {
   rec(0, []);
   return best.parts;
 }
+/* Reconnaissance des intitulés : exacte d'abord (format du fascicule), puis par mots-clés (synonymes
+   courants des états financiers), sans tenir compte des articles, des accents ni des pluriels. */
+const SYNONYMS = {
+  A1:['CAISSE BANQUE CENTRALE', 'CAISSE BCEAO', 'CAISSE INSTITUT EMISSION', 'VALEURS EN CAISSE BANQUE CENTRALE', 'CAISSE'],
+  A2:['EFFETS PUBLICS', 'TITRES PUBLICS', 'BONS DU TRESOR', 'TITRES ETAT'],
+  A3:['CREANCES SUR LES ETABLISSEMENTS DE CREDIT', 'PRETS ET CREANCES SUR LES ETABLISSEMENTS DE CREDIT', 'CREANCES SUR ETABLISSEMENTS DE CREDIT', 'CREANCES INTERBANCAIRES', 'PRETS INTERBANCAIRES'],
+  A4:['CREDITS A LA CLIENTELE', 'PRETS ET CREANCES SUR LA CLIENTELE', 'CREANCES CLIENTELE', 'CREDITS CLIENTELE', 'PRETS A LA CLIENTELE', 'CREDITS ET PRETS A LA CLIENTELE', 'ENCOURS DE CREDITS'],
+  A5:['OBLIGATIONS', 'TITRES A REVENU FIXE'],
+  A6:['ACTIONS', 'TITRES A REVENU VARIABLE'],
+  A8:['AUTRES ACTIFS', 'DEBITEURS DIVERS'],
+  A10:['PARTICIPATIONS', 'TITRES DE PARTICIPATION'],
+  A11:['ENTREPRISES LIEES'],
+  A13:['IMMOBILISATIONS INCORPORELLES'],
+  A14:['IMMOBILISATIONS CORPORELLES'],
+  P2:['DETTES ENVERS LES ETABLISSEMENTS DE CREDIT', 'DETTES INTERBANCAIRES', 'EMPRUNTS INTERBANCAIRES', 'DETTES ENVERS ETABLISSEMENTS DE CREDIT'],
+  P3:['DEPOTS DE LA CLIENTELE', 'DETTES ENVERS LA CLIENTELE', 'DEPOTS CLIENTELE', 'DEPOTS ET COMPTES DE LA CLIENTELE', 'RESSOURCES DE LA CLIENTELE', 'DEPOTS'],
+  P4:['DETTES REPRESENTEES PAR UN TITRE', 'EMPRUNTS OBLIGATAIRES'],
+  P5:['AUTRES PASSIFS', 'CREDITEURS DIVERS'],
+  P7:['PROVISIONS POUR RISQUES ET CHARGES', 'PROVISIONS POUR RISQUES'],
+  P8:['DETTES SUBORDONNEES', 'EMPRUNTS SUBORDONNES', 'TITRES SUBORDONNES'],
+  P9a:['CAPITAL SOCIAL', 'CAPITAL'],
+  P9b:['PRIMES D EMISSION', 'PRIMES'],
+  P9c:['RESERVES'],
+  P9f:['REPORT A NOUVEAU', 'RESULTATS ANTERIEURS'],
+  P9g:['RESULTAT DE L EXERCICE', 'RESULTAT NET DE L EXERCICE', 'BENEFICE DE L EXERCICE'],
+  R1:['PRODUITS D INTERETS', 'INTERETS RECUS', 'INTERETS PERCUS', 'PRODUITS D INTERETS ET ASSIMILES'],
+  R2:['CHARGES D INTERETS', 'INTERETS VERSES', 'INTERETS PAYES', 'CHARGES D INTERETS ET ASSIMILEES'],
+  R4:['COMMISSIONS PERCUES', 'PRODUITS DE COMMISSIONS', 'COMMISSIONS RECUES', 'PRODUITS SUR COMMISSIONS'],
+  R5:['COMMISSIONS VERSEES', 'CHARGES DE COMMISSIONS', 'COMMISSIONS PAYEES', 'CHARGES SUR COMMISSIONS'],
+  R6:['PORTEFEUILLE DE NEGOCIATION', 'GAINS SUR PORTEFEUILLE DE NEGOCIATION', 'RESULTAT SUR PORTEFEUILLE DE NEGOCIATION'],
+  R7:['PORTEFEUILLE DE PLACEMENT', 'GAINS SUR PORTEFEUILLE DE PLACEMENT'],
+  R8:['AUTRES PRODUITS D EXPLOITATION BANCAIRE', 'AUTRES PRODUITS BANCAIRES'],
+  R9:['AUTRES CHARGES D EXPLOITATION BANCAIRE', 'AUTRES CHARGES BANCAIRES'],
+  R11:['CHARGES GENERALES D EXPLOITATION', 'FRAIS GENERAUX', 'CHARGES D EXPLOITATION GENERALES'],
+  R12:['DOTATIONS AUX AMORTISSEMENTS', 'AMORTISSEMENTS ET DEPRECIATIONS DES IMMOBILISATIONS', 'DOTATIONS AUX AMORTISSEMENTS ET PROVISIONS SUR IMMOBILISATIONS'],
+  R13:['COUT DU RISQUE', 'COUT NET DU RISQUE'],
+  R14:['GAINS OU PERTES SUR ACTIFS IMMOBILISES', 'GAINS SUR ACTIFS IMMOBILISES', 'RESULTAT SUR ACTIFS IMMOBILISES'],
+  R15:['IMPOTS SUR LES BENEFICES', 'IMPOT SUR LE RESULTAT', 'IMPOTS SUR LES SOCIETES', 'IMPOT SUR LES SOCIETES']
+};
+const CHK_SYNONYMS = { PNB:['PNB', 'PRODUIT NET BANCAIRE'], RBE:['RESULTAT BRUT D EXPLOITATION', 'RBE'], RE:['RESULTAT D EXPLOITATION'], RAI:['RESULTAT AVANT IMPOT', 'RESULTAT COURANT AVANT IMPOT'], RN:['RESULTAT NET'], MI:['MARGE D INTERETS', 'MARGE NETTE D INTERETS'], CP:['CAPITAUX PROPRES', 'FONDS PROPRES'], skip:['TOTAL', 'SOUS TOTAL'] };
+const STOP = new Set(['ET', 'DE', 'DU', 'DES', 'LA', 'LE', 'LES', 'L', 'D', 'A', 'AU', 'AUX', 'SUR', 'EN', 'OU', 'PAR', 'POUR', 'AVEC', 'UN', 'UNE', 'NET', 'NETS', 'NETTE', 'NETTES', 'ASSIMILES', 'ASSIMILEES', 'ASSIMILE', 'ASSIMILEE']);
+const stem = w => w.length > 3 ? w.replace(/(S|X)$/, '') : w;
+const toks = s => norm(s).split(' ').filter(w => w && !STOP.has(w)).map(stem);
+const KEYWORD_ALIASES = (() => {
+  const L = [];
+  Object.entries(SYNONYMS).forEach(([k, arr]) => arr.forEach(a => L.push({ k, t:toks(a), s:F[k].s, ctx:F[k].ctx })));
+  FIELDS.forEach(f => f.a.forEach(a => L.push({ k:f.k, t:toks(a), s:f.s, ctx:f.ctx })));
+  Object.entries(CHK_SYNONYMS).forEach(([c, arr]) => arr.forEach(a => L.push({ chk:c, t:toks(a) })));
+  return L.filter(x => x.t.length).sort((x, y) => y.t.length - x.t.length);
+})();
+function matchLabel(label, ctx) {
+  const L = norm(label);
+  if (!L) return null;
+  // 1. code de l'app (A4, P9g, R13…)
+  const first = label.trim().split(/\s+/)[0] || '';
+  const codeHit = FIELDS.find(f => f.k.toUpperCase() === first.toUpperCase());
+  if (codeHit) return { k:codeHit.k };
+  // 2. intitulé exact du fascicule (début de ligne)
+  const cands = ALIASES.filter(a => L.startsWith(a.a));
+  const chk = cands.find(a => a.chk), fc = cands.filter(a => !a.chk);
+  if (chk && chk.a.length >= (fc[0]?.a.length || 0)) return chk;
+  const pick = list => list.find(a => a.ctx ? a.ctx === ctx.hb : (a.s === 'actif' || a.s === 'passif') && list.some(b => b !== a && b.a === a.a) ? a.s === (ctx.sec === 'passif' ? 'passif' : 'actif') : true) || list[0];
+  if (fc.length) return pick(fc);
+  // 3. mots-clés : tous les mots significatifs du synonyme présents dans l'intitulé
+  const lt = new Set(toks(label));
+  const hits = KEYWORD_ALIASES.filter(a => a.t.every(w => lt.has(w)) && (a.t.length > 1 || lt.size <= 2));
+  if (!hits.length) return null;
+  const best = hits[0].t.length, top = hits.filter(h => h.t.length === best);
+  const chkTop = top.find(h => h.chk);
+  if (chkTop && !top.some(h => !h.chk)) return { chk:chkTop.chk === 'skip' ? 'skip' : chkTop.chk, kw:true };
+  const fields = top.filter(h => !h.chk);
+  const byCtx = fields.find(h => h.ctx ? h.ctx === ctx.hb : true) || fields[0];
+  // « Comptes de régularisation » et intitulés communs à l'actif et au passif : on suit la section
+  const dual = fields.filter(h => h.k !== byCtx.k && F[h.k].s !== F[byCtx.k].s);
+  if (dual.length) { const want = ctx.sec === 'passif' ? ['passif', 'cp'] : ['actif']; return { k:[byCtx, ...dual].find(h => want.includes(F[h.k].s))?.k || byCtx.k, kw:true }; }
+  return { k:byCtx.k, kw:true };
+}
+function csvCells(line) {
+  const out = []; let cur = '', q = false;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (q) { if (c === '"' && line[i + 1] === '"') { cur += '"'; i++; } else if (c === '"') q = false; else cur += c; }
+    else if (c === '"') q = true; else if (c === ',') { out.push(cur); cur = ''; } else cur += c;
+  }
+  out.push(cur);
+  return out.map(c => c.trim());
+}
+function detectUnit(text) {
+  const T = norm(text.slice(0, 20000));
+  if (/\bEN MILLIERS\b|\bMILLIERS DE (FRANCS|FCFA|F CFA)\b|\bKFCFA\b|\bK FCFA\b/.test(T)) return 'milliers';
+  if (/\bEN MILLIONS\b|\bMILLIONS DE (FRANCS|FCFA|F CFA)\b|\bMFCFA\b|\bM FCFA\b/.test(T)) return 'millions';
+  if (/\bEN (FRANCS )?(FCFA|F CFA|FRANCS CFA)\b/.test(T)) return 'unites';
+  return null;
+}
 function parseImport(text) {
-  const yrs = Y(), out = { vals:{}, chk:{}, unknown:[], years:null };
+  const yrs = Y(), out = { vals:{}, chk:{}, unknown:[], years:null, yearCols:null, unit:null };
   if (/^\s*\{/.test(text)) {
     try {
       const j = JSON.parse(text);
@@ -1271,51 +1365,75 @@ function parseImport(text) {
       out.unknown.push('Fichier JSON reconnu mais sans données de banque exploitables'); return out;
     } catch (e) { out.unknown.push('JSON illisible : ' + e.message); return out; }
   }
-  let sec = 'actif', hb = 'donnes';
-  text.split(/\r?\n/).forEach(line => {
+  out.unit = detectUnit(text);
+  const ctx = { sec:'actif', hb:'donnes' };
+  let pending = null;
+  const nk = () => (out.years || yrs).length;
+  const commit = (hit, nums, raw) => {
+    if (hit.chk) { if (hit.chk !== 'skip' && !(hit.kw && out.chk[hit.chk])) out.chk[hit.chk] = nums.slice(-nk()); return; }
+    if (out.vals[hit.k] && (!nums.some(fin) || hit.kw)) return;
+    out.vals[hit.k] = nums.slice(-nk());
+    if (F[hit.k].s === 'cp') ctx.sec = 'passif';
+  };
+  const flush = () => { if (pending) { if (pending.nums.length) commit(pending.hit, pending.nums); pending = null; } };
+  text.split(/\r?\n/).forEach(rawLine => {
+    let line = rawLine.replace(/ | /g, ' ').replace(/[“”]/g, '"');
     if (!line.trim()) return;
-    let label, nums;
-    if (/[;\t]/.test(line)) {
-      const cells = line.split(/[;\t]/).map(c => c.trim());
+    // numérotation et puces en début de ligne : « 1. », « I - », « a) », « • »
+    line = line.replace(/^\s*(?:[•·*+=>\-–]\s*)+/, '').replace(/^\s*(?:[IVX]{1,5}|\d{1,2}|[a-h])\s*[.)\-–]\s+(?=\D)/i, '');
+    let label, nums, cells = null;
+    const commaCsv = !/[;\t]/.test(line) && (line.match(/,/g) || []).length >= 2 && /^[^,]*[A-Za-zÀ-ÿ][^,]*(,\s*"?\(?-?[\d\s.]*\)?"?\s*)+$/.test(line);
+    if (/[;\t]/.test(line) || commaCsv) cells = commaCsv ? csvCells(line) : line.split(/[;\t]/).map(c => c.trim());
+    if (cells) {
+      // en-tête : colonnes d'années (y compris « 31/12/2023 »)
+      const yc = cells.map((c, i) => { const m = c.match(/^(?:(?:exercice|ann[ée]e|au|d[ée]c\.?|decembre|décembre)\s*)?(?:\d{1,2}[\/.\-]\d{1,2}[\/.\-])?((?:19|20)\d{2})$/i); return m ? [i, +m[1]] : null; }).filter(Boolean);
+      if (yc.length >= 1 && cells.filter(c => c && parseNum(c) !== null && !/^(19|20)\d{2}$/.test(c)).length === 0 && yc.length >= cells.filter(c => /\d/.test(c)).length) { flush(); out.years = yc.map(x => x[1]); out.yearCols = yc[0][0] > 0 ? yc.map(x => x[0]) : null; return; }
       const first = cells.findIndex(c => c !== '' && parseNum(c) !== null);
       label = cells.slice(0, first < 0 ? cells.length : first).filter(Boolean).join(' ');
-      nums = first < 0 ? [] : cells.slice(first).map(c => parseNum(c));
-      while (nums.length && nums[nums.length - 1] === null) nums.pop();
+      if (out.yearCols && first >= 0) nums = out.yearCols.map(i => i < cells.length ? parseNum(cells[i]) : null);
+      else { nums = first < 0 ? [] : cells.slice(first).map(c => parseNum(c)); while (nums.length && nums[nums.length - 1] === null) nums.pop(); }
+      if (nums.every(v => v === null)) nums = [];
     } else {
-      const toks = line.trim().split(/\s+/);
-      if (toks.length && toks.every(t => /^(19|20)\d\d$/.test(t))) { out.years = toks.map(Number); return; }
-      let i = toks.length;
-      while (i > 0 && /^[-−(]?\d+[,.]?\d*\)?$/.test(toks[i - 1])) i--;
-      label = toks.slice(0, i).join(' ');
-      const numToks = toks.slice(i);
-      const want = (out.years || yrs).length;
-      nums = numToks.length ? (splitNumbers(numToks, Math.min(want, numToks.length)) || splitNumbers(numToks, Math.min(numToks.length, 2)) || splitNumbers(numToks, 1) || []) : [];
-    }
-    const L = norm(label);
-    if (nums.length && nums.every(v => Number.isInteger(v) && v >= 1990 && v <= 2100) && (!L || /^(CODE|POSTE|LIBELLE|ANNEE|EXERCICE|RUBRIQUE)/.test(L))) { out.years = nums; return; }
-    if (/^PASSIF\b/.test(L) || /TOTAL DE L ACTIF/.test(L)) sec = 'passif';
-    if (/^HORS BILAN/.test(L)) sec = 'hb';
-    if (/^ENGAGEMENTS DONNES/.test(L)) hb = 'donnes';
-    if (/^ENGAGEMENTS RECUS/.test(L)) hb = 'recus';
-    if (/^ACTIF\b/.test(L) && !L.includes('TOTAL')) sec = 'actif';
-    if (!nums.length && !out.bankName && /\b(BANQUE|BANK|BANCO|BANCA|SOCIETE GENERALE|ECOBANK|ORABANK|CORIS|BRIDGE|BICIS|SGB|CBAO|BOA|UBA|NSIA|BSIC)\b/.test(L) && L.length >= 4 && L.length <= 80 && !/^(BILANS?|COMPTES?|TOTAL|BANQUES? CENTRALES?|CAISSE|DETTES|CREANCES)\b/.test(L) && !/\b(CCP|INTERBANCAIRES?|CENTRALE)\b/.test(L)) out.bankName = label.replace(/\s+/g, ' ').trim();
-    if (!nums.length) return;
-    const codeHit = FIELDS.find(f => norm(f.k) === norm(label.split(' ')[0] || '') && (label.split(' ')[0] || '').toUpperCase() === f.k.toUpperCase());
-    let hit = codeHit ? { k:codeHit.k } : null;
-    if (!hit) {
-      const cands = ALIASES.filter(a => L.startsWith(a.a));
-      hit = cands.find(a => a.chk) && cands.find(a => a.chk).a.length >= (cands.find(a => !a.chk)?.a.length || 0) ? cands.find(a => a.chk) : null;
-      if (!hit) {
-        const fc = cands.filter(a => !a.chk);
-        hit = fc.find(a => a.ctx ? a.ctx === hb : (a.a === 'COMPTES DE REGULARISATION' ? a.s === (sec === 'passif' ? 'passif' : 'actif') : true)) || fc[0] || null;
+      const tk = line.trim().split(/\s+/);
+      // en-tête d'années, y compris dates « 31/12/2022 » ou « Déc. 2023 »
+      const yearHits = [...line.matchAll(/(?:\b\d{1,2}[\/.\-]\d{1,2}[\/.\-])?\b((?:19|20)\d{2})\b/g)].map(m => +m[1]);
+      const rest = line.replace(/(?:\b\d{1,2}[\/.\-]\d{1,2}[\/.\-])?\b(?:19|20)\d{2}\b/g, '');
+      if (yearHits.length >= 2 && !/\d/.test(rest) && (!norm(rest) || /^(CODE|POSTE|LIBELLE|ANNEE|EXERCICE|RUBRIQUE|EN MILLIONS|MILLIONS|EN MILLIERS|ACTIF|PASSIF|BILAN|COMPTE|AU|DEC|DECEMBRE|EXERCICES?|MONTANTS?|NOTES?)\b/.test(norm(rest)) || norm(rest).split(' ').every(w => /^(AU|DEC|DECEMBRE|EXERCICE|EXERCICES|ANNEE|ANNEES|NOTE|NOTES|MILLIONS|MILLIERS|FCFA|F|CFA|EN|DE)$/.test(w)))) { flush(); out.years = yearHits; out.yearCols = null; return; }
+      let i = tk.length;
+      while (i > 0 && /^[-−(]?\d+[,.]?\d*\)?$/.test(tk[i - 1])) i--;
+      label = tk.slice(0, i).join(' ');
+      const numToks = tk.slice(i);
+      if (!numToks.length) nums = [];
+      else if (!label && pending && numToks.length <= 3) {
+        // ligne de chiffres seule après un intitulé : souvent un seul montant par ligne (copie depuis un PDF)
+        const single = splitNumbers(numToks, 1);
+        nums = single || splitNumbers(numToks, Math.min(nk() - pending.nums.length, numToks.length)) || [];
+      } else {
+        const want = nk();
+        nums = splitNumbers(numToks, Math.min(want, numToks.length)) || splitNumbers(numToks, Math.min(numToks.length, 2)) || splitNumbers(numToks, 1) || [];
       }
     }
+    const L = norm(label);
+    if (nums.length && nums.every(v => Number.isInteger(v) && v >= 1990 && v <= 2100) && (!L || /^(CODE|POSTE|LIBELLE|ANNEE|EXERCICE|RUBRIQUE)/.test(L))) { flush(); out.years = nums; return; }
+    // chiffres seuls : complètent l'intitulé précédent
+    if (!L && nums.length) {
+      if (pending) { pending.nums.push(...nums); if (pending.nums.length >= nk()) flush(); }
+      else out.unknown.push(line.trim());
+      return;
+    }
+    flush();
+    if (/^PASSIF\b/.test(L) || /TOTAL (DE L )?ACTIF/.test(L)) ctx.sec = 'passif';
+    if (/^HORS BILAN/.test(L)) ctx.sec = 'hb';
+    if (/^ENGAGEMENTS DONNES/.test(L)) ctx.hb = 'donnes';
+    if (/^ENGAGEMENTS RECUS/.test(L)) ctx.hb = 'recus';
+    if (/^ACTIF\b/.test(L) && !L.includes('TOTAL')) ctx.sec = 'actif';
+    if (!nums.length && !out.bankName && /\b(BANQUE|BANK|BANCO|BANCA|SOCIETE GENERALE|ECOBANK|ORABANK|CORIS|BRIDGE|BICIS|SGB|CBAO|BOA|UBA|NSIA|BSIC)\b/.test(L) && L.length >= 4 && L.length <= 80 && !/^(BILANS?|COMPTES?|TOTAL|BANQUES? CENTRALES?|CAISSE|DETTES|CREANCES)\b/.test(L) && !/\b(CCP|INTERBANCAIRES?|CENTRALE|ETABLISSEMENTS?)\b/.test(L)) { out.bankName = label.replace(/\s+/g, ' ').trim(); return; }
+    const hit = matchLabel(label, ctx);
+    if (!nums.length) { if (hit && !(hit.chk === 'skip')) pending = { hit, nums:[], raw:line.trim() }; return; }
     if (!hit) { out.unknown.push(line.trim()); return; }
-    const nk = (out.years || yrs).length;
-    if (hit.chk) { if (hit.chk !== 'skip') out.chk[hit.chk] = nums.slice(-nk); return; }
-    out.vals[hit.k] = nums.slice(-nk);
-    if (F[hit.k].s === 'cp') sec = 'passif';
+    commit(hit, nums);
   });
+  flush();
   // Coût du risque, gains sur immobilisations et impôt : déduits des soldes si le fascicule les fournit (évite les erreurs de signe)
   const derive = (k, a, b, sign) => { if (out.chk[a] && out.chk[b]) out.vals[k] = out.chk[a].map((x, i) => fin(x) && fin(out.chk[b][i]) ? sign * (x - out.chk[b][i]) : null); };
   derive('R13', 'RBE', 'RE', 1); derive('R14', 'RAI', 'RE', 1); derive('R15', 'RAI', 'RN', 1);
@@ -1389,12 +1507,14 @@ async function openPdf(f) {
 }
 async function pdfPageText(pdf, n) {
   const page = await pdf.getPage(n), tc = await page.getTextContent();
-  const items = tc.items.filter(it => it.str && it.str.trim()).map(it => ({ s:it.str.trim(), x:it.transform[4], y:it.transform[5] }));
+  const items = tc.items.filter(it => it.str && it.str.trim()).map(it => { const h = Math.abs(it.height || it.transform[3] || 10); return { s:it.str.trim(), x:it.transform[4], y:it.transform[5], w:it.width || it.str.length * h * 0.5, h }; });
   items.sort((a, b) => b.y - a.y || a.x - b.x);
   const lines = [];
-  items.forEach(it => { const l = lines.find(l => Math.abs(l.y - it.y) <= 3); if (l) l.items.push(it); else lines.push({ y:it.y, items:[it] }); });
+  // même ligne si l'écart vertical est inférieur à la moitié de la hauteur du texte
+  items.forEach(it => { const l = lines.find(l => Math.abs(l.y - it.y) <= Math.max(2, Math.min(l.h, it.h) * 0.5)); if (l) l.items.push(it); else lines.push({ y:it.y, h:it.h, items:[it] }); });
   lines.sort((a, b) => b.y - a.y);
-  return lines.map(l => l.items.sort((a, b) => a.x - b.x).map(i => i.s).join(' ')).join('\n');
+  // un grand espace horizontal sépare deux colonnes : tabulation (lecture en cases, sans ambiguïté sur « 131 072 130 602 »)
+  return lines.map(l => { const its = l.items.sort((a, b) => a.x - b.x); let out = ''; its.forEach((it, i) => { if (i) { const gap = it.x - (its[i - 1].x + its[i - 1].w); out += gap > Math.max(it.h, its[i - 1].h) * 1.2 ? '\t' : ' '; } out += it.s; }); return out; }).join('\n');
 }
 async function pdfPageImage(pdf, n) {
   const page = await pdf.getPage(n), vp = page.getViewport({ scale:2 });
@@ -1574,18 +1694,23 @@ function previewImport(res) {
   if (res.unknown.length) h += '<p class="miss">Lignes non reconnues (' + res.unknown.length + ') : ' + res.unknown.slice(0, 6).map(esc).join(' · ') + (res.unknown.length > 6 ? '…' : '') + '</p>';
   if (keys.length) {
     const guess = res.bankName || (/\.(xlsx?|xlsm|ods|docx|pdf|csv|txt|tsv|jpe?g|png|heic|webp)$/i.test(importSource) ? nameFromFile(importSource) : '');
+    const u = res.unit || 'millions';
+    h += '<div class="meta-grid" style="margin-top:10px"><label for="impUnit">Montants du fichier exprimés en<select id="impUnit"><option value="millions"' + (u === 'millions' ? ' selected' : '') + '>millions de FCFA</option><option value="milliers"' + (u === 'milliers' ? ' selected' : '') + '>milliers de FCFA (÷ 1 000)</option><option value="unites"' + (u === 'unites' ? ' selected' : '') + '>FCFA (÷ 1 000 000)</option></select></label></div>'
+      + (res.unit && res.unit !== 'millions' ? '<p class="note">Unité détectée dans le fichier : ' + (res.unit === 'milliers' ? 'milliers de FCFA' : 'FCFA') + '. Les montants seront convertis en millions.</p>' : '');
     h += '<div class="meta-grid" style="margin-top:10px;grid-template-columns:1fr"><label>Nom de la banque (modifiable)<input type="text" id="impName" maxlength="120" value="' + esc(guess) + '" placeholder="ex. BANQUE DE DAKAR"></label></div>'
       + '<div class="row" style="margin-top:8px"><button class="btn pri" id="impApplyNew">Créer comme nouvelle analyse</button></div>'
       + '<p class="note" style="margin-top:6px">L’import crée une nouvelle banque avec ce nom ; « ' + esc(bank().name) + ' » n’est pas modifiée. <button class="btn sm" id="impApply">Compléter « ' + esc(bank().name) + ' » à la place</button> (par exemple pour ajouter son compte de résultat).</p>';
   }
   el.innerHTML = h;
   const apply = (target, isNew) => {
+    const factor = { millions:1, milliers:1e-3, unites:1e-6 }[$('#impUnit') ? $('#impUnit').value : 'millions'] || 1;
+    const conv = v => fin(v) ? Math.round(v * factor * 1000) / 1000 : v;
     if (res.years) res.years.forEach(yr => addYear(target, yr));
     keys.forEach(k => {
       const arr = res.vals[k];
       target.v[k] = target.v[k] || target.years.map(() => null);
       const ys = res.years ? res.years.slice(-arr.length) : target.years.slice(-arr.length);
-      ys.forEach((yr, j) => { const i = target.years.indexOf(yr); if (i >= 0 && fin(arr[j])) target.v[k][i] = arr[j]; });
+      ys.forEach((yr, j) => { const i = target.years.indexOf(yr); if (i >= 0 && fin(arr[j])) target.v[k][i] = conv(arr[j]); });
     });
     delete target.range;
     target.example = false; save();

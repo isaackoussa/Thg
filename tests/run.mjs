@@ -206,6 +206,49 @@ RESULTAT NET 4 410 5 100 4 080`));
   ok(JSON.stringify(v.R15) === '[400,500,600]', 'import : impôt', v.R15);
   ok(imp.unknown.length === 0, 'import : aucune ligne chiffrée ignorée', imp.unknown);
 
+  /* Fichiers réels : intitulés courants, chiffres sur plusieurs lignes, colonnes en trop, CSV virgules, dates, numérotation, unités */
+  const variants = await page.evaluate(() => {
+    const P = t => parseImport(t);
+    return {
+      synonymes: P(`Exercice 2022 2023
+1. Caisse et banque centrale 1 000 2 000
+2. Crédits à la clientèle 50 000 60 000
+3. Prêts et créances sur les établissements de crédit 3 000 4 000
+Dépôts de la clientèle 70 000 80 000
+Dettes envers les établissements de crédit 5 000 6 000
+Capital social 10 000 10 000
+Produit net bancaire 9 000 9 500
+Frais généraux 4 000 4 200
+Impôt sur le résultat 300 400`),
+      multiligne: P(`2021 2022 2023
+CREANCES SUR LA CLIENTELE
+131 072
+130 602
+150 766
+DETTES A L'EGARD DE LA CLIENTELE
+218 985
+187 843
+196 626`),
+      colonnes: P(['Poste\t31/12/2022\t31/12/2023\tVariation\t%', 'Créances sur la clientèle\t130 602\t150 766\t20 164\t15,4 %', 'Dettes à l’égard de la clientèle\t187 843\t196 626\t8 783\t4,7 %'].join('\n')),
+      csv: P(['Poste,2022,2023', 'Créances sur la clientèle,"130 602","150 766"', 'Capital social,28000,20563'].join('\n')),
+      milliers: P(`Bilan au 31 décembre (en milliers de FCFA)
+2022 2023
+Créances sur la clientèle 130 602 000 150 766 000`),
+      detail: P(`2022 2023
+Dépôts de la clientèle 187 843 196 626
+Dépôts à vue 100 000 110 000
+Dépôts à terme 87 843 86 626`)
+    };
+  });
+  const sv = variants.synonymes.vals;
+  ok(JSON.stringify(variants.synonymes.years) === '[2022,2023]' && JSON.stringify(sv.A1) === '[1000,2000]' && JSON.stringify(sv.A4) === '[50000,60000]' && JSON.stringify(sv.A3) === '[3000,4000]', 'lecture : intitulés courants et lignes numérotées (actif)', sv);
+  ok(JSON.stringify(sv.P3) === '[70000,80000]' && JSON.stringify(sv.P2) === '[5000,6000]' && JSON.stringify(sv.P9a) === '[10000,10000]', 'lecture : intitulés courants (passif)', [sv.P3, sv.P2, sv.P9a]);
+  ok(JSON.stringify(sv.R11) === '[4000,4200]' && JSON.stringify(sv.R15) === '[300,400]' && JSON.stringify(variants.synonymes.chk.PNB) === '[9000,9500]', 'lecture : intitulés courants (compte de résultat)', [sv.R11, sv.R15, variants.synonymes.chk]);
+  ok(JSON.stringify(variants.multiligne.vals.A4) === '[131072,130602,150766]' && JSON.stringify(variants.multiligne.vals.P3) === '[218985,187843,196626]' && variants.multiligne.unknown.length === 0, 'lecture : chiffres sur les lignes suivant l’intitulé (copie depuis un PDF)', variants.multiligne);
+  ok(JSON.stringify(variants.colonnes.years) === '[2022,2023]' && JSON.stringify(variants.colonnes.vals.A4) === '[130602,150766]' && JSON.stringify(variants.colonnes.vals.P3) === '[187843,196626]', 'lecture : en-têtes de dates et colonnes en trop ignorées', variants.colonnes);
+  ok(JSON.stringify(variants.csv.vals.A4) === '[130602,150766]' && JSON.stringify(variants.csv.vals.P9a) === '[28000,20563]', 'lecture : CSV séparé par des virgules', variants.csv.vals);
+  ok(variants.milliers.unit === 'milliers' && JSON.stringify(variants.milliers.vals.A4) === '[130602000,150766000]', 'lecture : unité « milliers » détectée', variants.milliers);
+  ok(JSON.stringify(variants.detail.vals.P3) === '[187843,196626]', 'lecture : lignes de détail n’écrasent pas le total', variants.detail.vals.P3);
   /* Aller-retour CSV et JSON */
   const rt = await page.evaluate(() => { const before = JSON.stringify(bank().v); const csv = toCsv(false); const p = parseImport(csv); const back = {}; Object.keys(p.vals).forEach(k => back[k] = p.vals[k]); const ok1 = Object.keys(bank().v).every(k => JSON.stringify(bank().v[k]) === JSON.stringify(back[k] ?? bank().years.map(() => null)) || bank().v[k].every(x => x === null)); const j = parseImport(JSON.stringify({ banks: state.banks, cur: state.cur, params: state.params })); return [ok1, !!j.json, JSON.stringify(j.json.banks[state.cur].v) === before, p.years]; });
   ok(rt[0], 'export CSV puis import : mêmes valeurs');
@@ -322,6 +365,12 @@ for (const [label, storage] of cases) {
   ok(after[0] === 'BANQUE DE DAKAR' && JSON.stringify(after[1]) === '[2022,2023]' && JSON.stringify(after[2]) === '[5000,6000]' && after[3] === 'synthese', 'import : nouvelle analyse créée avec le nom saisi, ouverte sur la synthèse', after);
   ok(/^BANQUE DE DAKAR · 2022–2023$/.test(after[4]) && after[5] === 'import', 'import : l’historique porte le nom de la banque', after[4]);
   ok(await page.evaluate(b => JSON.stringify(state.banks[b[0]].v) === b[1], before), 'import : la banque précédente n’est pas modifiée');
+  await page.click('[data-tab="import"]');
+  await page.fill('#impText', 'Etats en milliers de FCFA\n2022 2023\nCrédits à la clientèle 130 602 000 150 766 000');
+  await page.click('#impParse');
+  ok(await page.inputValue('#impUnit') === 'milliers', 'import : unité « milliers » proposée');
+  await page.fill('#impName', 'TEST MILLIERS'); await page.click('#impApplyNew');
+  ok(JSON.stringify(await page.evaluate(() => bank().v.A4)) === '[130602,150766]', 'import : montants convertis en millions', await page.evaluate(() => bank().v.A4));
   await page.selectOption('#bankSel', before[0]);
   ok(errors.length === 0, 'parcours : aucune erreur JavaScript', errors.slice(0, 3));
   await ctx.close();
