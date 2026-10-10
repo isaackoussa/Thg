@@ -1312,12 +1312,18 @@ const KEYWORD_ALIASES = (() => {
   return L.filter(x => x.t.length).sort((x, y) => y.t.length - x.t.length);
 })();
 function matchLabel(label, ctx) {
+  const h = matchLabelRaw(label, ctx);
+  // dans le compte de résultat, une ligne ne remplit jamais un poste du bilan (et inversement)
+  if (h && h.k && !h.code && ctx.sec === 'cr' && F[h.k].s !== 'cr' && F[h.k].s !== 'prud') return null;
+  return h;
+}
+function matchLabelRaw(label, ctx) {
   const L = norm(label);
   if (!L) return null;
   // 1. code de l'app (A4, P9g, R13…)
   const first = label.trim().split(/\s+/)[0] || '';
   const codeHit = FIELDS.find(f => f.k.toUpperCase() === first.toUpperCase());
-  if (codeHit) return { k:codeHit.k };
+  if (codeHit) return { k:codeHit.k, code:true };
   // 2. intitulé exact du fascicule (début de ligne)
   const cands = ALIASES.filter(a => L.startsWith(a.a));
   const chk = cands.find(a => a.chk), fc = cands.filter(a => !a.chk);
@@ -1367,13 +1373,14 @@ function parseImport(text) {
   }
   out.unit = detectUnit(text);
   const ctx = { sec:'actif', hb:'donnes' };
-  let pending = null;
+  let pending = null, prevLabel = '';
   const nk = () => (out.years || yrs).length;
   const commit = (hit, nums, raw) => {
     if (hit.chk) { if (hit.chk !== 'skip' && !(hit.kw && out.chk[hit.chk])) out.chk[hit.chk] = nums.slice(-nk()); return; }
     if (out.vals[hit.k] && (!nums.some(fin) || hit.kw)) return;
     out.vals[hit.k] = nums.slice(-nk());
     if (F[hit.k].s === 'cp') ctx.sec = 'passif';
+    if (F[hit.k].s === 'cr') ctx.sec = 'cr';
   };
   const flush = () => { if (pending) { if (pending.nums.length) commit(pending.hit, pending.nums); pending = null; } };
   text.split(/\r?\n/).forEach(rawLine => {
@@ -1387,7 +1394,7 @@ function parseImport(text) {
     if (cells) {
       // en-tête : colonnes d'années (y compris « 31/12/2023 »)
       const yc = cells.map((c, i) => { const m = c.match(/^(?:(?:exercice|ann[ée]e|au|d[ée]c\.?|decembre|décembre)\s*)?(?:\d{1,2}[\/.\-]\d{1,2}[\/.\-])?((?:19|20)\d{2})$/i); return m ? [i, +m[1]] : null; }).filter(Boolean);
-      if (yc.length >= 1 && cells.filter(c => c && parseNum(c) !== null && !/^(19|20)\d{2}$/.test(c)).length === 0 && yc.length >= cells.filter(c => /\d/.test(c)).length) { flush(); out.years = yc.map(x => x[1]); out.yearCols = yc[0][0] > 0 ? yc.map(x => x[0]) : null; return; }
+      if (yc.length >= 1 && cells.filter(c => c && parseNum(c) !== null && !/^(19|20)\d{2}$/.test(c)).length === 0 && yc.length >= cells.filter(c => /\d/.test(c)).length) { flush(); prevLabel = ''; out.years = yc.map(x => x[1]); out.yearCols = yc[0][0] > 0 ? yc.map(x => x[0]) : null; return; }
       const first = cells.findIndex(c => c !== '' && parseNum(c) !== null);
       label = cells.slice(0, first < 0 ? cells.length : first).filter(Boolean).join(' ');
       if (out.yearCols && first >= 0) nums = out.yearCols.map(i => i < cells.length ? parseNum(cells[i]) : null);
@@ -1398,7 +1405,7 @@ function parseImport(text) {
       // en-tête d'années, y compris dates « 31/12/2022 » ou « Déc. 2023 »
       const yearHits = [...line.matchAll(/(?:\b\d{1,2}[\/.\-]\d{1,2}[\/.\-])?\b((?:19|20)\d{2})\b/g)].map(m => +m[1]);
       const rest = line.replace(/(?:\b\d{1,2}[\/.\-]\d{1,2}[\/.\-])?\b(?:19|20)\d{2}\b/g, '');
-      if (yearHits.length >= 2 && !/\d/.test(rest) && (!norm(rest) || /^(CODE|POSTE|LIBELLE|ANNEE|EXERCICE|RUBRIQUE|EN MILLIONS|MILLIONS|EN MILLIERS|ACTIF|PASSIF|BILAN|COMPTE|AU|DEC|DECEMBRE|EXERCICES?|MONTANTS?|NOTES?)\b/.test(norm(rest)) || norm(rest).split(' ').every(w => /^(AU|DEC|DECEMBRE|EXERCICE|EXERCICES|ANNEE|ANNEES|NOTE|NOTES|MILLIONS|MILLIERS|FCFA|F|CFA|EN|DE)$/.test(w)))) { flush(); out.years = yearHits; out.yearCols = null; return; }
+      if (yearHits.length >= 2 && !/\d/.test(rest) && (!norm(rest) || /^(CODE|POSTE|LIBELLE|ANNEE|EXERCICE|RUBRIQUE|EN MILLIONS|MILLIONS|EN MILLIERS|ACTIF|PASSIF|BILAN|COMPTE|AU|DEC|DECEMBRE|EXERCICES?|MONTANTS?|NOTES?)\b/.test(norm(rest)) || norm(rest).split(' ').every(w => /^(AU|DEC|DECEMBRE|EXERCICE|EXERCICES|ANNEE|ANNEES|NOTE|NOTES|MILLIONS|MILLIERS|FCFA|F|CFA|EN|DE)$/.test(w)))) { flush(); prevLabel = ''; out.years = yearHits; out.yearCols = null; return; }
       let i = tk.length;
       while (i > 0 && /^[-−(]?\d+[,.]?\d*\)?$/.test(tk[i - 1])) i--;
       label = tk.slice(0, i).join(' ');
@@ -1414,22 +1421,33 @@ function parseImport(text) {
       }
     }
     const L = norm(label);
-    if (nums.length && nums.every(v => Number.isInteger(v) && v >= 1990 && v <= 2100) && (!L || /^(CODE|POSTE|LIBELLE|ANNEE|EXERCICE|RUBRIQUE)/.test(L))) { flush(); out.years = nums; return; }
+    if (nums.length && nums.every(v => Number.isInteger(v) && v >= 1990 && v <= 2100) && (!L || /^(CODE|POSTE|LIBELLE|ANNEE|EXERCICE|RUBRIQUE)/.test(L))) { flush(); prevLabel = ''; out.years = nums; return; }
     // chiffres seuls : complètent l'intitulé précédent
     if (!L && nums.length) {
       if (pending) { pending.nums.push(...nums); if (pending.nums.length >= nk()) flush(); }
       else out.unknown.push(line.trim());
+      prevLabel = '';
       return;
     }
+    // intitulé coupé sur deux lignes (fréquent dans les PDF) : on recolle la ligne précédente sans chiffres
+    const joined = prevLabel && label ? prevLabel + ' ' + label : '';
+    const wasPending = pending && !pending.nums.length;
     flush();
+    if (/COMPTES? DE RESULTAT|PRODUITS ?\/? ?CHARGES|^PRODUITS CHARGES/.test(L)) ctx.sec = 'cr';
     if (/^PASSIF\b/.test(L) || /TOTAL (DE L )?ACTIF/.test(L)) ctx.sec = 'passif';
     if (/^HORS BILAN/.test(L)) ctx.sec = 'hb';
     if (/^ENGAGEMENTS DONNES/.test(L)) ctx.hb = 'donnes';
     if (/^ENGAGEMENTS RECUS/.test(L)) ctx.hb = 'recus';
     if (/^ACTIF\b/.test(L) && !L.includes('TOTAL')) ctx.sec = 'actif';
-    if (!nums.length && !out.bankName && /\b(BANQUE|BANK|BANCO|BANCA|SOCIETE GENERALE|ECOBANK|ORABANK|CORIS|BRIDGE|BICIS|SGB|CBAO|BOA|UBA|NSIA|BSIC)\b/.test(L) && L.length >= 4 && L.length <= 80 && !/^(BILANS?|COMPTES?|TOTAL|BANQUES? CENTRALES?|CAISSE|DETTES|CREANCES)\b/.test(L) && !/\b(CCP|INTERBANCAIRES?|CENTRALE|ETABLISSEMENTS?)\b/.test(L)) { out.bankName = label.replace(/\s+/g, ' ').trim(); return; }
-    const hit = matchLabel(label, ctx);
-    if (!nums.length) { if (hit && !(hit.chk === 'skip')) pending = { hit, nums:[], raw:line.trim() }; return; }
+    if (!nums.length && !out.bankName && /\b(BANQUE|BANK|BANCO|BANCA|SOCIETE GENERALE|ECOBANK|ORABANK|CORIS|BRIDGE|BICIS|SGB|CBAO|BOA|UBA|NSIA|BSIC)\b/.test(L) && L.length >= 4 && L.length <= 80 && !/^(BILANS?|COMPTES?|TOTAL|BANQUES? CENTRALES?|CAISSE|DETTES|CREANCES)\b/.test(L) && !/\b(CCP|INTERBANCAIRES?|CENTRALE|ETABLISSEMENTS?)\b/.test(L)) { out.bankName = label.replace(/\s+/g, ' ').trim(); prevLabel = ''; return; }
+    let hit = null;
+    if (joined) {
+      const jh = matchLabel(joined, ctx), alone = matchLabel(label, ctx);
+      // l'intitulé recollé l'emporte s'il correspond à un poste et que la ligne précédente était un début d'intitulé
+      if (jh && (wasPending || !alone || norm(joined).length > norm(label).length + 8 && jh.k !== alone.k && !(alone.code))) hit = jh; else hit = alone;
+    } else hit = matchLabel(label, ctx);
+    if (!nums.length) { prevLabel = joined && norm(joined).length < 160 ? joined : label; if (hit && !(hit.chk === 'skip')) pending = { hit, nums:[], raw:line.trim() }; return; }
+    prevLabel = '';
     if (!hit) { out.unknown.push(line.trim()); return; }
     commit(hit, nums);
   });
@@ -1689,6 +1707,10 @@ function previewImport(res) {
     h += '<div class="tbl-wrap"><table><thead><tr><th>Poste</th>' + yrs.map(y => '<th>' + y + '</th>').join('') + '</tr></thead><tbody>'
       + keys.map(k => '<tr><td><span class="code">' + k + '</span>' + esc(F[k].l) + '</td>' + res.vals[k].map(v => '<td>' + fmtM(v) + '</td>').join('') + '</tr>').join('') + '</tbody></table></div>';
   }
+  // postes attendus mais non trouvés, dans les parties du fichier qui ont été lues
+  const secsFound = new Set(keys.map(k => F[k].s === 'cp' ? 'passif' : F[k].s));
+  const missing = FIELDS.filter(f => f.s !== 'prud' && secsFound.has(f.s === 'cp' ? 'passif' : f.s) && !keys.includes(f.k) && !(f.k === 'R13' && res.vals.R13) );
+  if (missing.length) h += '<div class="banner warn" style="margin-top:8px"><b>' + missing.length + ' poste(s) non trouvé(s)</b><span class="note">' + missing.map(f => esc(f.l)).join(' · ') + '. Les indicateurs qui en dépendent resteront « non calculés » : corrige le texte ci-dessus (un intitulé coupé, une ligne illisible) ou complète ces postes dans Saisie après l’import. Un poste absent du document vaut souvent 0.</span></div>';
   const chkK = Object.keys(res.chk);
   if (chkK.length) h += '<p class="note">Totaux lus pour contrôle : ' + chkK.map(k => k + ' ' + res.chk[k].map(fmtM).join(' / ')).join(' · ') + '</p>';
   if (res.unknown.length) h += '<p class="miss">Lignes non reconnues (' + res.unknown.length + ') : ' + res.unknown.slice(0, 6).map(esc).join(' · ') + (res.unknown.length > 6 ? '…' : '') + '</p>';

@@ -249,6 +249,21 @@ Dépôts à terme 87 843 86 626`)
   ok(JSON.stringify(variants.csv.vals.A4) === '[130602,150766]' && JSON.stringify(variants.csv.vals.P9a) === '[28000,20563]', 'lecture : CSV séparé par des virgules', variants.csv.vals);
   ok(variants.milliers.unit === 'milliers' && JSON.stringify(variants.milliers.vals.A4) === '[130602000,150766000]', 'lecture : unité « milliers » détectée', variants.milliers);
   ok(JSON.stringify(variants.detail.vals.P3) === '[187843,196626]', 'lecture : lignes de détail n’écrasent pas le total', variants.detail.vals.P3);
+  /* Intitulés coupés sur deux lignes (fascicule PDF) : pas de confusion avec un poste du bilan */
+  const wrap = await page.evaluate(() => parseImport(`2021\t2022\t2023
+IMMOBILISATIONS INCORPORELLES\t2\t59\t61
+COMPTES DE RESULTAT
+GAINS OU PERTES NETS SUR OPERATIONS DES
+PORTEFEUILLES DE PLACEMENT ET ASSIMILES\t46\t509\t7
+CHARGES GENERALES D'EXPLOITATION\t4 091\t4 849\t6 362
+DOTATIONS AUX AMORTISSEMENTS ET AUX DEPRECIATIONS DES
+IMMOBILISATIONS INCORPORELLES ET CORPORELLES\t225\t194\t221
+GAINS OU PERTES NETS SUR ACTIFS
+IMMOBILISES\t48\t0\t13`));
+  ok(JSON.stringify(wrap.vals.A13) === '[2,59,61]' && JSON.stringify(wrap.vals.R12) === '[225,194,221]', 'lecture : intitulé des dotations coupé en deux, sans écraser les immobilisations', wrap.vals);
+  ok(JSON.stringify(wrap.vals.R7) === '[46,509,7]' && JSON.stringify(wrap.vals.R14) === '[48,0,13]', 'lecture : autres intitulés coupés recollés', [wrap.vals.R7, wrap.vals.R14]);
+  const crOnly = await page.evaluate(() => parseImport('COMPTE DE RESULTAT\n2022 2023\nIMMOBILISATIONS INCORPORELLES 5 6'));
+  ok(!crOnly.vals.A13, 'lecture : dans le compte de résultat, une ligne ne remplit pas un poste du bilan', crOnly.vals);
   /* Aller-retour CSV et JSON */
   const rt = await page.evaluate(() => { const before = JSON.stringify(bank().v); const csv = toCsv(false); const p = parseImport(csv); const back = {}; Object.keys(p.vals).forEach(k => back[k] = p.vals[k]); const ok1 = Object.keys(bank().v).every(k => JSON.stringify(bank().v[k]) === JSON.stringify(back[k] ?? bank().years.map(() => null)) || bank().v[k].every(x => x === null)); const j = parseImport(JSON.stringify({ banks: state.banks, cur: state.cur, params: state.params })); return [ok1, !!j.json, JSON.stringify(j.json.banks[state.cur].v) === before, p.years]; });
   ok(rt[0], 'export CSV puis import : mêmes valeurs');
@@ -357,6 +372,7 @@ for (const [label, storage] of cases) {
   await page.fill('#impText', 'BANQUE ATLANTIQUE BENIN\n2022 2023\nCREANCES SUR LA CLIENTELE 5 000 6 000');
   await page.click('#impParse');
   ok(await page.inputValue('#impName') === 'BANQUE ATLANTIQUE BENIN', 'import : nom de la banque pré-rempli depuis le texte', await page.inputValue('#impName'));
+  ok(/poste\(s\) non trouvé\(s\)/.test(await page.innerText('#impPreview')) && /Créances interbancaires/.test(await page.innerText('#impPreview')), 'import : postes manquants signalés dans l’aperçu');
   const before = await page.evaluate(() => [state.cur, JSON.stringify(bank().v), Object.keys(state.banks).length]);
   await page.fill('#impName', ''); await page.click('#impApplyNew');
   ok(await page.evaluate(n => Object.keys(state.banks).length === n, before[2]), 'import : nom vide refusé');
