@@ -1373,7 +1373,7 @@ function parseImport(text) {
   }
   out.unit = detectUnit(text);
   const ctx = { sec:'actif', hb:'donnes' };
-  let pending = null, prevLabel = '';
+  let pending = null, prevLabel = '', orphan = null;
   const nk = () => (out.years || yrs).length;
   const commit = (hit, nums, raw) => {
     if (hit.chk) { if (hit.chk !== 'skip' && !(hit.kw && out.chk[hit.chk])) out.chk[hit.chk] = nums.slice(-nk()); return; }
@@ -1383,10 +1383,14 @@ function parseImport(text) {
     if (F[hit.k].s === 'cr') ctx.sec = 'cr';
   };
   const flush = () => { if (pending) { if (pending.nums.length) commit(pending.hit, pending.nums); pending = null; } };
+  // chiffres orphelins (placés entre les deux lignes d'un intitulé) : rattachés au début seul si rien ne suit
+  const settleOrphan = () => { if (!orphan) return; const h = matchLabel(orphan.label, ctx); if (h) commit(h, orphan.nums); else out.unknown.push(orphan.raw); orphan = null; };
   text.split(/\r?\n/).forEach(rawLine => {
     let line = rawLine.replace(/ | /g, ' ').replace(/[“”]/g, '"');
     if (!line.trim()) return;
     // numérotation et puces en début de ligne : « 1. », « I - », « a) », « • »
+    // signes et renvois des fascicules : « (+) », « (-) », « (+ ou -) », « (1 à 9) », « (10-12-13+11) »
+    line = line.replace(/\(\s*[+\-−]\s*(?:ou\s*[+\-−]\s*)?\)/gi, ' ').replace(/\(\s*\d{1,2}(?:\s*(?:à|a|-|\+|et)\s*\d{1,2})+\s*\)/gi, ' ');
     line = line.replace(/^\s*(?:[•·*+=>\-–]\s*)+/, '').replace(/^\s*(?:[IVX]{1,5}|\d{1,2}|[a-h])\s*[.)\-–]\s+(?=\D)/i, '');
     let label, nums, cells = null;
     const commaCsv = !/[;\t]/.test(line) && (line.match(/,/g) || []).length >= 2 && /^[^,]*[A-Za-zÀ-ÿ][^,]*(,\s*"?\(?-?[\d\s.]*\)?"?\s*)+$/.test(line);
@@ -1425,10 +1429,18 @@ function parseImport(text) {
     // chiffres seuls : complètent l'intitulé précédent
     if (!L && nums.length) {
       if (pending) { pending.nums.push(...nums); if (pending.nums.length >= nk()) flush(); }
+      else if (orphan && orphan.nums.length < nk()) orphan.nums.push(...nums);
+      else if (prevLabel) { settleOrphan(); orphan = { label:prevLabel, nums:[...nums], raw:line.trim() }; }
       else out.unknown.push(line.trim());
       prevLabel = '';
       return;
     }
+    // ligne d'intitulé seule juste après des chiffres orphelins : fin de l'intitulé coupé
+    if (orphan && L && !nums.length) {
+      const jl = orphan.label + ' ' + label, h = matchLabel(jl, ctx) || matchLabel(orphan.label, ctx);
+      if (h) { commit(h, orphan.nums); orphan = null; prevLabel = ''; return; }
+    }
+    settleOrphan();
     // intitulé coupé sur deux lignes (fréquent dans les PDF) : on recolle la ligne précédente sans chiffres
     const joined = prevLabel && label ? prevLabel + ' ' + label : '';
     const wasPending = pending && !pending.nums.length;
@@ -1451,7 +1463,7 @@ function parseImport(text) {
     if (!hit) { out.unknown.push(line.trim()); return; }
     commit(hit, nums);
   });
-  flush();
+  flush(); settleOrphan();
   // Coût du risque, gains sur immobilisations et impôt : déduits des soldes si le fascicule les fournit (évite les erreurs de signe)
   const derive = (k, a, b, sign) => { if (out.chk[a] && out.chk[b]) out.vals[k] = out.chk[a].map((x, i) => fin(x) && fin(out.chk[b][i]) ? sign * (x - out.chk[b][i]) : null); };
   derive('R13', 'RBE', 'RE', 1); derive('R14', 'RAI', 'RE', 1); derive('R15', 'RAI', 'RN', 1);

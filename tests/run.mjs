@@ -520,6 +520,24 @@ else {
   const okA4 = JSON.stringify(r.vals.A4) === '[131072,130602,150766]', okP3 = JSON.stringify(r.vals.P3) === '[218985,187843,196626]';
   ok(okA4 && okP3, 'photo (reconnaissance de texte) : chiffres lus', { A4: r.vals.A4, P3: r.vals.P3, texte: (await page.inputValue('#impText')).slice(0, 300) });
 
+  // Cas réel : Société Générale Sénégal, pages 262-263 du fascicule BCEAO 2023 reproduites à l'identique
+  {
+    const fx = f => readFileSync(new URL('./fixtures/' + f, import.meta.url), 'utf8');
+    const mk = await browser.newPage();
+    await mk.setContent(fx('sgsn_p262.html').replace('</body>', '<div style="page-break-after:always"></div>' + fx('sgsn_p263.html').replace(/^[\s\S]*<body>/, '').replace('</body></html>', '') + '</body>'));
+    const sgPdf = await mk.pdf({ format: 'A4' }); await mk.close();
+    await upload('SGSN_2021-2023.pdf', 'application/pdf', sgPdf); await waitPreview();
+    const prev = await page.innerText('#impPreview');
+    ok(/50 poste\(s\) reconnu/.test(prev) && !/non trouvé/.test(prev), 'fascicule SGSN : 50 postes sur 50, aucun manquant', prev.slice(0, 200));
+    ok(await page.inputValue('#impName') === 'SOCIETE GENERALE SENEGAL', 'fascicule SGSN : nom de la banque détecté');
+    await page.click('#impApplyNew');
+    const sg = await page.evaluate(() => ({ TA: Y().map((_, y) => qv('TA', y)), TP: Y().map((_, y) => qv('TP', y)), PNB: Y().map((_, y) => qv('PNB', y)), RN: Y().map((_, y) => qv('RNCR', y)), coef: series(I.coef), A13: bank().v.A13, R6: bank().v.R6, R7: bank().v.R7, R12: bank().v.R12, R13: bank().v.R13 }));
+    ok(JSON.stringify(sg.TA) === '[1106364,1336404,1391105]' && JSON.stringify(sg.TP) === JSON.stringify(sg.TA), 'fascicule SGSN : totaux actif et passif identiques au fascicule', sg.TA);
+    ok(JSON.stringify(sg.PNB) === '[71746,78444,93988]' && JSON.stringify(sg.RN) === '[18070,14902,23609]', 'fascicule SGSN : PNB et résultat net recalculés identiques au fascicule', [sg.PNB, sg.RN]);
+    ok(JSON.stringify(sg.R6) === '[2985,4612,7770]' && JSON.stringify(sg.R7) === '[0,0,0]' && JSON.stringify(sg.R12) === '[3882,4044,4438]' && JSON.stringify(sg.A13) === '[5500,13647,19629]', 'fascicule SGSN : intitulés sur deux lignes bien rattachés', sg);
+    ok(sg.coef.every(Number.isFinite) && Math.abs(sg.coef[2] - (50658 + 4438) / 93988) < 1e-12, 'fascicule SGSN : coefficient d’exploitation calculé', sg.coef);
+    await page.click('[data-tab="import"]');
+  }
   await upload('vieux.doc', 'application/msword', Buffer.from('x'));
   await page.waitForSelector('#fileStatus.err');
   ok(/\.docx/.test(await page.innerText('#fileStatus')), 'Word .doc : message clair');
