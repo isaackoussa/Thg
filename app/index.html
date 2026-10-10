@@ -390,6 +390,7 @@ function cleanBanks(banks) {
     const nb = { id:String(id), name:String(b.name || 'Banque sans nom').slice(0, 120), country:String(b.country || '').slice(0, 60), unit:String(b.unit || 'millions FCFA').slice(0, 40), years:Array.isArray(b.years) ? b.years : [], v:(b.v && typeof b.v === 'object') ? b.v : {}, example:!!b.example };
     if (b.source) nb.source = String(b.source).slice(0, 300);
     if (Array.isArray(b.range) && b.range.length === 2) nb.range = b.range.map(Number);
+    if (Number.isFinite(+b.mod) && +b.mod > 0) nb.mod = +b.mod;
     normBank(nb);
     if (nb.years.length) out[nb.id] = nb;
   });
@@ -415,6 +416,8 @@ function loadState() {
   if (!Object.keys(s.banks).length) s.banks = { bab: clone(SAMPLE) };
   s.params = cleanParams(s.params);
   s.history = cleanHistory(s.history);
+  s.banksDeleted = {};
+  if (s.banksDeletedSaved && typeof s.banksDeletedSaved === 'object') Object.entries(s.banksDeletedSaved).forEach(([k, t]) => { if (Number.isFinite(+t)) s.banksDeleted[k] = +t; });
   s.histDeleted = Array.isArray(s.histDeleted) ? s.histDeleted.filter(x => typeof x === 'string').slice(-1000) : [];
   s.base = s.base === 'moy' ? 'moy' : 'fin';
   s.tab = typeof s.tab === 'string' ? s.tab : 'synthese';
@@ -423,7 +426,26 @@ function loadState() {
 }
 const state = loadState();
 state.yi = 99;
-function save() { try { localStorage.setItem(LS_KEY, JSON.stringify({ banks:state.banks, cur:state.cur, params:state.params, base:state.base, tab:state.tab, history:state.history, histDeleted:state.histDeleted })); } catch (e) {} }
+/* Détection centralisée des changements de banque : date de modification et suppressions, pour la synchronisation */
+let bankFp = null;
+const fpBank = b => JSON.stringify([b.name, b.country, b.unit, b.years, b.v, b.range || null]);
+function trackBanks(silent) {
+  const now = Date.now(), cur = {};
+  Object.values(state.banks).forEach(b => { cur[b.id] = fpBank(b); });
+  let changed = false;
+  if (bankFp && !silent) {
+    Object.keys(cur).forEach(id => { if (bankFp[id] !== cur[id]) { state.banks[id].mod = now; changed = true; } });
+    Object.keys(bankFp).forEach(id => { if (!(id in cur)) { state.banksDeleted[id] = now; changed = true; } });
+  }
+  bankFp = cur;
+  return changed;
+}
+function save(opts) {
+  const changed = trackBanks(opts && opts.silent);
+  try { localStorage.setItem(LS_KEY, JSON.stringify({ banks:state.banks, cur:state.cur, params:state.params, base:state.base, tab:state.tab, history:state.history, histDeleted:state.histDeleted, banksDeletedSaved:state.banksDeleted })); } catch (e) {}
+  if (changed && typeof scheduleSync === 'function') scheduleSync();
+}
+trackBanks(true);
 const bank = () => state.banks[state.cur];
 /* Période analysée : sous-ensemble contigu des exercices saisis (Saisie et Import travaillent toujours sur tous les exercices) */
 let FULL_RANGE = false;
@@ -1276,6 +1298,7 @@ function parseImport(text) {
     if (/^ENGAGEMENTS DONNES/.test(L)) hb = 'donnes';
     if (/^ENGAGEMENTS RECUS/.test(L)) hb = 'recus';
     if (/^ACTIF\b/.test(L) && !L.includes('TOTAL')) sec = 'actif';
+    if (!nums.length && !out.bankName && /\b(BANQUE|BANK|BANCO|BANCA|SOCIETE GENERALE|ECOBANK|ORABANK|CORIS|BRIDGE|BICIS|SGB|CBAO|BOA|UBA|NSIA|BSIC)\b/.test(L) && L.length >= 4 && L.length <= 80 && !/^(BILANS?|COMPTES?|TOTAL|BANQUES? CENTRALES?|CAISSE|DETTES|CREANCES)\b/.test(L) && !/\b(CCP|INTERBANCAIRES?|CENTRALE)\b/.test(L)) out.bankName = label.replace(/\s+/g, ' ').trim();
     if (!nums.length) return;
     const codeHit = FIELDS.find(f => norm(f.k) === norm(label.split(' ')[0] || '') && (label.split(' ')[0] || '').toUpperCase() === f.k.toUpperCase());
     let hit = codeHit ? { k:codeHit.k } : null;
@@ -1537,6 +1560,7 @@ function previewImport(res) {
   if (res.bankJson) { el.innerHTML = '<div class="banner"><b>Banque détectée : ' + esc(res.bankJson.name || '?') + '</b><div class="row"><button class="btn pri" id="impApplyBank">Ajouter comme nouvelle banque</button></div></div>'; $('#impApplyBank').onclick = () => { const id = 'b' + Date.now(); state.banks[id] = Object.assign(clone(res.bankJson), { id, example:false }); state.cur = id; save(); toast('Banque ajoutée'); renderAll(); }; return; }
   const keys = Object.keys(res.vals), yrs = res.years || Y().slice(-Math.max(1, ...Object.values(res.vals).map(a => a.length)));
   let h = '<h3 style="margin-top:12px">Aperçu : ' + keys.length + ' poste(s) reconnu(s)</h3>';
+  if (res.bankName) h += '<p class="note">Banque détectée : <b>' + esc(res.bankName) + '</b></p>';
   if (res.years) h += '<p class="note">Exercices détectés : ' + res.years.join(', ') + '</p>';
   if (keys.length) {
     h += '<div class="tbl-wrap"><table><thead><tr><th>Poste</th>' + yrs.map(y => '<th>' + y + '</th>').join('') + '</tr></thead><tbody>'
@@ -1556,13 +1580,14 @@ function previewImport(res) {
       ys.forEach((yr, j) => { const i = target.years.indexOf(yr); if (i >= 0 && fin(arr[j])) target.v[k][i] = arr[j]; });
     });
     delete target.range;
+    if (res.bankName && /^(Nouvelle banque( importée)?|Banque sans nom)$/.test(target.name)) target.name = res.bankName;
     target.example = false; save();
     addHistory('import', 'Après import de ' + keys.length + ' poste(s)', '', target.id);
     toast(keys.length + ' poste(s) importé(s), analyse ajoutée à l’historique'); state.tab = 'saisie'; renderAll();
     if (res.chk.PNB) setTimeout(() => { const ys = (res.years || Y()).slice(-res.chk.PNB.length); const ok = ys.every((yr, j) => { const y = Y().indexOf(yr); const v = y >= 0 ? qv('PNB', y) : NaN; return !fin(v) || Math.abs(v - res.chk.PNB[j]) < 1; }); if (!ok) toast('Attention : le PNB recalculé diffère du PNB lu'); }, 300);
   };
   if ($('#impApply')) $('#impApply').onclick = () => apply(bank());
-  if ($('#impApplyNew')) $('#impApplyNew').onclick = () => { const id = 'b' + Date.now(); state.banks[id] = { id, name:'Nouvelle banque importée', country:'', unit:'millions FCFA', years:(res.years || Y()).slice(), v:{} }; state.cur = id; apply(state.banks[id]); };
+  if ($('#impApplyNew')) $('#impApplyNew').onclick = () => { const id = 'b' + Date.now(); state.banks[id] = { id, name:res.bankName || 'Nouvelle banque importée', country:'', unit:'millions FCFA', years:(res.years || Y()).slice(), v:{} }; state.cur = id; apply(state.banks[id]); };
 }
 function toCsv(tpl) {
   const b = bank();
@@ -2095,15 +2120,22 @@ async function syncHistory(quiet) {
   if (!acct.user || acct.syncing) { if (acct.user) acct.pending = true; return; }
   acct.syncing = true; renderAccount();
   try {
-    const res = await fetch('/api/historique', { method:'PUT', credentials:'same-origin', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify({ history:state.history, deleted:state.histDeleted }) });
+    const res = await fetch('/api/historique', { method:'PUT', credentials:'same-origin', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify({ history:state.history, deleted:state.histDeleted, banks:state.banks, banksDeleted:state.banksDeleted }) });
     if (res.status === 401) { acct.user = null; accRemember(false); throw new Error('Session expirée : reconnecte-toi.'); }
     if (!res.ok) { let m = ''; try { m = (await res.json()).error; } catch (e) {} throw new Error(m || 'Synchronisation refusée (' + res.status + ').'); }
     const doc = await res.json();
     state.history = cleanHistory(doc.history);
     state.histDeleted = Array.isArray(doc.deleted) ? doc.deleted.filter(x => typeof x === 'string').slice(-1000) : state.histDeleted;
-    acct.lastSync = new Date(); save();
-    if (!quiet) accSet('Historique synchronisé.');
-    if (state.tab === 'historique') renderAll(true);
+    const before = JSON.stringify(Object.keys(state.banks).sort().map(id => [id, state.banks[id].mod || 0]));
+    const banks = cleanBanks(doc.banks);
+    if (Object.keys(banks).length) state.banks = banks;
+    if (doc.banksDeleted && typeof doc.banksDeleted === 'object') { state.banksDeleted = {}; Object.entries(doc.banksDeleted).forEach(([k, t]) => { if (Number.isFinite(+t)) state.banksDeleted[k] = +t; }); }
+    if (!state.banks[state.cur]) { state.cur = Object.keys(state.banks)[0]; state.yi = 99; }
+    const banksChanged = before !== JSON.stringify(Object.keys(state.banks).sort().map(id => [id, state.banks[id].mod || 0]));
+    acct.lastSync = new Date(); save({ silent:true });
+    if (!quiet) accSet('Historique et banques synchronisés.');
+    const typing = document.activeElement && /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName) && !document.activeElement.closest('#accountCard');
+    if (state.tab === 'historique' || (banksChanged && !typing)) renderAll(true); else if (banksChanged) renderHeader();
   } catch (e) {
     acct.status = e && e.message && !/fetch|network|load failed/i.test(e.message) ? e.message : 'Pas de connexion : la synchronisation reprendra plus tard.'; acct.err = true;
   } finally {
@@ -2119,11 +2151,11 @@ function accountCard() {
 }
 function accountInner() {
   const st = acct.status ? '<div class="file-status' + (acct.err ? ' err' : '') + '" id="accStatus">' + esc(acct.status) + '</div>' : '';
-  if (acct.user) return '<h3>Compte</h3><p>Connecté avec <b>' + esc(acct.user.email || '') + '</b>. Ton historique est enregistré sur ce compte et se retrouve sur tous les appareils où tu te connectes.</p>'
+  if (acct.user) return '<h3>Compte</h3><p>Connecté avec <b>' + esc(acct.user.email || '') + '</b>. Tes banques et ton historique sont enregistrés sur ce compte et se retrouvent sur tous les appareils où tu te connectes.</p>'
     + '<p class="note">' + (acct.syncing ? 'Synchronisation en cours…' : acct.lastSync ? 'Dernière synchronisation : ' + acct.lastSync.toLocaleTimeString('fr-FR', { hour:'2-digit', minute:'2-digit' }) : 'Pas encore synchronisé.') + '</p>'
-    + '<div class="row"><button class="btn pri" id="accSync"' + (acct.syncing ? ' disabled' : '') + '>Synchroniser maintenant</button><button class="btn" id="accLogout">Se déconnecter</button><button class="btn danger" id="accLogoutWipe">Se déconnecter et effacer l’historique de cet appareil</button></div>' + st;
+    + '<div class="row"><button class="btn pri" id="accSync"' + (acct.syncing ? ' disabled' : '') + '>Synchroniser maintenant</button><button class="btn" id="accLogout">Se déconnecter</button><button class="btn danger" id="accLogoutWipe">Se déconnecter et effacer mes données de cet appareil</button></div>' + st;
   const signup = acct.mode === 'signup';
-  return '<h3>' + (signup ? 'Créer un compte' : 'Se connecter') + '</h3><p class="note">' + (signup ? 'Il suffit d’une adresse e-mail et d’un mot de passe : pas d’e-mail de vérification, le compte est prêt tout de suite.' : 'Avec un compte, ton historique d’analyses est lié à ton adresse e-mail : tu le retrouves sur ton iPhone comme sur ton ordinateur.') + '</p>'
+  return '<h3>' + (signup ? 'Créer un compte' : 'Se connecter') + '</h3><p class="note">' + (signup ? 'Il suffit d’une adresse e-mail et d’un mot de passe : pas d’e-mail de vérification, le compte est prêt tout de suite.' : 'Avec un compte, tes banques et ton historique d’analyses sont liés à ton adresse e-mail : tu les retrouves sur ton iPhone comme sur ton ordinateur.') + '</p>'
     + '<form id="accForm" class="meta-grid" autocomplete="on" novalidate><label>Adresse e-mail<input type="email" id="accEmail" autocomplete="email" required></label><label>Mot de passe' + (signup ? ' (8 caractères minimum)' : '') + '<input type="password" id="accPw" autocomplete="' + (signup ? 'new-password' : 'current-password') + '" required></label></form>'
     + '<div class="row"><button class="btn pri" id="accGo" type="submit" form="accForm">' + (signup ? 'Créer le compte' : 'Se connecter') + '</button><button class="btn" id="accSwitch">' + (signup ? 'J’ai déjà un compte' : 'Créer un compte') + '</button></div>'
     + (signup ? '' : '<p class="note">Mot de passe oublié : crée un nouveau compte avec une autre adresse, ou garde ton historique avec la sauvegarde JSON (onglet Import).</p>') + st;
@@ -2150,7 +2182,8 @@ function bindAccount() {
       const me = await api(signup ? 'inscription' : 'connexion', { email, password:pw });
       acct.user = { email:me.email }; accRemember(true); acct.mode = 'login';
       await syncHistory(true);
-      accSet(signup ? 'Compte créé, tu es connecté. Ton historique est enregistré sur ce compte.' : 'Connecté. Historique synchronisé.');
+      const nb = Object.keys(state.banks).length;
+      accSet(signup ? 'Compte créé, tu es connecté. Tes banques et ton historique sont enregistrés sur ce compte.' : 'Connecté : ' + nb + ' banque' + (nb > 1 ? 's' : '') + ' et ' + state.history.length + ' analyse' + (state.history.length > 1 ? 's' : '') + ' retrouvée' + (nb + state.history.length > 1 ? 's' : '') + '.');
     }, signup ? 'Création du compte…' : 'Connexion…');
   });
   if ($('#accSwitch')) $('#accSwitch').onclick = () => { acct.mode = acct.mode === 'signup' ? 'login' : 'signup'; acct.status = ''; renderAccount(); };
@@ -2158,10 +2191,10 @@ function bindAccount() {
   const logout = wipe => run(async () => {
     try { await api('deconnexion', {}); } catch (e) {}
     acct.user = null; accRemember(false); acct.lastSync = null;
-    if (wipe) { state.history = []; state.histDeleted = []; save(); }
-    acct.status = wipe ? 'Déconnecté. L’historique a été effacé de cet appareil ; il reste sur ton compte.' : 'Déconnecté. L’historique reste sur cet appareil.';
+    if (wipe) { state.history = []; state.histDeleted = []; state.banks = { bab:clone(SAMPLE) }; state.banksDeleted = {}; state.cur = 'bab'; state.yi = 99; save({ silent:true }); }
+    acct.status = wipe ? 'Déconnecté. Tes banques et ton historique ont été effacés de cet appareil ; ils restent sur ton compte.' : 'Déconnecté. L’historique reste sur cet appareil.';
     acct.err = false;
-    if (state.tab === 'historique') renderAll(true); else renderAccount();
+    renderAll(true);
   }, 'Déconnexion…');
   if ($('#accLogout')) $('#accLogout').onclick = () => logout(false);
   if ($('#accLogoutWipe')) $('#accLogoutWipe').onclick = () => logout(true);

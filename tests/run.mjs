@@ -192,6 +192,7 @@ IMPOTS SUR LES BENEFICES 400 500 600
 RESULTAT NET 4 410 5 100 4 080`));
   const v = imp.vals;
   ok(JSON.stringify(imp.years) === '[2021,2022,2023]', 'import : ligne d’années détectée', imp.years);
+  ok(imp.bankName === 'BANQUE ATLANTIQUE BENIN', 'import : nom de la banque détecté', imp.bankName);
   ok(JSON.stringify(v.A1) === '[11953,14456,21982]', 'import : caisse', v.A1);
   ok(JSON.stringify(v.A9) === '[1186,898,626]' && JSON.stringify(v.P6) === '[2403,1702,2167]', 'import : comptes de régularisation actif / passif distingués', [v.A9, v.P6]);
   ok(JSON.stringify(v.A13) === '[2,59,61]', 'import : petits montants', v.A13);
@@ -690,6 +691,21 @@ else {
   const mg = mergeHistory({ history: [] }, { history: many });
   ok(mg.history.length === HIST_MAX && mg.history.filter(e => e.kind === 'import').length < many.filter(e => e.kind === 'import').length, 'serveur : plafond, les imports partent d’abord', mg.history.length);
 
+  // Banques : fusion
+  {
+    const { mergeBanks } = await import('../server/historique.mjs');
+    const bk = (name, mod) => ({ name, years: [2023], v: { A4: [1] }, mod });
+    let m = mergeBanks({ banks: { a: bk('A v1', 100), b: bk('B', 100) } }, { banks: { a: bk('A v2', 200), c: bk('C', 50) } });
+    ok(Object.keys(m.banks).sort().join() === 'a,b,c' && m.banks.a.name === 'A v2', 'banques : union, la version la plus récente l’emporte', m.banks);
+    m = mergeBanks(m, { banks: { a: bk('A vieux', 150) }, banksDeleted: { b: 300 } });
+    ok(!m.banks.b && m.banks.a.name === 'A v2' && m.banksDeleted.b === 300, 'banques : suppression propagée, version ancienne ignorée', Object.keys(m.banks));
+    m = mergeBanks(m, { banks: { b: bk('B recréée', 400) } });
+    ok(m.banks.b && m.banks.b.name === 'B recréée', 'banques : une banque modifiée après sa suppression revient');
+    m = mergeBanks({}, { banks: { x: { name: 'sans années', years: [], v: {} }, y: 'cassé', z: bk('Z') } });
+    ok(Object.keys(m.banks).join() === 'z', 'banques : entrées invalides ignorées', Object.keys(m.banks));
+    const r = await call(st, alice, 'PUT', { history: [], banks: [1, 2] });
+    ok(r.status === 400, 'banques : format invalide refusé', r.status);
+  }
   // Comptes : fonction serveur seule
   const { handleCompte, userFromRequest } = await import('../server/compte.mjs');
   const kv = () => { const m = new Map(); return { m,
@@ -765,6 +781,23 @@ else {
   await B.page.fill('#accPw', 'motdepasse1'); await B.page.click('#accGo');
   await B.page.waitForFunction(() => state.history.some(e => e.label === 'Analyse depuis l’iPhone'), null, { timeout: 15000 });
   ok(/Analyse depuis l’iPhone/.test(await B.page.innerText('.hist-list')), 'compte : l’analyse apparaît sur le deuxième appareil');
+  // banques : A crée « BANQUE DE DAKAR », B la retrouve dans le menu Banque
+  await A.page.click('[data-tab="saisie"]'); await A.page.click('#bNew');
+  await A.page.fill('#m-name', 'BANQUE DE DAKAR'); await A.page.press('#m-name', 'Tab');
+  await A.page.fill('#i-A4-0', '1 000'); await A.page.press('#i-A4-0', 'Tab');
+  for (let i = 0; i < 100 && ![...shared.m.values()].some(v => v.includes('BANQUE DE DAKAR')); i++) await A.page.waitForTimeout(100);
+  ok([...shared.m.values()].some(v => v.includes('BANQUE DE DAKAR')), 'banques : nouvelle banque envoyée sur le compte');
+  await B.page.click('#accSync');
+  await B.page.waitForFunction(() => [...document.querySelectorAll('#bankSel option')].some(o => o.textContent === 'BANQUE DE DAKAR'), null, { timeout: 15000 });
+  ok(await B.page.evaluate(() => Object.values(state.banks).find(b => b.name === 'BANQUE DE DAKAR').v.A4[0]) === 1000, 'banques : la banque et ses chiffres apparaissent sur l’autre appareil');
+  // B supprime la banque, A ne l'a plus après synchronisation
+  await B.page.selectOption('#bankSel', { label: 'BANQUE DE DAKAR' });
+  await B.page.click('[data-tab="saisie"]'); await B.page.click('#bDel'); await B.page.click('#bDelYes');
+  for (let i = 0; i < 100 && [...shared.m.values()].some(v => JSON.parse(v).banks && Object.values(JSON.parse(v).banks).some(b => b.name === 'BANQUE DE DAKAR')); i++) await B.page.waitForTimeout(100);
+  await A.page.click('[data-tab="historique"]'); await A.page.click('#accSync');
+  await A.page.waitForFunction(() => !Object.values(state.banks).some(b => b.name === 'BANQUE DE DAKAR'), null, { timeout: 15000 });
+  ok(await A.page.evaluate(() => ![...document.querySelectorAll('#bankSel option')].some(o => o.textContent === 'BANQUE DE DAKAR')), 'banques : suppression propagée à l’autre appareil');
+  await B.page.click('[data-tab="historique"]');
   // B supprime, A le voit à la synchronisation suivante
   const hid = await B.page.evaluate(() => state.history.find(e => e.label === 'Analyse depuis l’iPhone').id);
   await B.page.click('[data-hdel="' + hid + '"]'); await B.page.click('[data-hdelok]');
@@ -772,6 +805,19 @@ else {
   await A.page.click('#accSync');
   await A.page.waitForFunction(id => !state.history.some(e => e.id === id), hid, { timeout: 15000 });
   ok(true, 'compte : une suppression faite sur un appareil se propage à l’autre');
+  // un troisième appareil neuf retrouve toutes les banques à la connexion
+  await A.page.click('[data-tab="saisie"]'); await A.page.click('#bNew'); await A.page.fill('#m-name', 'CORIS BANK'); await A.page.press('#m-name', 'Tab');
+  for (let i = 0; i < 100 && ![...shared.m.values()].some(v => v.includes('CORIS BANK')); i++) await A.page.waitForTimeout(100);
+  await A.page.click('[data-tab="historique"]');
+  const Cd = await device();
+  await Cd.page.click('[data-tab="historique"]');
+  await Cd.page.fill('#accEmail', 'isaac@test.ci'); await Cd.page.fill('#accPw', 'motdepasse1'); await Cd.page.click('#accGo');
+  await Cd.page.waitForFunction(() => [...document.querySelectorAll('#bankSel option')].some(o => o.textContent === 'CORIS BANK'), null, { timeout: 15000 });
+  const namesA = await A.page.evaluate(() => Object.values(state.banks).map(b => b.name).sort().join('|'));
+  const namesC = await Cd.page.evaluate(() => Object.values(state.banks).map(b => b.name).sort().join('|'));
+  ok(namesA === namesC, 'banques : à la connexion, toutes les banques du compte s’affichent', [namesA, namesC]);
+  ok(/banque/.test(await Cd.page.innerText('#accStatus')), 'banques : message de connexion indique les banques retrouvées', await Cd.page.innerText('#accStatus'));
+  await Cd.ctx.close();
   // session retrouvée au rechargement
   await A.page.reload(); await A.page.waitForSelector('#view .section-head'); await A.page.click('[data-tab="historique"]');
   await A.page.waitForFunction(() => /Connecté avec/.test(document.querySelector('#accountCard').innerText), null, { timeout: 15000 });
