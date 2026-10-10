@@ -151,7 +151,7 @@ L'onglet « Rapport Word » génère un .docx : page de titre, sommaire, synthè
 L'onglet « Historique » enregistre des instantanés : copie des données de la banque, paramètres et résultats clés de tous les exercices. Chaque entrée peut être revue, comparée à l'état actuel ou à une autre entrée, et restaurée (l'état remplacé est d'abord sauvegardé). Un import crée une entrée automatique. 60 entrées au plus, conservées sur l'appareil et incluses dans la sauvegarde JSON.
 
 ## 6 bis. Traduction en R
-L'onglet « Code R » génère un script R de base (sans package), 100 % ASCII (commentaires sans accents, accents des textes en \\uXXXX : il s'ouvre correctement sous Windows comme ailleurs), à partir des mêmes arbres de formules que l'app : données, paramètres, grandeurs intermédiaires, indicateurs, conformité aux seuils et 14 graphiques (écran, PNG haute résolution, PDF, et document Word si le package officer est installé). Le script est vérifié : il produit les mêmes valeurs que l'app.
+L'onglet « Code R » génère un script R de base (sans package), 100 % ASCII (commentaires sans accents, accents des textes en \uXXXX : il s'ouvre correctement sous Windows comme ailleurs), à partir des mêmes arbres de formules que l'app : données, paramètres, grandeurs intermédiaires, indicateurs, conformité aux seuils et 14 graphiques (écran, PNG haute résolution, PDF, et document Word si le package officer est installé). Le script est vérifié : il produit les mêmes valeurs que l'app.
 
 ## 7. Livraison par étapes
 1. Cœur : saisie manuelle et modules 1 à 4 avec formules, graphiques et interprétations
