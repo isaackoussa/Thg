@@ -783,7 +783,7 @@ else {
   ok(/8 caractères/.test(await A.page.innerText('#accStatus')), 'compte : mot de passe trop court signalé');
   await A.page.fill('#accPw', 'motdepasse1'); await A.page.click('#accGo');
   await A.page.waitForFunction(() => /Connecté avec/.test(document.querySelector('#accountCard').innerText), null, { timeout: 15000 });
-  ok(/Compte créé/.test(await A.page.innerText('#accountCard')), 'compte : inscription et connexion immédiates, sans e-mail de vérification');
+  ok(await A.page.waitForFunction(() => /Compte créé/.test(document.querySelector('#accountCard').innerText), null, { timeout: 15000 }).then(() => true, () => false), 'compte : inscription et connexion immédiates, sans e-mail de vérification');
   await A.page.fill('#hLabel', 'Analyse depuis l’iPhone'); await A.page.click('#hSave');
   for (let i = 0; i < 100 && ![...shared.m.values()].some(v => v.includes('Analyse depuis l’iPhone')); i++) await A.page.waitForTimeout(100);
   const stored = [...shared.m.values()].map(v => JSON.parse(v));
