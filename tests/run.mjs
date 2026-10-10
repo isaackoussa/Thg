@@ -690,31 +690,54 @@ else {
   const mg = mergeHistory({ history: [] }, { history: many });
   ok(mg.history.length === HIST_MAX && mg.history.filter(e => e.kind === 'import').length < many.filter(e => e.kind === 'import').length, 'serveur : plafond, les imports partent d’abord', mg.history.length);
 
-  // Deux appareils dans le navigateur, même compte : fausse bibliothèque Identity, vraie fonction serveur
-  const shared = memStore();
-  const FAKE_ID = `
-    const read = () => { try { return JSON.parse(localStorage.getItem('fakeIdUser') || 'null'); } catch (e) { return null; } };
-    const setUser = u => { if (u) { localStorage.setItem('fakeIdUser', JSON.stringify(u)); document.cookie = 'fake_uid=' + encodeURIComponent(u.id) + '; path=/'; } else { localStorage.removeItem('fakeIdUser'); document.cookie = 'fake_uid=; path=/; max-age=0'; } };
-    const accounts = { 'isaac@test.ci': 'motdepasse1' };
-    export async function getUser() { return read(); }
-    export async function login(email, pw) { if (accounts[email] !== pw) { const e = new Error('invalid_grant: Email or password is incorrect'); e.status = 400; throw e; } const u = { id: 'u-' + email, email }; setUser(u); return u; }
-    export async function signup(email, pw) { window.__signup = email; return { id: 'u-' + email, email }; }
-    export async function logout() { setUser(null); }
-    export async function handleAuthCallback() { return null; }
-    export async function requestPasswordRecovery(email) { window.__recovery = email; }
-    export async function updateUser() { return read(); }
-    export function onAuthChange() { return () => {}; }
-  `;
+  // Comptes : fonction serveur seule
+  const { handleCompte, userFromRequest } = await import('../server/compte.mjs');
+  const kv = () => { const m = new Map(); return { m,
+    async get(k, o = {}) { if (!m.has(k)) return null; return o.type === 'json' ? JSON.parse(m.get(k)) : m.get(k); },
+    async set(k, v, o = {}) { if (o.onlyIfNew && m.has(k)) return { modified: false }; m.set(k, String(v)); return { modified: true }; },
+    async setJSON(k, v, o = {}) { if (o.onlyIfNew && m.has(k)) return { modified: false }; m.set(k, JSON.stringify(v)); return { modified: true }; } }; };
+  const acc = kv();
+  const post = (action, body, extra = {}) => handleCompte(new Request('https://app.test/api/compte/' + action, { method: 'POST', headers: { origin: 'https://app.test', 'content-type': 'application/json', ...(extra.headers || {}) }, body: JSON.stringify(body) }), action, { store: acc });
+  const cookieOf = r => (r.headers.get('set-cookie') || '').split(';')[0];
+  let rc = await post('inscription', { email: ' Isaac@Test.CI ', password: 'motdepasse1' });
+  ok(rc.status === 201 && /^umoa_session=.+/.test(cookieOf(rc)) && /HttpOnly/.test(rc.headers.get('set-cookie')) && /Secure/.test(rc.headers.get('set-cookie')), 'compte : inscription sans vérification, session ouverte (cookie HttpOnly, Secure)', rc.status);
+  const ck = cookieOf(rc);
+  const storedUser = [...acc.m.entries()].find(([k]) => k.startsWith('u/'));
+  ok(storedUser && !storedUser[1].includes('motdepasse1') && JSON.parse(storedUser[1]).email === 'isaac@test.ci', 'compte : mot de passe jamais stocké en clair, e-mail normalisé');
+  rc = await post('inscription', { email: 'isaac@test.ci', password: 'autremotdepasse' });
+  ok(rc.status === 409, 'compte : une adresse ne peut être inscrite deux fois', rc.status);
+  rc = await post('inscription', { email: 'pas-un-mail', password: 'motdepasse1' });
+  ok(rc.status === 400, 'compte : adresse invalide refusée', rc.status);
+  rc = await post('inscription', { email: 'x@test.sn', password: 'court' });
+  ok(rc.status === 400, 'compte : mot de passe trop court refusé', rc.status);
+  rc = await post('connexion', { email: 'ISAAC@test.ci', password: 'motdepasse1' });
+  ok(rc.status === 200 && cookieOf(rc).length > 20, 'compte : connexion (adresse sans tenir compte des majuscules)', rc.status);
+  rc = await post('connexion', { email: 'inconnu@test.ci', password: 'motdepasse1' });
+  ok(rc.status === 401, 'compte : adresse inconnue refusée', rc.status);
+  const me = await handleCompte(new Request('https://app.test/api/compte/moi', { headers: { cookie: ck } }), 'moi', { store: acc });
+  ok(me.status === 200 && (await me.json()).email === 'isaac@test.ci', 'compte : session reconnue');
+  const forged = ck.replace(/.$/, c => c === 'A' ? 'B' : 'A');
+  ok(await userFromRequest(new Request('https://app.test/', { headers: { cookie: forged } }), acc) === null, 'compte : cookie falsifié refusé');
+  rc = await handleCompte(new Request('https://app.test/api/compte/connexion', { method: 'POST', headers: { origin: 'https://pirate.test' }, body: '{}' }), 'connexion', { store: acc });
+  ok(rc.status === 403, 'compte : requête venant d’un autre site refusée', rc.status);
+  for (let i = 0; i < 5; i++) await post('connexion', { email: 'isaac@test.ci', password: 'mauvais' + i });
+  rc = await post('connexion', { email: 'isaac@test.ci', password: 'motdepasse1' });
+  ok(rc.status === 429, 'compte : blocage temporaire après 5 essais ratés', rc.status);
+  rc = await post('deconnexion', {});
+  ok(/Max-Age=0/.test(rc.headers.get('set-cookie') || ''), 'compte : déconnexion efface le cookie');
+
+  // Deux appareils dans le navigateur, même compte : vraies fonctions serveur (compte + historique)
+  const shared = memStore(), accStore = kv();
   const device = async () => {
     const ctx = await browser.newContext({ viewport: { width: 400, height: 900 } });
     await routeCdn(ctx);
-    await ctx.route(/@netlify\/identity@2\.0\.0\/\+esm$/, r => r.fulfill({ status: 200, contentType: 'text/javascript', body: FAKE_ID, headers: { 'Access-Control-Allow-Origin': '*' } }));
-    await ctx.route(/\/api\/historique$/, async route => {
-      const rq = route.request();
-      const uid = ((await rq.allHeaders()).cookie || '').match(/fake_uid=([^;]+)/);
-      const user = uid ? { id: decodeURIComponent(uid[1]), email: decodeURIComponent(uid[1]).slice(2) } : null;
-      const res = await handleHistorique(new Request(rq.url(), { method: rq.method(), headers: { origin: (await rq.allHeaders()).origin || '', 'content-type': 'application/json' }, body: rq.method() === 'PUT' ? rq.postData() : undefined }), { getUser: async () => user, store: shared });
-      route.fulfill({ status: res.status, contentType: 'application/json', body: await res.text() });
+    await ctx.route(/\/api\/(compte\/[a-z]+|historique)$/, async route => {
+      const rq = route.request(), h = await rq.allHeaders();
+      const req = new Request(rq.url(), { method: rq.method(), headers: { origin: h.origin || '', cookie: h.cookie || '', 'content-type': 'application/json' }, body: ['POST', 'PUT'].includes(rq.method()) ? rq.postData() || '' : undefined });
+      const m = rq.url().match(/compte\/([a-z]+)$/);
+      const res = m ? await handleCompte(req, m[1], { store: accStore }) : await handleHistorique(req, { getUser: () => userFromRequest(req, accStore), store: shared });
+      const headers = { 'content-type': 'application/json' }; if (res.headers.get('set-cookie')) headers['set-cookie'] = res.headers.get('set-cookie');
+      route.fulfill({ status: res.status, headers, body: await res.text() });
     });
     const page = await ctx.newPage(); const errors = []; page.on('pageerror', e => errors.push(e.message));
     await page.goto(BASE); await page.waitForSelector('#view .section-head');
@@ -723,29 +746,33 @@ else {
   const A = await device(), B = await device();
   await A.page.click('[data-tab="historique"]');
   ok(/Se connecter/.test(await A.page.innerText('#accountCard')), 'compte : formulaire de connexion affiché');
-  await A.page.fill('#accEmail', 'isaac@test.ci'); await A.page.fill('#accPw', 'mauvais'); await A.page.click('#accGo');
+  await A.page.click('#accSwitch');
+  await A.page.fill('#accEmail', 'isaac@test.ci'); await A.page.fill('#accPw', 'court'); await A.page.click('#accGo');
   await A.page.waitForSelector('#accStatus.err');
-  ok(/incorrect/.test(await A.page.innerText('#accStatus')), 'compte : mauvais mot de passe signalé');
+  ok(/8 caractères/.test(await A.page.innerText('#accStatus')), 'compte : mot de passe trop court signalé');
   await A.page.fill('#accPw', 'motdepasse1'); await A.page.click('#accGo');
-  await A.page.waitForFunction(() => /Connecté avec/.test(document.querySelector('#accountCard').innerText));
+  await A.page.waitForFunction(() => /Connecté avec/.test(document.querySelector('#accountCard').innerText), null, { timeout: 15000 });
+  ok(/Compte créé/.test(await A.page.innerText('#accountCard')), 'compte : inscription et connexion immédiates, sans e-mail de vérification');
   await A.page.fill('#hLabel', 'Analyse depuis l’iPhone'); await A.page.click('#hSave');
   for (let i = 0; i < 100 && ![...shared.m.values()].some(v => v.includes('Analyse depuis l’iPhone')); i++) await A.page.waitForTimeout(100);
   const stored = [...shared.m.values()].map(v => JSON.parse(v));
   ok(stored.length === 1 && stored[0].history.some(e => e.label === 'Analyse depuis l’iPhone') && stored[0].email === 'isaac@test.ci', 'compte : analyse enregistrée sur le compte', stored.map(x => x.history.length));
-  // appareil B : se connecte et retrouve l'analyse
+  // appareil B : mauvais mot de passe puis connexion, retrouve l'analyse
   await B.page.click('[data-tab="historique"]');
-  await B.page.fill('#accEmail', 'isaac@test.ci'); await B.page.fill('#accPw', 'motdepasse1'); await B.page.click('#accGo');
+  await B.page.fill('#accEmail', 'isaac@test.ci'); await B.page.fill('#accPw', 'mauvais'); await B.page.click('#accGo');
+  await B.page.waitForSelector('#accStatus.err');
+  ok(/incorrect/.test(await B.page.innerText('#accStatus')), 'compte : mauvais mot de passe signalé');
+  await B.page.fill('#accPw', 'motdepasse1'); await B.page.click('#accGo');
   await B.page.waitForFunction(() => state.history.some(e => e.label === 'Analyse depuis l’iPhone'), null, { timeout: 15000 });
   ok(/Analyse depuis l’iPhone/.test(await B.page.innerText('.hist-list')), 'compte : l’analyse apparaît sur le deuxième appareil');
   // B supprime, A le voit à la synchronisation suivante
   const hid = await B.page.evaluate(() => state.history.find(e => e.label === 'Analyse depuis l’iPhone').id);
   await B.page.click('[data-hdel="' + hid + '"]'); await B.page.click('[data-hdelok]');
-  await B.page.waitForFunction(id => ![...document.querySelectorAll('.hist')].some(x => x.id === 'h-' + id), hid);
-  await B.page.waitForTimeout(2500);
+  for (let i = 0; i < 100 && [...shared.m.values()].some(v => v.includes('Analyse depuis l’iPhone')); i++) await B.page.waitForTimeout(100);
   await A.page.click('#accSync');
   await A.page.waitForFunction(id => !state.history.some(e => e.id === id), hid, { timeout: 15000 });
   ok(true, 'compte : une suppression faite sur un appareil se propage à l’autre');
-  // reconnexion automatique au rechargement
+  // session retrouvée au rechargement
   await A.page.reload(); await A.page.waitForSelector('#view .section-head'); await A.page.click('[data-tab="historique"]');
   await A.page.waitForFunction(() => /Connecté avec/.test(document.querySelector('#accountCard').innerText), null, { timeout: 15000 });
   ok(true, 'compte : session retrouvée au rechargement');
@@ -756,16 +783,11 @@ else {
   await A.page.waitForFunction(() => /Déconnecté/.test(document.querySelector('#accountCard').innerText));
   ok(await A.page.evaluate(() => state.history.length === 0), 'compte : déconnexion avec effacement de l’historique local');
   ok([...shared.m.values()].map(v => JSON.parse(v))[0].history.length > 0, 'compte : l’historique reste sur le compte après effacement local');
-  // création de compte et mot de passe oublié
-  await A.page.click('#accSwitch'); await A.page.fill('#accEmail', 'nouvel@test.bj'); await A.page.fill('#accPw', 'court'); await A.page.click('#accGo');
+  ok(await A.page.evaluate(async () => (await fetch('/api/compte/moi')).status) === 401, 'compte : session fermée côté serveur après déconnexion');
+  // inscription d'une adresse déjà prise
+  await A.page.click('#accSwitch'); await A.page.fill('#accEmail', 'isaac@test.ci'); await A.page.fill('#accPw', 'encoreunautre'); await A.page.click('#accGo');
   await A.page.waitForSelector('#accStatus.err');
-  ok(/8 caractères/.test(await A.page.innerText('#accStatus')), 'compte : mot de passe trop court refusé');
-  await A.page.fill('#accPw', 'longmotdepasse'); await A.page.click('#accGo');
-  await A.page.waitForFunction(() => /e-mail de confirmation/.test(document.querySelector('#accountCard').innerText));
-  ok(await A.page.evaluate(() => window.__signup) === 'nouvel@test.bj', 'compte : création, avec e-mail de confirmation');
-  await A.page.fill('#accEmail', 'isaac@test.ci'); await A.page.click('#accForgot');
-  await A.page.waitForFunction(() => /réinitialisation/.test(document.querySelector('#accountCard').innerText));
-  ok(await A.page.evaluate(() => window.__recovery) === 'isaac@test.ci', 'compte : mot de passe oublié envoie un e-mail');
+  ok(/existe déjà/.test(await A.page.innerText('#accStatus')), 'compte : adresse déjà inscrite signalée');
   ok(A.errors.length === 0 && B.errors.length === 0, 'compte : aucune erreur JavaScript', [...A.errors, ...B.errors].slice(0, 3));
   ok(await A.page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), 'compte : pas de débordement sur téléphone');
   await A.ctx.close(); await B.ctx.close();
@@ -775,7 +797,7 @@ else {
     await page.click('[data-tab="historique"]');
     await page.fill('#accEmail', 'isaac@test.ci'); await page.fill('#accPw', 'x'); await page.click('#accGo');
     await page.waitForSelector('#accStatus.err');
-    ok(/ne répond pas|connexion internet/.test(await page.innerText('#accStatus')), 'compte : service injoignable signalé', await page.innerText('#accStatus'));
+    ok(/pas encore disponibles|ne répond pas/.test(await page.innerText('#accStatus')), 'compte : site sans partie serveur signalé clairement', await page.innerText('#accStatus'));
     ok(errors.length === 0, 'compte injoignable : aucune erreur JavaScript', errors);
     await ctx.close();
   }

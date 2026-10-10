@@ -19,7 +19,6 @@
     "xlsx": "^0.18.5"
   },
   "dependencies": {
-    "@netlify/blobs": "11.1.0",
-    "@netlify/identity": "2.0.0"
+    "@netlify/blobs": "11.1.0"
   }
 }

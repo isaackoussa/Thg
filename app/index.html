@@ -2069,47 +2069,26 @@ function histDetail(e) {
   h += '<p class="note">Base des rentabilités : ' + (e.base === 'moy' ? 'moyenne N / N−1' : 'fin d’exercice') + '.</p>';
   return h;
 }
-/* ---- Compte par adresse e-mail (Netlify Identity) et synchronisation de l'historique ---- */
-const ID_LIB = 'https://cdn.jsdelivr.net/npm/@netlify/identity@2.0.0/+esm';
+/* ---- Compte par adresse e-mail (comptes de l'app, sans e-mail de vérification) et synchronisation de l'historique ---- */
 const ACC_KEY = 'umoa-compte-v1';
-const acct = { user:null, status:'', err:false, syncing:false, lastSync:null, pending:false, mode:'login', recovery:false };
+const acct = { user:null, status:'', err:false, syncing:false, lastSync:null, pending:false, mode:'login' };
 function accountsPossible() { try { return CAN_DOWNLOAD && /^https?:$/.test(location.protocol); } catch (e) { return false; } }
-let idMod = null;
-async function identity() {
-  if (!idMod) idMod = import(ID_LIB).catch(e => { idMod = null; throw new Error('Le service de connexion ne répond pas. Vérifie ta connexion internet.'); });
-  return idMod;
-}
 function accRemember(on) { try { if (on) localStorage.setItem(ACC_KEY, '1'); else localStorage.removeItem(ACC_KEY); } catch (e) {} }
 function accRemembered() { try { return localStorage.getItem(ACC_KEY) === '1'; } catch (e) { return false; } }
-function accMsg(e) {
-  const m = String(e && e.message || '');
-  if (e && e.name === 'MissingIdentityError' || /identity.*(not|n.est pas).*(config|activ)/i.test(m)) return 'Les comptes ne sont pas encore activés sur ce site : il faut activer Netlify Identity dans le tableau de bord Netlify.';
-  if (/invalid.*(grant|password|credentials|login)|no user found|incorrect/i.test(m) || (e && e.status === 400)) return 'Adresse e-mail ou mot de passe incorrect.';
-  if (/not.*confirmed|confirm/i.test(m)) return 'Adresse e-mail pas encore confirmée : clique sur le lien reçu par e-mail.';
-  if (/already.*(registered|exists)/i.test(m)) return 'Un compte existe déjà avec cette adresse : connecte-toi.';
-  if (/password.*(short|least|characters)/i.test(m)) return 'Mot de passe trop court.';
-  if (/signup.*disabled/i.test(m)) return 'Les inscriptions sont fermées sur ce site.';
-  return m && m.length < 160 ? m : 'Opération impossible pour le moment. Réessaie.';
+async function api(path, body) {
+  let res;
+  try { res = await fetch('/api/compte/' + path, body === undefined ? { credentials:'same-origin' } : { method:'POST', credentials:'same-origin', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify(body) }); }
+  catch (e) { throw new Error('Le serveur ne répond pas. Vérifie ta connexion internet.'); }
+  let data = {}; try { data = await res.json(); } catch (e) { data = {}; }
+  if (res.status === 404 && !data.error) throw new Error('Les comptes ne sont pas encore disponibles sur ce site : il doit être déployé depuis GitHub pour inclure la partie serveur.');
+  if (!res.ok) { const e = new Error(data.error || ('Erreur ' + res.status + '. Réessaie.')); e.status = res.status; e.code = data.code; throw e; }
+  return data;
 }
 function accSet(status, err) { acct.status = status; acct.err = !!err; renderAccount(); }
 async function accountBoot() {
-  if (!accountsPossible()) return;
-  const hasToken = /(confirmation|recovery|invite|email_change)_token=|access_token=/.test(location.hash || '');
-  if (!hasToken && !accRemembered()) return;
-  try {
-    const id = await identity();
-    if (hasToken) {
-      try {
-        const r = await id.handleAuthCallback();
-        if (r && r.type === 'recovery') { acct.recovery = true; acct.status = 'Choisis un nouveau mot de passe.'; }
-        if (r && r.type === 'confirmation') acct.status = 'Adresse confirmée : tu es connecté.';
-      } catch (e) { acct.status = 'Ce lien n’est plus valable. Demande un nouvel e-mail.'; acct.err = true; }
-      try { history.replaceState(null, '', location.pathname + location.search); } catch (e) {}
-    }
-    acct.user = await id.getUser();
-    accRemember(!!acct.user);
-    if (acct.user) await syncHistory(true);
-  } catch (e) { acct.status = accMsg(e); acct.err = true; }
+  if (!accountsPossible() || !accRemembered()) return;
+  try { const me = await api('moi'); acct.user = { email:me.email }; await syncHistory(true); }
+  catch (e) { if (e.status === 401) { accRemember(false); acct.user = null; } }
   renderAccount();
 }
 async function syncHistory(quiet) {
@@ -2140,14 +2119,14 @@ function accountCard() {
 }
 function accountInner() {
   const st = acct.status ? '<div class="file-status' + (acct.err ? ' err' : '') + '" id="accStatus">' + esc(acct.status) + '</div>' : '';
-  if (acct.user && acct.recovery) return '<h3>Nouveau mot de passe</h3><div class="meta-grid"><label>Nouveau mot de passe<input type="password" id="accNewPw" autocomplete="new-password" minlength="8"></label></div><div class="row"><button class="btn pri" id="accSetPw">Enregistrer le mot de passe</button></div>' + st;
   if (acct.user) return '<h3>Compte</h3><p>Connecté avec <b>' + esc(acct.user.email || '') + '</b>. Ton historique est enregistré sur ce compte et se retrouve sur tous les appareils où tu te connectes.</p>'
     + '<p class="note">' + (acct.syncing ? 'Synchronisation en cours…' : acct.lastSync ? 'Dernière synchronisation : ' + acct.lastSync.toLocaleTimeString('fr-FR', { hour:'2-digit', minute:'2-digit' }) : 'Pas encore synchronisé.') + '</p>'
     + '<div class="row"><button class="btn pri" id="accSync"' + (acct.syncing ? ' disabled' : '') + '>Synchroniser maintenant</button><button class="btn" id="accLogout">Se déconnecter</button><button class="btn danger" id="accLogoutWipe">Se déconnecter et effacer l’historique de cet appareil</button></div>' + st;
   const signup = acct.mode === 'signup';
-  return '<h3>' + (signup ? 'Créer un compte' : 'Se connecter') + '</h3><p class="note">Avec un compte, ton historique d’analyses est lié à ton adresse e-mail : tu le retrouves sur ton iPhone comme sur ton ordinateur.</p>'
-    + '<form id="accForm" class="meta-grid" autocomplete="on" novalidate><label>Adresse e-mail<input type="email" id="accEmail" autocomplete="email" required></label><label>Mot de passe' + (signup ? ' (8 caractères minimum)' : '') + '<input type="password" id="accPw" autocomplete="' + (signup ? 'new-password' : 'current-password') + '" required minlength="' + (signup ? 8 : 1) + '"></label></form>'
-    + '<div class="row"><button class="btn pri" id="accGo" type="submit" form="accForm">' + (signup ? 'Créer le compte' : 'Se connecter') + '</button><button class="btn" id="accSwitch">' + (signup ? 'J’ai déjà un compte' : 'Créer un compte') + '</button>' + (signup ? '' : '<button class="btn sm" id="accForgot">Mot de passe oublié ?</button>') + '</div>' + st;
+  return '<h3>' + (signup ? 'Créer un compte' : 'Se connecter') + '</h3><p class="note">' + (signup ? 'Il suffit d’une adresse e-mail et d’un mot de passe : pas d’e-mail de vérification, le compte est prêt tout de suite.' : 'Avec un compte, ton historique d’analyses est lié à ton adresse e-mail : tu le retrouves sur ton iPhone comme sur ton ordinateur.') + '</p>'
+    + '<form id="accForm" class="meta-grid" autocomplete="on" novalidate><label>Adresse e-mail<input type="email" id="accEmail" autocomplete="email" required></label><label>Mot de passe' + (signup ? ' (8 caractères minimum)' : '') + '<input type="password" id="accPw" autocomplete="' + (signup ? 'new-password' : 'current-password') + '" required></label></form>'
+    + '<div class="row"><button class="btn pri" id="accGo" type="submit" form="accForm">' + (signup ? 'Créer le compte' : 'Se connecter') + '</button><button class="btn" id="accSwitch">' + (signup ? 'J’ai déjà un compte' : 'Créer un compte') + '</button></div>'
+    + (signup ? '' : '<p class="note">Mot de passe oublié : crée un nouveau compte avec une autre adresse, ou garde ton historique avec la sauvegarde JSON (onglet Import).</p>') + st;
 }
 function renderAccount() {
   const el = document.getElementById('accountCard');
@@ -2159,40 +2138,30 @@ function renderAccount() {
 }
 function bindAccount() {
   const busy = on => view.querySelectorAll('#accountCard button').forEach(b => { b.disabled = on; });
-  const run = async (fn, msg) => { busy(true); accSet(msg || 'Un instant…'); try { await fn(await identity()); } catch (e) { accSet(accMsg(e), true); } finally { busy(false); } };
+  const run = async (fn, msg) => { busy(true); accSet(msg || 'Un instant…'); try { await fn(); } catch (e) { accSet(e && e.message ? e.message : 'Opération impossible. Réessaie.', true); } finally { busy(false); } };
   if ($('#accForm')) $('#accForm').addEventListener('submit', e => {
     e.preventDefault();
     const email = $('#accEmail').value.trim(), pw = $('#accPw').value;
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { accSet('Adresse e-mail invalide.', true); return; }
-    if (acct.mode === 'signup') {
-      if (pw.length < 8) { accSet('Le mot de passe doit faire au moins 8 caractères.', true); return; }
-      run(async id => {
-        await id.signup(email, pw);
-        const u = await id.getUser();
-        if (u) { acct.user = u; accRemember(true); acct.mode = 'login'; accSet('Compte créé.'); await syncHistory(true); }
-        else { acct.mode = 'login'; accSet('Compte créé : un e-mail de confirmation a été envoyé à ' + email + '. Clique sur le lien qu’il contient, puis reviens te connecter ici.'); }
-      }, 'Création du compte…');
-    } else run(async id => { acct.user = await id.login(email, pw); accRemember(true); acct.status = ''; await syncHistory(true); accSet('Connecté. Historique synchronisé.'); }, 'Connexion…');
+    if (acct.mode === 'signup' && pw.length < 8) { accSet('Le mot de passe doit faire au moins 8 caractères.', true); return; }
+    if (!pw) { accSet('Saisis ton mot de passe.', true); return; }
+    const signup = acct.mode === 'signup';
+    run(async () => {
+      const me = await api(signup ? 'inscription' : 'connexion', { email, password:pw });
+      acct.user = { email:me.email }; accRemember(true); acct.mode = 'login';
+      await syncHistory(true);
+      accSet(signup ? 'Compte créé, tu es connecté. Ton historique est enregistré sur ce compte.' : 'Connecté. Historique synchronisé.');
+    }, signup ? 'Création du compte…' : 'Connexion…');
   });
   if ($('#accSwitch')) $('#accSwitch').onclick = () => { acct.mode = acct.mode === 'signup' ? 'login' : 'signup'; acct.status = ''; renderAccount(); };
-  if ($('#accForgot')) $('#accForgot').onclick = () => {
-    const email = $('#accEmail').value.trim();
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { accSet('Saisis d’abord ton adresse e-mail.', true); return; }
-    run(async id => { await id.requestPasswordRecovery(email); accSet('Si un compte existe pour ' + email + ', un e-mail de réinitialisation vient d’être envoyé.'); }, 'Envoi…');
-  };
-  if ($('#accSetPw')) $('#accSetPw').onclick = () => {
-    const pw = $('#accNewPw').value;
-    if (pw.length < 8) { accSet('Le mot de passe doit faire au moins 8 caractères.', true); return; }
-    run(async id => { await id.updateUser({ password:pw }); acct.recovery = false; accSet('Mot de passe modifié.'); }, 'Enregistrement…');
-  };
   if ($('#accSync')) $('#accSync').onclick = () => syncHistory(false);
-  const logout = wipe => run(async id => {
-    try { await id.logout(); } catch (e) {}
+  const logout = wipe => run(async () => {
+    try { await api('deconnexion', {}); } catch (e) {}
     acct.user = null; accRemember(false); acct.lastSync = null;
     if (wipe) { state.history = []; state.histDeleted = []; save(); }
     acct.status = wipe ? 'Déconnecté. L’historique a été effacé de cet appareil ; il reste sur ton compte.' : 'Déconnecté. L’historique reste sur cet appareil.';
     acct.err = false;
-    if (state.tab === 'historique') renderAll(true);
+    if (state.tab === 'historique') renderAll(true); else renderAccount();
   }, 'Déconnexion…');
   if ($('#accLogout')) $('#accLogout').onclick = () => logout(false);
   if ($('#accLogoutWipe')) $('#accLogoutWipe').onclick = () => logout(true);

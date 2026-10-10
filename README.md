@@ -18,9 +18,10 @@ npm test           # construit puis teste (Rscript pour la parité R ; LibreOffi
 ```
 
 ## Comptes (historique lié à une adresse e-mail)
-- `netlify/functions/historique.mjs` : point d'entrée `/api/historique` (GET, PUT), utilisateur via `@netlify/identity`, stockage `@netlify/blobs` (store `historiques`).
-- `server/historique.mjs` : logique (fusion, validation, contrôle d'origine), testée sans Netlify.
-- À activer une fois : tableau de bord Netlify → projet → **Identity** → *Enable Identity*. Garder les e-mails de confirmation actifs.
+- Inscription par e-mail + mot de passe, sans vérification ni configuration Netlify.
+- `netlify/functions/compte.mjs` → `/api/compte/inscription|connexion|deconnexion` (POST) et `/api/compte/moi` (GET), logique dans `server/compte.mjs`.
+- `netlify/functions/historique.mjs` → `/api/historique` (GET, PUT), logique dans `server/historique.mjs`.
+- Stockage : Netlify Blobs (stores `comptes` et `historiques`). La clé de signature des sessions est créée automatiquement.
 - Les fonctions ne sont déployées que si le dépôt est relié à Netlify (ou via la CLI) : le dépôt manuel du dossier `dist` ne les contient pas.
 
 ## Déploiement Netlify
