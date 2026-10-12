@@ -24,6 +24,10 @@ npm test           # construit puis teste (Rscript pour la parité R ; LibreOffi
 - Stockage : Netlify Blobs (stores `comptes` et `historiques`). La clé de signature des sessions est créée automatiquement.
 - Les fonctions ne sont déployées que si le dépôt est relié à Netlify (ou via la CLI) : le dépôt manuel du dossier `dist` ne les contient pas.
 
+## Administration
+- `netlify/functions/admin.mjs` → `/api/admin/*`, logique dans `server/admin.mjs`.
+- Administrateurs : variable d'environnement Netlify `ADMIN_EMAILS` (adresses séparées par des virgules, portée Functions). Sans réglage : koussaisaac199@gmail.com.
+
 ## Déploiement Netlify
 `netlify.toml` configure tout : commande `node scripts/build.mjs`, dossier publié `dist`, en-têtes de sécurité.
 Sur iPhone, ouvre le site dans Safari puis Partager → « Sur l'écran d'accueil » pour l'installer avec son icône.

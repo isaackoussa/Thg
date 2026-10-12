@@ -755,7 +755,7 @@ else {
 /* ---------- 11. Compte par e-mail : fonction serveur et synchronisation entre appareils ---------- */
 {
   const { handleHistorique, mergeHistory, HIST_MAX } = await import('../server/historique.mjs');
-  const memStore = () => { const m = new Map(); return { m, async get(k) { return m.has(k) ? JSON.parse(m.get(k)) : null; }, async setJSON(k, v) { m.set(k, JSON.stringify(v)); return { modified: true }; } }; };
+  const memStore = () => { const m = new Map(); return { m, async get(k) { return m.has(k) ? JSON.parse(m.get(k)) : null; }, async setJSON(k, v) { m.set(k, JSON.stringify(v)); return { modified: true }; }, async delete(k) { m.delete(k); }, async list(o = {}) { return { blobs: [...m.keys()].filter(k => k.startsWith(o.prefix || '')).map(key => ({ key })) }; } }; };
   const entry = (id, at, kind = 'manuel') => ({ id, at, kind, label: id, bank: { name: 'B', years: [2023], v: {} }, res: { years: [2023], vals: {} } });
   const call = (store, user, method, body, origin = 'https://app.test') => handleHistorique(new Request('https://app.test/api/historique', { method, headers: origin ? { origin, 'content-type': 'application/json' } : { 'content-type': 'application/json' }, body: body === undefined ? undefined : typeof body === 'string' ? body : JSON.stringify(body) }), { getUser: async () => user, store });
   const st = memStore(), alice = { id: 'a1', email: 'alice@test.sn' }, bob = { id: 'b2', email: 'bob@test.ci' };
@@ -806,10 +806,12 @@ else {
   }
   // Comptes : fonction serveur seule
   const { handleCompte, userFromRequest } = await import('../server/compte.mjs');
+  const { handleAdmin, adminList } = await import('../server/admin.mjs');
   const kv = () => { const m = new Map(); return { m,
     async get(k, o = {}) { if (!m.has(k)) return null; return o.type === 'json' ? JSON.parse(m.get(k)) : m.get(k); },
     async set(k, v, o = {}) { if (o.onlyIfNew && m.has(k)) return { modified: false }; m.set(k, String(v)); return { modified: true }; },
-    async setJSON(k, v, o = {}) { if (o.onlyIfNew && m.has(k)) return { modified: false }; m.set(k, JSON.stringify(v)); return { modified: true }; } }; };
+    async setJSON(k, v, o = {}) { if (o.onlyIfNew && m.has(k)) return { modified: false }; m.set(k, JSON.stringify(v)); return { modified: true }; },
+    async delete(k) { m.delete(k); }, async list(o = {}) { return { blobs: [...m.keys()].filter(k => k.startsWith(o.prefix || '')).map(key => ({ key })) }; } }; };
   const acc = kv();
   const post = (action, body, extra = {}) => handleCompte(new Request('https://app.test/api/compte/' + action, { method: 'POST', headers: { origin: 'https://app.test', 'content-type': 'application/json', ...(extra.headers || {}) }, body: JSON.stringify(body) }), action, { store: acc });
   const cookieOf = r => (r.headers.get('set-cookie') || '').split(';')[0];
@@ -845,11 +847,11 @@ else {
   const device = async () => {
     const ctx = await browser.newContext({ viewport: { width: 400, height: 900 } });
     await routeCdn(ctx);
-    await ctx.route(/\/api\/(compte\/[a-z]+|historique)$/, async route => {
+    await ctx.route(/\/api\/(compte\/[a-z]+|historique|admin\/[a-z]+(\?.*)?)$/, async route => {
       const rq = route.request(), h = await rq.allHeaders();
       const req = new Request(rq.url(), { method: rq.method(), headers: { origin: h.origin || '', cookie: h.cookie || '', 'content-type': 'application/json' }, body: ['POST', 'PUT'].includes(rq.method()) ? rq.postData() || '' : undefined });
-      const m = rq.url().match(/compte\/([a-z]+)$/);
-      const res = m ? await handleCompte(req, m[1], { store: accStore }) : await handleHistorique(req, { getUser: () => userFromRequest(req, accStore), store: shared });
+      const m = rq.url().match(/compte\/([a-z]+)$/), ma = rq.url().match(/admin\/([a-z]+)(\?|$)/);
+      const res = m ? await handleCompte(req, m[1], { store: accStore }) : ma ? await handleAdmin(req, ma[1], { comptes: accStore, historiques: shared, adminEmails: 'admin@test.sn' }) : await handleHistorique(req, { getUser: () => userFromRequest(req, accStore), store: shared });
       const headers = { 'content-type': 'application/json' }; if (res.headers.get('set-cookie')) headers['set-cookie'] = res.headers.get('set-cookie');
       route.fulfill({ status: res.status, headers, body: await res.text() });
     });
@@ -935,6 +937,80 @@ else {
   ok(A.errors.length === 0 && B.errors.length === 0, 'compte : aucune erreur JavaScript', [...A.errors, ...B.errors].slice(0, 3));
   ok(await A.page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), 'compte : pas de débordement sur téléphone');
   await A.ctx.close(); await B.ctx.close();
+  // ---------- Admin : serveur ----------
+  {
+    const cs = kv(), hs = memStore();
+    const po = (action, body, ck) => handleCompte(new Request('https://app.test/api/compte/' + action, { method: 'POST', headers: { origin: 'https://app.test', cookie: ck || '' }, body: JSON.stringify(body) }), action, { store: cs });
+    const ckOf = r => (r.headers.get('set-cookie') || '').split(';')[0];
+    const adm = ckOf(await po('inscription', { email: 'Admin@Test.sn', password: 'motdepasseadmin' }));
+    const usr = ckOf(await po('inscription', { email: 'eleve@test.ci', password: 'motdepasse1' }));
+    await handleHistorique(new Request('https://app.test/api/historique', { method: 'PUT', headers: { origin: 'https://app.test', cookie: usr }, body: JSON.stringify({ history: [{ id: 'h1', at: new Date().toISOString(), kind: 'manuel', label: 'BANQUE DE DAKAR · 2023', bank: { name: 'BANQUE DE DAKAR', years: [2023], v: {} }, res: { years: [2023], vals: { roe: [0.12] } } }], banks: { b1: { name: 'BANQUE DE DAKAR', years: [2023], v: { A4: [5] }, mod: 1 } } }) }), { getUser: () => userFromRequest(new Request('https://app.test/', { headers: { cookie: usr } }), cs), store: hs });
+    const ad = (action, ck, body, q = '') => handleAdmin(new Request('https://app.test/api/admin/' + action + q, body === undefined ? { headers: { cookie: ck || '' } } : { method: 'POST', headers: { origin: 'https://app.test', cookie: ck || '' }, body: JSON.stringify(body) }), action, { comptes: cs, historiques: hs, adminEmails: 'admin@test.sn' });
+    ok(JSON.stringify(adminList(undefined)) === '["koussaisaac199@gmail.com"]' && JSON.stringify(adminList(' A@x.sn , b@y.ci ')) === '["a@x.sn","b@y.ci"]', 'admin : administrateur par défaut et liste réglable');
+    ok((await ad('moi', '')).status === 401 && (await ad('moi', usr)).status === 403 && (await ad('comptes', usr)).status === 403, 'admin : refusé sans connexion et aux comptes ordinaires');
+    ok((await ad('moi', adm)).status === 200, 'admin : reconnu pour l’adresse administrateur (majuscules ignorées)');
+    const st = await (await ad('stats', adm)).json();
+    ok(st.comptes === 2 && st.banques === 1 && st.analyses === 1 && st.actifs7 === 2 && st.topBanques[0].nom === 'BANQUE DE DAKAR' && st.parJour.length === 30 && st.parJour[29].analyses === 1, 'admin : statistiques', st);
+    const cp = (await (await ad('comptes', adm)).json()).comptes;
+    const el = cp.find(c => c.email === 'eleve@test.ci');
+    ok(cp.length === 2 && el.banks === 1 && el.analyses === 1 && el.lastLogin && !('hash' in el) && !('salt' in el), 'admin : liste des comptes sans mot de passe', cp);
+    const det = await (await ad('analyses', adm, undefined, '?id=' + el.id)).json();
+    ok(det.email === 'eleve@test.ci' && det.banks.b1.name === 'BANQUE DE DAKAR' && det.history.length === 1, 'admin : consultation des analyses d’un utilisateur', det);
+    ok((await ad('motdepasse', adm, { email: 'eleve@test.ci', password: 'court' })).status === 400, 'admin : nouveau mot de passe trop court refusé');
+    ok((await ad('motdepasse', adm, { email: 'eleve@test.ci', password: 'nouveaumdp1' })).status === 200, 'admin : nouveau mot de passe enregistré');
+    ok(await userFromRequest(new Request('https://app.test/', { headers: { cookie: usr } }), cs) === null, 'admin : l’ancienne session de l’utilisateur est fermée');
+    ok((await po('connexion', { email: 'eleve@test.ci', password: 'motdepasse1' })).status === 401 && (await po('connexion', { email: 'eleve@test.ci', password: 'nouveaumdp1' })).status === 200, 'admin : l’utilisateur se connecte avec le nouveau mot de passe');
+    for (let i = 0; i < 5; i++) await po('connexion', { email: 'eleve@test.ci', password: 'faux' + i });
+    ok((await (await ad('comptes', adm)).json()).comptes.find(c => c.email === 'eleve@test.ci').locked, 'admin : compte bloqué visible');
+    await ad('debloquer', adm, { email: 'eleve@test.ci' });
+    ok((await po('connexion', { email: 'eleve@test.ci', password: 'nouveaumdp1' })).status === 200, 'admin : déblocage');
+    ok((await ad('supprimer', adm, { email: 'admin@test.sn' })).status === 400, 'admin : impossible de supprimer son propre compte');
+    ok((await handleAdmin(new Request('https://app.test/api/admin/supprimer', { method: 'POST', headers: { origin: 'https://pirate.test', cookie: adm }, body: JSON.stringify({ email: 'eleve@test.ci' }) }), 'supprimer', { comptes: cs, historiques: hs, adminEmails: 'admin@test.sn' })).status === 403, 'admin : action venant d’un autre site refusée');
+    ok((await ad('supprimer', adm, { email: 'eleve@test.ci' })).status === 200 && (await (await ad('comptes', adm)).json()).comptes.length === 1 && !hs.m.has('u/' + el.id), 'admin : suppression du compte et de ses données');
+    ok((await po('connexion', { email: 'eleve@test.ci', password: 'nouveaumdp1' })).status === 401, 'admin : un compte supprimé ne peut plus se connecter');
+  }
+  // ---------- Admin : dans le navigateur ----------
+  {
+    const Ad = await device(), Us = await device();
+    await Us.page.click('[data-tab="historique"]'); await Us.page.click('#accSwitch');
+    await Us.page.fill('#accEmail', 'eleve2@test.ci'); await Us.page.fill('#accPw', 'motdepasse1'); await Us.page.click('#accGo');
+    await Us.page.waitForFunction(() => /Connecté avec/.test(document.querySelector('#accountCard').innerText), null, { timeout: 15000 });
+    ok(!(await Us.page.$('[data-tab="admin"]')), 'admin : onglet absent pour un utilisateur ordinaire');
+    await Us.page.fill('#hLabel', 'Analyse élève'); await Us.page.click('#hSave');
+    for (let i = 0; i < 100 && ![...shared.m.values()].some(v => v.includes('Analyse élève')); i++) await Us.page.waitForTimeout(100);
+    await Ad.page.click('[data-tab="historique"]'); await Ad.page.click('#accSwitch');
+    await Ad.page.fill('#accEmail', 'admin@test.sn'); await Ad.page.fill('#accPw', 'motdepasseadmin'); await Ad.page.click('#accGo');
+    await Ad.page.waitForSelector('[data-tab="admin"]', { timeout: 15000 });
+    await Ad.page.click('[data-tab="admin"]');
+    await Ad.page.waitForFunction(() => /Comptes \(\d+\)/.test(document.querySelector('#adminBox')?.innerText || ''), null, { timeout: 15000 });
+    const txt = await Ad.page.innerText('#adminBox');
+    ok(/eleve2@test\.ci/.test(txt) && /Activité des 30 derniers jours/.test(txt) && /Banques les plus analysées/.test(txt), 'admin : tableau de bord affiché', txt.slice(0, 300));
+    const uid = await Ad.page.evaluate(() => adm.comptes.find(c => c.email === 'eleve2@test.ci').id);
+    await Ad.page.click('[data-av="' + uid + '"]');
+    await Ad.page.waitForFunction(() => /Analyses de eleve2/.test(document.querySelector('#admDetail').innerText));
+    ok(/Analyse élève/.test(await Ad.page.innerText('#admDetail')), 'admin : analyses de l’utilisateur consultées');
+    const nBefore = await Ad.page.evaluate(() => Object.keys(state.banks).length);
+    await Ad.page.click('[data-acopy]');
+    ok(await Ad.page.evaluate(n => Object.keys(state.banks).length === n + 1 && /copie de eleve2@test\.ci/.test(bank().name) && state.tab === 'synthese', nBefore), 'admin : copie d’une banque ouverte chez l’admin');
+    await Ad.page.click('[data-tab="admin"]');
+    await Ad.page.waitForFunction(() => /Comptes \(\d+\)/.test(document.querySelector('#adminBox')?.innerText || ''), null, { timeout: 15000 });
+    await Ad.page.click('[data-apw="eleve2@test.ci"]'); await Ad.page.click('#admPwGen');
+    const newPw = await Ad.page.inputValue('#admPw');
+    await Ad.page.click('#admPwOk');
+    await Ad.page.waitForFunction(() => /Mot de passe changé/.test(document.querySelector('#admAction').innerText));
+    ok(newPw.length === 10, 'admin : mot de passe généré et enregistré');
+    await Ad.page.click('[data-adel="eleve2@test.ci"]'); await Ad.page.fill('#admDelConf', 'mauvaise@adresse'); await Ad.page.click('#admDelOk');
+    ok(await Ad.page.evaluate(() => adm.comptes.some(c => c.email === 'eleve2@test.ci')), 'admin : suppression refusée si l’adresse tapée ne correspond pas');
+    await Ad.page.fill('#admDelConf', 'eleve2@test.ci'); await Ad.page.click('#admDelOk');
+    await Ad.page.waitForFunction(() => adm.comptes && !adm.comptes.some(c => c.email === 'eleve2@test.ci'), null, { timeout: 15000 });
+    ok(true, 'admin : compte supprimé depuis le tableau de bord');
+    ok(await Ad.page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), 'admin : pas de débordement sur téléphone');
+    await Ad.page.click('[data-tab="historique"]'); await Ad.page.click('#accLogout');
+    await Ad.page.waitForFunction(() => !document.querySelector('[data-tab="admin"]'), null, { timeout: 15000 });
+    ok(true, 'admin : onglet retiré à la déconnexion');
+    ok(Ad.errors.length === 0 && Us.errors.length === 0, 'admin : aucune erreur JavaScript', [...Ad.errors, ...Us.errors].slice(0, 3));
+    await Ad.ctx.close(); await Us.ctx.close();
+  }
   // service de connexion injoignable : message clair
   {
     const { page, ctx, errors } = await openApp({ storage: undefined });

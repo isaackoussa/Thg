@@ -8,10 +8,12 @@ const SESSION_DAYS = 30, MAX_FAILS = 5, LOCK_MIN = 15;
 
 const json = (body, status = 200, headers = {}) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', ...headers } });
 const b64u = buf => Buffer.from(buf).toString('base64url');
-const normEmail = e => String(e || '').trim().toLowerCase();
+export const normEmail = e => String(e || '').trim().toLowerCase();
 const validEmail = e => /^[^\s@]{1,64}@[^\s@]{1,190}\.[^\s@]{2,}$/.test(e) && e.length <= 254;
 const userKey = email => 'u/' + createHash('sha256').update(email).digest('hex');
+export const userKeyOf = email => userKey(normEmail(email));
 const hashPw = (pw, salt) => scryptSync(String(pw), salt, 64, { N: 16384, r: 8, p: 1 }).toString('hex');
+export function hashPassword(pw) { const salt = randomBytes(16).toString('hex'); return { salt, hash: hashPw(pw, salt) }; }
 
 async function secret(store) {
   let s = await store.get('cle-session', { type: 'text' });
@@ -20,7 +22,7 @@ async function secret(store) {
 }
 const sign = (payload, key) => createHmac('sha256', key).update(payload).digest('base64url');
 async function makeToken(user, store) {
-  const payload = b64u(JSON.stringify({ uid: user.id, email: user.email, exp: Date.now() + SESSION_DAYS * 864e5 }));
+  const payload = b64u(JSON.stringify({ uid: user.id, email: user.email, sv: String(user.salt).slice(0, 12), exp: Date.now() + SESSION_DAYS * 864e5 }));
   return payload + '.' + sign(payload, await secret(store));
 }
 function readCookie(req, name) {
@@ -41,7 +43,10 @@ export async function userFromRequest(req, store) {
   try {
     const p = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
     if (!p.uid || !(p.exp > Date.now())) return null;
-    return { id: p.uid, email: p.email };
+    // le compte doit toujours exister, et son mot de passe ne doit pas avoir été changé depuis la connexion
+    const u = await store.get(userKey(normEmail(p.email)), { type: 'json' });
+    if (!u || u.id !== p.uid || String(u.salt).slice(0, 12) !== p.sv) return null;
+    return { id: p.uid, email: u.email };
   } catch (e) { return null; }
 }
 
@@ -66,7 +71,8 @@ export async function handleCompte(req, action, { store }) {
   if (action === 'inscription') {
     if (password.length < 8) return json({ error: 'Le mot de passe doit faire au moins 8 caractères.', code: 'password' }, 400);
     const salt = randomBytes(16).toString('hex');
-    const user = { id: randomUUID(), email, salt, hash: hashPw(password, salt), createdAt: new Date().toISOString(), fails: 0, lockedUntil: 0 };
+    const now = new Date().toISOString();
+    const user = { id: randomUUID(), email, salt, hash: hashPw(password, salt), createdAt: now, lastLogin: now, fails: 0, lockedUntil: 0 };
     const { modified } = await store.setJSON(key, user, { onlyIfNew: true });
     if (modified === false) return json({ error: 'Un compte existe déjà avec cette adresse : connecte-toi.', code: 'exists' }, 409);
     return json({ email }, 201, { 'Set-Cookie': sessionCookie(req, await makeToken(user, store), SESSION_DAYS * 86400) });
@@ -84,6 +90,6 @@ export async function handleCompte(req, action, { store }) {
     await store.setJSON(key, user);
     return bad();
   }
-  if (user.fails || user.lockedUntil) { user.fails = 0; user.lockedUntil = 0; await store.setJSON(key, user); }
+  user.fails = 0; user.lockedUntil = 0; user.lastLogin = new Date().toISOString(); await store.setJSON(key, user);
   return json({ email: user.email }, 200, { 'Set-Cookie': sessionCookie(req, await makeToken(user, store), SESSION_DAYS * 86400) });
 }

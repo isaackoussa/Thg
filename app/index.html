@@ -2285,7 +2285,7 @@ async function api(path, body) {
 function accSet(status, err) { acct.status = status; acct.err = !!err; renderAccount(); }
 async function accountBoot() {
   if (!accountsPossible() || !accRemembered()) return;
-  try { const me = await api('moi'); acct.user = { email:me.email }; await syncHistory(true); }
+  try { const me = await api('moi'); acct.user = { email:me.email }; await syncHistory(true); checkAdmin(); }
   catch (e) { if (e.status === 401) { accRemember(false); acct.user = null; } }
   renderAccount();
 }
@@ -2355,6 +2355,7 @@ function bindAccount() {
       const me = await api(signup ? 'inscription' : 'connexion', { email, password:pw });
       acct.user = { email:me.email }; accRemember(true); acct.mode = 'login';
       await syncHistory(true);
+      checkAdmin();
       const nb = Object.keys(state.banks).length;
       accSet(signup ? 'Compte créé, tu es connecté. Tes banques et ton historique sont enregistrés sur ce compte.' : 'Connecté : ' + nb + ' banque' + (nb > 1 ? 's' : '') + ' et ' + state.history.length + ' analyse' + (state.history.length > 1 ? 's' : '') + ' retrouvée' + (nb + state.history.length > 1 ? 's' : '') + '.');
     }, signup ? 'Création du compte…' : 'Connexion…');
@@ -2363,7 +2364,8 @@ function bindAccount() {
   if ($('#accSync')) $('#accSync').onclick = () => syncHistory(false);
   const logout = wipe => run(async () => {
     try { await api('deconnexion', {}); } catch (e) {}
-    acct.user = null; accRemember(false); acct.lastSync = null;
+    acct.user = null; accRemember(false); acct.lastSync = null; acct.isAdmin = false; adm.stats = null; adm.comptes = null; adm.detail = null;
+    if (state.tab === 'admin') state.tab = 'synthese';
     if (wipe) { state.history = []; state.histDeleted = []; state.banks = { bab:clone(SAMPLE) }; state.banksDeleted = {}; state.cur = 'bab'; state.yi = 99; save({ silent:true }); }
     acct.status = wipe ? 'Déconnecté. Tes banques et ton historique ont été effacés de cet appareil ; ils restent sur ton compte.' : 'Déconnecté. L’historique reste sur cet appareil.';
     acct.err = false;
@@ -2439,6 +2441,113 @@ function bindHistorique() {
   };
 }
 
+/* =====================================================================
+   12 quinquies. ADMIN — réservé aux comptes administrateurs (vérifié par le serveur)
+   ===================================================================== */
+const adm = { stats:null, comptes:null, err:'', loading:false, open:null, detail:null, msg:'' };
+async function adminApi(path, body) {
+  let res;
+  try { res = await fetch('/api/admin/' + path, body === undefined ? { credentials:'same-origin' } : { method:'POST', credentials:'same-origin', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify(body) }); }
+  catch (e) { throw new Error('Le serveur ne répond pas.'); }
+  let data = {}; try { data = await res.json(); } catch (e) {}
+  if (!res.ok) { const e = new Error(data.error || 'Erreur ' + res.status); e.status = res.status; throw e; }
+  return data;
+}
+async function checkAdmin() {
+  const was = !!acct.isAdmin;
+  if (!acct.user) acct.isAdmin = false;
+  else { try { await adminApi('moi'); acct.isAdmin = true; } catch (e) { acct.isAdmin = false; } }
+  if (was !== acct.isAdmin) { if (!acct.isAdmin && state.tab === 'admin') state.tab = 'synthese'; renderAll(true); }
+}
+async function loadAdmin() {
+  adm.loading = true; adm.err = ''; renderAdmin();
+  try { const [st, cp] = await Promise.all([adminApi('stats'), adminApi('comptes')]); adm.stats = st; adm.comptes = cp.comptes; }
+  catch (e) { adm.err = e.message; if (e.status === 401 || e.status === 403) { acct.isAdmin = false; } }
+  adm.loading = false; renderAdmin();
+}
+const fmtD = iso => { if (!iso) return '—'; const d = new Date(iso); return isNaN(d) ? '—' : d.toLocaleDateString('fr-FR', { day:'2-digit', month:'2-digit', year:'numeric' }); };
+const fmtDT = iso => { if (!iso) return '—'; const d = new Date(iso); return isNaN(d) ? '—' : fmtD(iso) + ' ' + d.toLocaleTimeString('fr-FR', { hour:'2-digit', minute:'2-digit' }); };
+function vAdmin() {
+  if (!acct.isAdmin) return head('Administration', 'Admin', '') + '<div class="card"><p>Cette partie est réservée à l’administrateur. Connecte-toi avec le compte administrateur dans l’onglet Historique.</p></div>';
+  setTimeout(() => { if (!adm.stats && !adm.loading) loadAdmin(); }, 0);
+  return head('Administration', 'Admin', 'Comptes des utilisateurs, statistiques d’utilisation et analyses enregistrées. Visible uniquement par le compte administrateur.') + '<div id="adminBox"></div>';
+}
+function renderAdmin() {
+  const box = document.getElementById('adminBox'); if (!box) return;
+  if (adm.loading && !adm.stats) { box.innerHTML = '<div class="card"><p class="note">Chargement…</p></div>'; return; }
+  if (adm.err && !adm.stats) { box.innerHTML = '<div class="banner warn"><b>Impossible de charger l’administration</b><span class="note">' + esc(adm.err) + '</span><div class="row"><button class="btn sm" id="admReload">Réessayer</button></div></div>'; bindAdmin(); return; }
+  const s = adm.stats || {}, cps = adm.comptes || [];
+  const tile = (k, v, d) => '<div class="tile" style="cursor:default"><span class="k">' + k + '</span><span class="v">' + nfI.format(v || 0) + '</span><span class="d">' + (d || '&nbsp;') + '</span></div>';
+  let h = '<div class="row"><button class="btn sm" id="admReload">Actualiser</button>' + (adm.msg ? '<span class="note" id="admMsg">' + esc(adm.msg) + '</span>' : '') + '</div>';
+  h += '<div class="tiles">' + tile('Comptes', s.comptes, 'inscrits') + tile('Actifs 7 jours', s.actifs7, 'connectés') + tile('Actifs 30 jours', s.actifs30, 'connectés') + tile('Banques', s.banques, 'enregistrées') + tile('Analyses', s.analyses, 'dans les historiques') + '</div>';
+  // activité sur 30 jours
+  const pd = s.parJour || [], max = Math.max(1, ...pd.map(d => Math.max(d.inscriptions, d.analyses)));
+  const W = 360, H = 120, bw = W / Math.max(1, pd.length);
+  let svg = '';
+  pd.forEach((d, i) => {
+    const x = i * bw, ha = d.analyses / max * (H - 24), hi = d.inscriptions / max * (H - 24);
+    svg += '<rect x="' + (x + 1).toFixed(1) + '" y="' + (H - 18 - ha).toFixed(1) + '" width="' + (bw / 2 - 1.5).toFixed(1) + '" height="' + Math.max(0, ha).toFixed(1) + '" rx="1.5" style="fill:var(--s1)" data-tip="' + fmtD(d.jour) + ' : ' + d.analyses + ' analyse(s)"/>';
+    svg += '<rect x="' + (x + bw / 2).toFixed(1) + '" y="' + (H - 18 - hi).toFixed(1) + '" width="' + (bw / 2 - 1.5).toFixed(1) + '" height="' + Math.max(0, hi).toFixed(1) + '" rx="1.5" style="fill:var(--s2)" data-tip="' + fmtD(d.jour) + ' : ' + d.inscriptions + ' inscription(s)"/>';
+    if (i % 7 === 0 && pd.length - i > 3 || i === pd.length - 1) svg += '<text x="' + Math.min(W - 14, Math.max(14, x + bw / 2)).toFixed(1) + '" y="' + (H - 4) + '" font-size="10" text-anchor="middle" style="fill:var(--ink-3)">' + d.jour.slice(8, 10) + '/' + d.jour.slice(5, 7) + '</text>';
+  });
+  h += '<div class="grid2"><div class="card"><h3>Activité des 30 derniers jours</h3><div class="legend"><span><i style="background:var(--s1)"></i>Analyses enregistrées</span><span><i style="background:var(--s2)"></i>Inscriptions</span></div><svg class="chart" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Activité par jour">' + svg + '<line x1="0" x2="' + W + '" y1="' + (H - 18) + '" y2="' + (H - 18) + '" style="stroke:var(--line)"/></svg></div>'
+    + '<div class="card"><h3>Banques les plus analysées</h3>' + ((s.topBanques || []).length ? '<div class="tbl-wrap"><table><thead><tr><th>Banque</th><th>Comptes</th></tr></thead><tbody>' + s.topBanques.map(b => '<tr><td>' + esc(b.nom) + '</td><td>' + b.comptes + '</td></tr>').join('') + '</tbody></table></div>' : '<p class="note">Aucune banque enregistrée pour l’instant.</p>') + '</div></div>';
+  // comptes
+  h += '<div class="card"><h3>Comptes (' + cps.length + ')</h3><label class="note" for="admFilter">Rechercher <input type="text" id="admFilter" placeholder="adresse e-mail" value="' + esc(adm.filter || '') + '" style="min-width:200px"></label>';
+  const f = (adm.filter || '').toLowerCase(), list = cps.filter(c => !f || c.email.includes(f));
+  h += '<div class="tbl-wrap"><table><thead><tr><th>Adresse e-mail</th><th>Inscription</th><th>Dernière connexion</th><th>Banques</th><th>Analyses</th><th>État</th><th>Actions</th></tr></thead><tbody>'
+    + list.map(c => '<tr><td>' + esc(c.email) + (c.email === (acct.user && acct.user.email) ? ' <span class="tag">toi</span>' : '') + '</td><td>' + fmtD(c.createdAt) + '</td><td>' + fmtDT(c.lastLogin) + '</td><td>' + c.banks + '</td><td>' + c.analyses + '</td><td>' + (c.locked ? '<span class="chip st-warn"><i>!</i>Bloqué</span>' : '<span class="chip st-ok"><i>✓</i>Actif</span>') + '</td>'
+      + '<td style="white-space:nowrap"><button class="btn sm" data-av="' + esc(c.id) + '">Voir</button> <button class="btn sm" data-apw="' + esc(c.email) + '">Mot de passe</button>' + (c.locked ? ' <button class="btn sm" data-aun="' + esc(c.email) + '">Débloquer</button>' : '') + (c.email !== (acct.user && acct.user.email) ? ' <button class="btn sm danger" data-adel="' + esc(c.email) + '">Supprimer</button>' : '') + '</td></tr>').join('')
+    + '</tbody></table></div><p class="note">Sur téléphone, fais défiler le tableau vers la droite pour voir les actions.</p><div id="admAction"></div></div>';
+  h += '<div id="admDetail">' + (adm.detail ? adminDetail(adm.detail) : '') + '</div>';
+  box.innerHTML = h;
+  bindAdmin();
+}
+function adminDetail(d) {
+  const banks = Object.values(d.banks || {}), hist = d.history || [];
+  return '<div class="card"><h3>Analyses de ' + esc(d.email) + '</h3><p class="note">Lecture seule. « Ouvrir une copie » ajoute la banque à tes propres banques pour la consulter dans tous les onglets ; l’original de l’utilisateur n’est pas modifié.</p>'
+    + '<p class="eyebrow">Banques (' + banks.length + ')</p>' + (banks.length ? '<div class="tbl-wrap"><table><thead><tr><th>Banque</th><th>Exercices</th><th>Modifiée le</th><th></th></tr></thead><tbody>' + banks.map(b => '<tr><td>' + esc(b.name) + '</td><td>' + esc((b.years || []).join(', ')) + '</td><td>' + (b.mod ? fmtDT(new Date(b.mod).toISOString()) : '—') + '</td><td><button class="btn sm" data-acopy="' + esc(b.id) + '">Ouvrir une copie</button></td></tr>').join('') + '</tbody></table></div>' : '<p class="note">Aucune banque.</p>')
+    + '<p class="eyebrow" style="margin-top:10px">Historique (' + hist.length + ')</p>' + (hist.length ? '<div class="tbl-wrap"><table><thead><tr><th>Analyse</th><th>Date</th><th>Type</th><th>ROE</th><th>Solvabilité</th></tr></thead><tbody>' + hist.map(e => { const y = (e.res && e.res.years || []).length - 1, v = id => e.res && e.res.vals && e.res.vals[id] ? e.res.vals[id][y] : null; return '<tr><td>' + esc(e.label) + '</td><td>' + fmtDT(e.at) + '</td><td>' + esc(KIND_LBL[e.kind] || e.kind || '') + '</td><td>' + fmtP(fin(v('roe')) ? v('roe') : NaN, 1) + '</td><td>' + fmtP(fin(v('solva')) ? v('solva') : NaN, 1) + '</td></tr>'; }).join('') + '</tbody></table></div>' : '<p class="note">Aucune analyse enregistrée.</p>')
+    + '<div class="row" style="margin-top:8px"><button class="btn sm" id="admCloseDetail">Fermer</button></div></div>';
+}
+function bindAdmin() {
+  const act = $('#admAction');
+  if ($('#admReload')) $('#admReload').onclick = () => { adm.msg = ''; loadAdmin(); };
+  if ($('#admFilter')) $('#admFilter').oninput = e => { adm.filter = e.target.value; const pos = e.target.selectionStart; renderAdmin(); const el = $('#admFilter'); el.focus(); el.setSelectionRange(pos, pos); };
+  if ($('#admCloseDetail')) $('#admCloseDetail').onclick = () => { adm.detail = null; renderAdmin(); };
+  view.querySelectorAll('[data-av]').forEach(b => b.onclick = async () => {
+    try { adm.detail = await adminApi('analyses?id=' + encodeURIComponent(b.dataset.av)); renderAdmin(); $('#admDetail').scrollIntoView({ behavior:'smooth', block:'start' }); }
+    catch (e) { act.innerHTML = '<p class="miss">' + esc(e.message) + '</p>'; }
+  });
+  view.querySelectorAll('[data-acopy]').forEach(b => b.onclick = () => {
+    const src = adm.detail && adm.detail.banks[b.dataset.acopy]; if (!src) return;
+    const id = 'b' + Date.now(), bk = cleanBanks({ x:Object.assign(clone(src), { name:src.name + ' (copie de ' + adm.detail.email + ')' }) }).x;
+    if (!bk) { toast('Banque illisible'); return; }
+    state.banks[id] = Object.assign(bk, { id, example:false }); state.cur = id; state.yi = 99; save(); state.tab = 'synthese'; renderAll(); window.scrollTo(0, 0); toast('Copie ouverte : ' + bk.name);
+  });
+  view.querySelectorAll('[data-apw]').forEach(b => b.onclick = () => {
+    const email = b.dataset.apw;
+    act.innerHTML = '<div class="banner"><b>Nouveau mot de passe pour ' + esc(email) + '</b><span class="note">L’utilisateur sera déconnecté de ses appareils. Communique-lui ce mot de passe ; il pourra se reconnecter avec.</span><div class="row"><input type="text" id="admPw" minlength="8" placeholder="8 caractères minimum" autocomplete="off"><button class="btn sm" id="admPwGen">Générer</button><button class="btn sm pri" id="admPwOk">Enregistrer</button><button class="btn sm" id="admPwNo">Annuler</button></div></div>';
+    $('#admPwGen').onclick = () => { const a = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ23456789', r = new Uint32Array(10); crypto.getRandomValues(r); $('#admPw').value = [...r].map(x => a[x % a.length]).join(''); };
+    $('#admPwNo').onclick = () => { act.innerHTML = ''; };
+    $('#admPwOk').onclick = async () => {
+      const pw = $('#admPw').value;
+      if (pw.length < 8) { toast('8 caractères minimum'); return; }
+      try { await adminApi('motdepasse', { email, password:pw }); act.innerHTML = '<div class="banner"><b>Mot de passe changé pour ' + esc(email) + '</b><span class="note">Nouveau mot de passe : <b class="v-num" style="user-select:all">' + esc(pw) + '</b></span></div>'; }
+      catch (e) { toast(e.message); }
+    };
+  });
+  view.querySelectorAll('[data-aun]').forEach(b => b.onclick = async () => { try { await adminApi('debloquer', { email:b.dataset.aun }); adm.msg = 'Compte débloqué : ' + b.dataset.aun; loadAdmin(); } catch (e) { toast(e.message); } });
+  view.querySelectorAll('[data-adel]').forEach(b => b.onclick = () => {
+    const email = b.dataset.adel;
+    act.innerHTML = '<div class="confirm">Supprimer définitivement le compte ' + esc(email) + ', ses banques et son historique ? Tape l’adresse pour confirmer :<input type="text" id="admDelConf" autocomplete="off" style="min-width:180px"><button class="btn sm danger" id="admDelOk">Supprimer</button><button class="btn sm" id="admDelNo">Annuler</button></div>';
+    $('#admDelNo').onclick = () => { act.innerHTML = ''; };
+    $('#admDelOk').onclick = async () => {
+      if ($('#admDelConf').value.trim().toLowerCase() !== email) { toast('L’adresse ne correspond pas'); return; }
+      try { await adminApi('supprimer', { email }); adm.msg = 'Compte supprimé : ' + email; if (adm.detail && adm.detail.email === email) adm.detail = null; loadAdmin(); } catch (e) { toast(e.message); }
+    };
+  });
+}
 /* =====================================================================
    12 bis. TRADUCTION EN R — générée depuis les mêmes arbres de formules
    ===================================================================== */
@@ -2704,7 +2813,7 @@ function vR() {
 /* =====================================================================
    13. ORCHESTRATION
    ===================================================================== */
-const VIEWS = { rapport:vRapport, historique:vHistorique, r:vR, synthese:vSynthese, saisie:vSaisie, dynamique:vDynamique, structure:vStructure, renta:vRenta, faillite:vFaillite, bale:vBale, import:vImport, params:vParams, methode:vMethode };
+const VIEWS = { admin:vAdmin, rapport:vRapport, historique:vHistorique, r:vR, synthese:vSynthese, saisie:vSaisie, dynamique:vDynamique, structure:vStructure, renta:vRenta, faillite:vFaillite, bale:vBale, import:vImport, params:vParams, methode:vMethode };
 function renderHeader() {
   const b = bank();
   $('#hdrBank').textContent = b.name;
@@ -2717,7 +2826,7 @@ function renderHeader() {
   $('#toSel').innerHTML = all.map((y, i) => '<option value="' + y + '"' + (i === rz ? ' selected' : '') + (i < ra ? ' disabled' : '') + '>' + y + '</option>').join('');
   $('#fromSel').disabled = $('#toSel').disabled = locked;
   $('#yearSel').innerHTML = Y().map((y, i) => '<option value="' + i + '"' + (i === state.yi ? ' selected' : '') + '>' + y + '</option>').join('');
-  $('#tabs').innerHTML = TABS.map(([k, l]) => '<button class="tab" role="tab" data-tab="' + k + '" aria-selected="' + (state.tab === k) + '">' + l + '</button>').join('');
+  $('#tabs').innerHTML = (typeof acct !== 'undefined' && acct.isAdmin ? TABS.concat([['admin', 'Admin']]) : TABS).map(([k, l]) => '<button class="tab" role="tab" data-tab="' + k + '" aria-selected="' + (state.tab === k) + '">' + l + '</button>').join('');
 }
 function renderAll(keepScroll) {
   if (!VIEWS[state.tab]) state.tab = 'synthese';
@@ -2810,6 +2919,7 @@ function bindView() {
   }
   if (state.tab === 'historique') bindHistorique();
   if (state.tab === 'rapport') bindRapport();
+  if (state.tab === 'admin') renderAdmin();
   view.querySelectorAll('[data-hsave]').forEach(b => b.onclick = () => { addHistory('manuel', bank().name + ' · ' + Y()[0] + '–' + Y()[Y().length - 1], ''); toast('Analyse enregistrée dans l’historique'); renderAll(true); });
   if (state.tab === 'r') { $('#rCopy').onclick = () => copyText(rScript()); if ($('#rDl')) $('#rDl').onclick = () => download(fileBase() + '.R', rScript()); }
   if (state.tab === 'import') {
