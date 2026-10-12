@@ -2365,7 +2365,6 @@ function bindAccount() {
   const logout = wipe => run(async () => {
     try { await api('deconnexion', {}); } catch (e) {}
     acct.user = null; accRemember(false); acct.lastSync = null; acct.isAdmin = false; adm.stats = null; adm.comptes = null; adm.detail = null;
-    if (state.tab === 'admin') state.tab = 'synthese';
     if (wipe) { state.history = []; state.histDeleted = []; state.banks = { bab:clone(SAMPLE) }; state.banksDeleted = {}; state.cur = 'bab'; state.yi = 99; save({ silent:true }); }
     acct.status = wipe ? 'Déconnecté. Tes banques et ton historique ont été effacés de cet appareil ; ils restent sur ton compte.' : 'Déconnecté. L’historique reste sur cet appareil.';
     acct.err = false;
@@ -2457,7 +2456,7 @@ async function checkAdmin() {
   const was = !!acct.isAdmin;
   if (!acct.user) acct.isAdmin = false;
   else { try { await adminApi('moi'); acct.isAdmin = true; } catch (e) { acct.isAdmin = false; } }
-  if (was !== acct.isAdmin) { if (!acct.isAdmin && state.tab === 'admin') state.tab = 'synthese'; renderAll(true); }
+  if (was !== acct.isAdmin || state.tab === 'admin') renderAll(true);
 }
 async function loadAdmin() {
   adm.loading = true; adm.err = ''; renderAdmin();
@@ -2468,7 +2467,10 @@ async function loadAdmin() {
 const fmtD = iso => { if (!iso) return '—'; const d = new Date(iso); return isNaN(d) ? '—' : d.toLocaleDateString('fr-FR', { day:'2-digit', month:'2-digit', year:'numeric' }); };
 const fmtDT = iso => { if (!iso) return '—'; const d = new Date(iso); return isNaN(d) ? '—' : fmtD(iso) + ' ' + d.toLocaleTimeString('fr-FR', { hour:'2-digit', minute:'2-digit' }); };
 function vAdmin() {
-  if (!acct.isAdmin) return head('Administration', 'Admin', '') + '<div class="card"><p>Cette partie est réservée à l’administrateur. Connecte-toi avec le compte administrateur dans l’onglet Historique.</p></div>';
+  if (!acct.isAdmin) {
+    if (acct.user) return head('Administration', 'Admin', '') + '<div class="banner warn"><b>Accès réservé</b><span class="note">Le compte ' + esc(acct.user.email) + ' n’est pas administrateur. Déconnecte-toi puis connecte-toi avec le compte administrateur.</span></div>' + accountCard();
+    return head('Administration', 'Connexion administrateur', 'Connecte-toi avec le compte administrateur pour accéder aux statistiques et aux comptes.') + accountCard();
+  }
   setTimeout(() => { if (!adm.stats && !adm.loading) loadAdmin(); }, 0);
   return head('Administration', 'Admin', 'Comptes des utilisateurs, statistiques d’utilisation et analyses enregistrées. Visible uniquement par le compte administrateur.') + '<div id="adminBox"></div>';
 }
@@ -2919,7 +2921,7 @@ function bindView() {
   }
   if (state.tab === 'historique') bindHistorique();
   if (state.tab === 'rapport') bindRapport();
-  if (state.tab === 'admin') renderAdmin();
+  if (state.tab === 'admin') { renderAdmin(); if (!acct.isAdmin && $('#accountCard') && accountsPossible()) bindAccount(); }
   view.querySelectorAll('[data-hsave]').forEach(b => b.onclick = () => { addHistory('manuel', bank().name + ' · ' + Y()[0] + '–' + Y()[Y().length - 1], ''); toast('Analyse enregistrée dans l’historique'); renderAll(true); });
   if (state.tab === 'r') { $('#rCopy').onclick = () => copyText(rScript()); if ($('#rDl')) $('#rDl').onclick = () => download(fileBase() + '.R', rScript()); }
   if (state.tab === 'import') {
@@ -2956,6 +2958,9 @@ document.addEventListener('pointermove', e => { const el = e.target.closest && e
 document.addEventListener('pointerdown', e => { const el = e.target.closest && e.target.closest('[data-tip]'); if (el) showTip(el, e.clientX, e.clientY); else tip.hidden = true; });
 window.addEventListener('scroll', () => { tip.hidden = true; }, { passive:true });
 
+// lien direct vers l'administration : /admin ou #admin
+try { if (/^\/admin\/?$/.test(location.pathname) || location.hash === '#admin') { state.tab = 'admin'; acct.mode = 'login'; } } catch (e) {}
+window.addEventListener('hashchange', () => { if (location.hash === '#admin') { state.tab = 'admin'; renderAll(); window.scrollTo(0, 0); } });
 renderAll();
 accountBoot();
 </script>

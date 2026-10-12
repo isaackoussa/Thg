@@ -37,7 +37,7 @@ const DIST = new URL('../dist/', import.meta.url).pathname;
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.webmanifest': 'application/manifest+json', '.png': 'image/png', '.svg': 'image/svg+xml' };
 const server = createServer((req, res) => {
   const p = decodeURIComponent(req.url.split('?')[0]);
-  const f = DIST + (p === '/' ? 'index.html' : p.slice(1));
+  const f = DIST + (p === '/' || p === '/admin' ? 'index.html' : p.slice(1));
   if (!existsSync(f)) { res.writeHead(404); return res.end(); }
   res.writeHead(200, { 'Content-Type': TYPES[extname(f)] || 'application/octet-stream' });
   res.end(readFileSync(f));
@@ -1010,6 +1010,28 @@ else {
     ok(true, 'admin : onglet retiré à la déconnexion');
     ok(Ad.errors.length === 0 && Us.errors.length === 0, 'admin : aucune erreur JavaScript', [...Ad.errors, ...Us.errors].slice(0, 3));
     await Ad.ctx.close(); await Us.ctx.close();
+  }
+  // ---------- Lien direct /admin ----------
+  {
+    const D = await device();
+    await D.page.goto(BASE + 'admin'); await D.page.waitForSelector('#view .section-head');
+    ok(/Connexion administrateur/.test(await D.page.innerText('#view')) && await D.page.$('#accEmail'), 'lien /admin : écran de connexion administrateur');
+    await D.page.fill('#accEmail', 'admin@test.sn'); await D.page.fill('#accPw', 'motdepasseadmin'); await D.page.click('#accGo');
+    await D.page.waitForFunction(() => /Comptes \(\d+\)/.test(document.querySelector('#adminBox')?.innerText || ''), null, { timeout: 15000 });
+    ok(true, 'lien /admin : tableau de bord après connexion, sans changer d’onglet');
+    await D.page.reload(); await D.page.waitForSelector('#view .section-head');
+    await D.page.waitForFunction(() => /Comptes \(\d+\)/.test(document.querySelector('#adminBox')?.innerText || ''), null, { timeout: 15000 });
+    ok(true, 'lien /admin : session retrouvée au rechargement');
+    ok(D.errors.length === 0, 'lien /admin : aucune erreur JavaScript', D.errors);
+    await D.ctx.close();
+    const U = await device();
+    await U.page.click('[data-tab="historique"]');
+    await U.page.fill('#accEmail', 'isaac@test.ci'); await U.page.fill('#accPw', 'motdepasse1'); await U.page.click('#accGo');
+    await U.page.waitForFunction(() => /Connecté avec/.test(document.querySelector('#accountCard').innerText), null, { timeout: 15000 });
+    await U.page.goto(BASE + '#admin'); await U.page.waitForSelector('#view .section-head');
+    await U.page.waitForFunction(() => /n’est pas administrateur/.test(document.querySelector('#view').innerText), null, { timeout: 15000 });
+    ok(!(await U.page.$('#adminBox table')), 'lien /admin : compte ordinaire refusé, aucune donnée affichée');
+    await U.ctx.close();
   }
   // service de connexion injoignable : message clair
   {
