@@ -427,6 +427,37 @@ else {
       });
       ok(mism.length === 0, 'R ' + label + ' (' + base + ') : mêmes résultats que l’app', mism.slice(0, 5));
       ok(!/[^\x00-\x7f]/.test(code), 'R ' + label + ' (' + base + ') : script 100 % ASCII (lisible quel que soit l’encodage)', (code.match(/.{0,30}[^\x00-\x7f].{0,10}/) || [])[0]);
+      // styles « essentiel » et « moderne » : mêmes résultats que l'app
+      const more = await page.evaluate(() => ({ ess: rScriptEssentiel(), mod: rScriptModerne(), essIds: R_ESS_IDS }));
+      writeFileSync(join(dir, 'ess.R'), more.ess); writeFileSync(join(dir, 'mod.R'), more.mod);
+      writeFileSync(join(dir, 'check_ess.R'), `pdf(NULL)\ninvisible(capture.output(source("ess.R")))\nfor (id in c(${more.essIds.map(k => '"' + k + '"').join(',')})) cat(id, paste(ifelse(is.na(get(id)), "NA", sprintf("%.17g", get(id))), collapse = ";"), "\\n")\n`);
+      writeFileSync(join(dir, 'check_mod.R'), `pdf(NULL)\nsuppressWarnings(suppressMessages(invisible(capture.output(source("mod.R")))))\nfor (id in c(${Object.keys(js).map(k => '"' + k + '"').join(',')})) cat(id, paste(ifelse(is.na(analyse[[id]]), "NA", sprintf("%.17g", analyse[[id]])), collapse = ";"), "\\n")\n`);
+      for (const [st, file, ids] of [['essentiel', 'check_ess.R', more.essIds], ['moderne', 'check_mod.R', Object.keys(js)]]) {
+        let o2 = '';
+        try { o2 = execFileSync(rscript, [file], { cwd: dir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, LANG: 'C.UTF-8' } }); }
+        catch (e) { ok(false, 'R ' + st + ' ' + label + ' (' + base + ') : le script s’exécute', String(e.stderr || e.message).slice(-400)); continue; }
+        const mm = [];
+        o2.trim().split('\n').forEach(line => {
+          const [id, vals] = line.trim().split(' ');
+          if (!ids.includes(id)) return;
+          const rv = vals.split(';').map(x => x === 'NA' ? NaN : Number(x));
+          js[id].forEach((v, i) => { const a = Number.isFinite(v) ? v : NaN, b2 = rv[i]; if (!((Number.isNaN(a) && !Number.isFinite(b2)) || (Number.isFinite(a) && Number.isFinite(b2) && Math.abs(a - b2) <= 1e-9 * Math.max(1, Math.abs(a))))) mm.push(id + '[' + i + '] app=' + a + ' R=' + b2); });
+        });
+        ok(mm.length === 0 && o2.trim().split('\n').length >= ids.length, 'R ' + st + ' ' + label + ' (' + base + ') : mêmes résultats que l’app', mm.slice(0, 5));
+      }
+      ok(!/[^\x00-\x7f]/.test(more.ess + more.mod), 'R essentiel et moderne ' + label + ' (' + base + ') : 100 % ASCII');
+      if (base === 'fin' && label !== 'banque vide') {
+        const gg = readdirSync(dir).find(f => f.startsWith('ggplot_'));
+        ok(gg && readdirSync(join(dir, gg)).filter(f => f.endsWith('.png')).length === 4, 'R moderne ' + label + ' : 4 graphiques ggplot2 enregistrés', gg);
+      }
+      if (base === 'fin' && label === 'BAB + CR') {
+        writeFileSync(join(dir, 'rapport.Rmd'), await page.evaluate(() => rMarkdown()));
+        try {
+          execFileSync(rscript, ['-e', 'rmarkdown::render("rapport.Rmd", output_format = "all", quiet = TRUE)'], { cwd: dir, stdio: 'pipe', env: { ...process.env, LANG: 'C.UTF-8' }, timeout: 180000 });
+          const html = readFileSync(join(dir, 'rapport.html'), 'utf8');
+          ok(existsSync(join(dir, 'rapport.docx')) && /10,66 %/.test(html) && /12,15 %/.test(html) && /Conforme/.test(html) && (html.match(/<img/g) || []).length >= 3, 'R Markdown : rendu Word et HTML avec chiffres et graphiques calculés par R');
+        } catch (e) { ok(false, 'R Markdown : rendu', String(e.stderr || e.message).slice(-400)); }
+      }
       if (base === 'fin') {
         const gd = readdirSync(dir).find(f => f.startsWith('graphiques_'));
         const files = gd ? readdirSync(join(dir, gd)) : [];
@@ -707,6 +738,29 @@ else {
   ok(/<m:f>/.test(full.doc) && (full.doc.match(/<m:oMathPara>/g) || []).length > 40, 'rapport : formules en équations Word (fractions)', (full.doc.match(/<m:oMathPara>/g) || []).length);
   ok(Number(full.info.split(' ')[2]) >= 25 && Number(full.info.split(' ')[1]) >= 20, 'rapport : graphiques et tableaux inclus', full.info);
   if (full.pages) ok(full.pages >= 15, 'rapport complet : plusieurs pages', full.pages);
+  ok(/<w:tbl>.*?w:fill="0C5A48"/.test(full.doc) && /Appréciation globale/.test(full.txt || full.doc) && /Recommandations/.test(full.txt || full.doc) && /Glossaire/.test(full.txt || full.doc), 'rapport complet : couverture, note globale, recommandations et glossaire');
+  // les autres modèles
+  await page.evaluate(() => { const b0 = bank(); [['cmpA', 'Banque Test Sénégal', 1.3], ['cmpB', 'Petite Banque du Mali', 0.4]].forEach(([id, nm, k]) => { const nb = JSON.parse(JSON.stringify(b0)); Object.assign(nb, { id, name: nm, example: false }); Object.keys(nb.v).forEach(c => { nb.v[c] = nb.v[c].map(x => x == null ? x : x * k * (c === 'P9a' && k < 1 ? 0.3 : 1)); }); state.banks[id] = nb; }); });
+  const gen = o => page.evaluate(async o => { try { const blob = await buildReport(o); const u = new Uint8Array(await blob.arrayBuffer()); let s = ''; u.forEach(c => s += String.fromCharCode(c)); return btoa(s); } catch (e) { return 'ERR ' + e.message; } }, o);
+  for (const [type, theme, expect, minPages, maxPages] of [
+    ['synthese', 'marine', ['NOTE DE SYNTHÈSE', 'L’essentiel en une page', 'Appréciation globale', 'Tableau de bord', 'Points forts', 'Recommandations', 'Figure 4', /295\s?660/], 2, 7],
+    ['prudentiel', 'bordeaux', ['CONFORMITÉ PRUDENTIELLE', 'Verdict', 'Évolution des normes', 'Repères d’analyse', 'Fonds propres et marges de manœuvre', 'Excédent de solvabilité', 'Stress tests', 'Chute du PNB de 50 %', 'Défaut de 10 % des crédits', 'Résistance à la faillite', 'Conclusion'], 3, 12],
+    ['corrige', 'anthracite', ['CORRIGÉ DE TD', 'Énoncé', 'Question 1', 'Question 9', 'Réponse', 'À retenir', 'Quel niveau de PNB provoquerait ces pertes', /ROE\s*=/, 'Conclusion générale'], 10, 40],
+    ['comparaison', 'classique', ['COMPARAISON DE BANQUES', 'Classement général', 'Banque Test Sénégal', 'Petite Banque du Mali', 'Chiffres clés', 'Lecture ratio par ratio', /\d+\/100/], 3, 12]
+  ]) {
+    const r = await gen({ type, theme, title: '', author: 'Isaac', sections: [], banks: Object.keys(await page.evaluate(() => state.banks)), charts: true, comment: 'Avis de test.' });
+    ok(!r.startsWith('ERR'), 'rapport ' + type + ' : généré sans erreur', r.slice(0, 200));
+    if (r.startsWith('ERR')) continue;
+    const res = await checkDocx(Buffer.from(r, 'base64'), 'rapport ' + type, expect.concat(['Avis de test.']));
+    if (res.pages) ok(res.pages >= minPages && res.pages <= maxPages, 'rapport ' + type + ' : longueur adaptée (' + res.pages + ' pages)', res.pages);
+    ok(/w:fill="(1F3B73|7A1E32|2E3A44|0C5A48)"/.test(res.doc) && res.doc.includes(type === 'synthese' ? '1F3B73' : type === 'prudentiel' ? '7A1E32' : type === 'corrige' ? '2E3A44' : '0C5A48'), 'rapport ' + type + ' : couleurs du thème choisi');
+    if (type === 'synthese') ok(!/<m:oMathPara>/.test(res.doc), 'note de synthèse : sans formules');
+    if (type === 'corrige') ok((res.doc.match(/Application numérique 202[123]/g) || []).length >= 3 * 9, 'corrigé : application numérique pour chaque année', (res.doc.match(/Application numérique 202[123]/g) || []).length);
+  }
+  ok((await gen({ type: 'comparaison', banks: ['a-inconnue', Object.keys(await page.evaluate(() => state.banks))[0]], charts: false })).startsWith('ERR Choisis au moins deux banques'), 'comparaison : deux banques au moins');
+  ok(await page.evaluate(() => { const b = bank(); const st = stressTests(Y().length - 1); return st.length === 7 && Math.abs(st[0].solva - val(nodeOf(I.solva), Y().length - 1)) < 1e-12 && st[2].solva < st[1].solva && st[6].solva < st[5].solva; }), 'stress tests : situation actuelle = ratio de solvabilité, chocs croissants');
+  ok(await page.evaluate(() => { const s = scoreCard(Y().length - 1); return s.score >= 0 && s.score <= 100 && 'ABCDE'.includes(s.grade) && s.rows.length === SCORE_W.length; }), 'note globale : score entre 0 et 100 et lettre A à E');
+  await page.evaluate(() => { delete state.banks.cmpA; delete state.banks.cmpB; });
   // rapport minimal, sans graphiques, une seule partie, banque vide et un seul exercice
   for (const [label, storage, opt, expect] of [
     ['rapport sans graphiques', null, { sections: ['renta'], charts: false, allYears: false }, ['Rentabilité', 'ROE']],
@@ -722,6 +776,18 @@ else {
   }
   // bouton : téléchargement réel sur le site
   await page.click('[data-tab="rapport"]');
+  ok(await page.$$eval('[name="rtype"]', x => x.length) === 5 && !!(await page.$('[data-rsec]')), 'rapport : 5 modèles proposés, parties pour le rapport complet');
+  await page.click('label[for="rt-comparaison"]');
+  ok(!(await page.$('[data-rsec]')) && !!(await page.$('[data-rbank]')) && /Comparaison de banques UMOA/.test(await page.getAttribute('#rTitle', 'placeholder')), 'rapport : choix des banques pour la comparaison');
+  await page.click('#rGo');
+  ok(/deux banques/.test(await page.innerText('#rStatus')), 'rapport : comparaison avec une seule banque signalée');
+  await page.click('label[for="rt-synthese"]');
+  await page.selectOption('#rTheme', 'marine');
+  const [dl2] = await Promise.all([page.waitForEvent('download', { timeout: 60000 }), page.click('#rGo')]);
+  ok(/^Note_synthese_Banque_Atlantique_Benin_BAB_2021-2023\.docx$/.test(dl2.suggestedFilename()), 'rapport : note de synthèse téléchargée', dl2.suggestedFilename());
+  ok(await page.evaluate(() => state.report.type === 'synthese' && state.report.theme === 'marine'), 'rapport : modèle et couleurs mémorisés');
+  ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), 'rapport : choix des modèles sans débordement sur téléphone');
+  await page.click('label[for="rt-complet"]');
   await page.uncheck('#rCharts');
   const [dl] = await Promise.all([page.waitForEvent('download', { timeout: 60000 }), page.click('#rGo')]);
   ok(/^Analyse_Banque_Atlantique_Benin_BAB_2021-2023\.docx$/.test(dl.suggestedFilename()), 'rapport : téléchargement du fichier .docx', dl.suggestedFilename());
@@ -730,6 +796,16 @@ else {
   await page.evaluate(() => { document.querySelectorAll('[data-rsec]').forEach(c => { c.checked = false; }); });
   await page.click('#rGo');
   ok(/au moins une partie/.test(await page.innerText('#rStatus')), 'rapport : aucune partie cochée signalée');
+  // onglet Code R : quatre styles
+  await page.click('[data-tab="r"]');
+  ok(await page.$$eval('[name="rstyle"]', x => x.length) === 4 && /dossier <- "graphiques_/.test(await page.innerText('#rOut')), 'code R : 4 styles, complet par défaut');
+  for (const [st, re, file] of [['essentiel', /Verdict express/, /_essentiel\.R$/], ['moderne', /library\(ggplot2\)[\s\S]*mutate\(/, /_tidyverse\.R$/], ['rmd', /^---\noutput:|output:\n  word_document/m, /_rapport\.Rmd$/]]) {
+    await page.click('label[for="rst-' + st + '"]');
+    ok(re.test(await page.innerText('#rOut')), 'code R ' + st + ' : affiché');
+    const [d] = await Promise.all([page.waitForEvent('download', { timeout: 30000 }), page.click('#rDl')]);
+    ok(file.test(d.suggestedFilename()), 'code R ' + st + ' : fichier téléchargé', d.suggestedFilename());
+  }
+  ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), 'code R : pas de débordement sur téléphone');
   ok(errors.length === 0, 'rapport : aucune erreur JavaScript', errors.slice(0, 3));
   await ctx.close();
   // dans claude.ai (page dans un cadre) : passage par la capacité « downloads »

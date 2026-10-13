@@ -84,6 +84,12 @@ main { max-width: 1180px; margin: 0 auto; padding: 18px 16px 60px; display: grid
 .tags { display: flex; gap: 6px; flex-wrap: wrap; }
 .tag { font-size: 0.68rem; letter-spacing: 0.06em; text-transform: uppercase; font-weight: 600; color: var(--ink-3); border: 1px solid var(--line); border-radius: 4px; padding: 1px 6px; }
 .tag.reg { color: var(--accent); border-color: var(--accent); }
+.rtypes { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; }
+.rtype { position: relative; display: grid; gap: 6px; align-content: start; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; cursor: pointer; background: var(--surface); }
+.rtype input { position: absolute; opacity: 0; pointer-events: none; }
+.rtype-h { display: flex; justify-content: space-between; gap: 6px; align-items: baseline; flex-wrap: wrap; }
+.rtype.on { border-color: var(--accent); background: var(--accent-soft); box-shadow: inset 0 0 0 1px var(--accent); }
+.rtype:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
 .chip { display: inline-flex; align-items: center; gap: 5px; font-size: 0.78rem; font-weight: 600; padding: 2px 9px 2px 7px; border-radius: 999px; white-space: nowrap; }
 .chip i { font-style: normal; font-weight: 800; }
 .st-ok { color: var(--ok); background: var(--ok-bg); }
@@ -158,7 +164,7 @@ td.muted { color: var(--ink-3); }
 .btn.danger { color: var(--bad); }
 .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .meta-grid { display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
-.meta-grid input { width: 100%; min-width: 0; }
+.meta-grid input, .meta-grid select { width: 100%; min-width: 0; }
 .check input { flex: none; margin-top: 3px; }
 .meta-grid label { display: grid; gap: 3px; font-size: 0.78rem; color: var(--ink-2); font-weight: 600; }
 .yr-pill { display: inline-flex; gap: 4px; align-items: center; }
@@ -1827,6 +1833,32 @@ const W = {
     return blocks.join('');
   },
   bullets(items) { return items.map(x => W.p(W.run('•  ') + W.fromHtml(x).replace(/^<w:p>(<w:pPr>.*?<\/w:pPr>)?|<\/w:p>$/g, ''), { ind:360 })).join(''); },
+  /* Tableau sans bordure d'une cellule colorée (bandeau de couverture) */
+  band(lines) {
+    const tw = 9638;
+    return '<w:tbl><w:tblPr><w:tblW w:w="5000" w:type="pct"/><w:tblBorders><w:top w:val="nil"/><w:left w:val="nil"/><w:bottom w:val="nil"/><w:right w:val="nil"/><w:insideH w:val="nil"/><w:insideV w:val="nil"/></w:tblBorders><w:tblCellMar><w:top w:w="340" w:type="dxa"/><w:left w:w="400" w:type="dxa"/><w:bottom w:w="340" w:type="dxa"/><w:right w:w="400" w:type="dxa"/></w:tblCellMar></w:tblPr><w:tblGrid><w:gridCol w:w="' + tw + '"/></w:tblGrid><w:tr><w:tc><w:tcPr><w:tcW w:w="' + tw + '" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="' + DOC_COLORS.accent + '"/></w:tcPr>'
+      + lines.map(l => W.p(W.run(l.t, { b:l.b, sz:l.sz, color:l.color || 'FFFFFF' }), { after:l.after ?? 80 })).join('') + '</w:tc></w:tr></w:tbl>' + W.p('', { after:200 });
+  },
+  /* Chiffres clés : une case par indicateur {k, v, d, color, dcolor} */
+  kpis(items) {
+    const tw = 9638, cw = Math.round(tw / items.length);
+    return '<w:tbl><w:tblPr><w:tblW w:w="5000" w:type="pct"/><w:tblBorders><w:top w:val="nil"/><w:left w:val="nil"/><w:bottom w:val="nil"/><w:right w:val="nil"/><w:insideH w:val="nil"/><w:insideV w:val="single" w:sz="24" w:color="FFFFFF"/></w:tblBorders><w:tblCellMar><w:top w:w="120" w:type="dxa"/><w:left w:w="140" w:type="dxa"/><w:bottom w:w="120" w:type="dxa"/><w:right w:w="140" w:type="dxa"/></w:tblCellMar></w:tblPr><w:tblGrid>' + items.map(() => '<w:gridCol w:w="' + cw + '"/>').join('') + '</w:tblGrid><w:tr><w:trPr><w:cantSplit/></w:trPr>'
+      + items.map(it => '<w:tc><w:tcPr><w:tcW w:w="' + cw + '" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="' + DOC_COLORS.head + '"/></w:tcPr>' + W.p(W.run(it.k, { sz:16, color:DOC_COLORS.ink2 }), { after:20 }) + W.p(W.run(it.v, { b:true, sz:30, color:it.color || DOC_COLORS.accent }), { after:20 }) + W.p(W.run(it.d || ' ', { sz:15, color:it.dcolor || DOC_COLORS.ink3 }), { after:0 }) + '</w:tc>').join('')
+      + '</w:tr></w:tbl>' + W.p('', { after:120 });
+  },
+  /* Note ou verdict : grande pastille colorée + titre + explication */
+  gradeBox(mark, color, title, text) {
+    const tw = 9638, a = 1700, big = String(mark).length > 2 ? 32 : 60;
+    return '<w:tbl><w:tblPr><w:tblW w:w="5000" w:type="pct"/><w:tblBorders><w:top w:val="single" w:sz="6" w:color="' + color + '"/><w:left w:val="single" w:sz="6" w:color="' + color + '"/><w:bottom w:val="single" w:sz="6" w:color="' + color + '"/><w:right w:val="single" w:sz="6" w:color="' + color + '"/><w:insideV w:val="nil"/></w:tblBorders><w:tblCellMar><w:top w:w="140" w:type="dxa"/><w:left w:w="180" w:type="dxa"/><w:bottom w:w="140" w:type="dxa"/><w:right w:w="180" w:type="dxa"/></w:tblCellMar></w:tblPr><w:tblGrid><w:gridCol w:w="' + a + '"/><w:gridCol w:w="' + (tw - a) + '"/></w:tblGrid><w:tr><w:trPr><w:cantSplit/></w:trPr>'
+      + '<w:tc><w:tcPr><w:tcW w:w="' + a + '" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="' + color + '"/><w:vAlign w:val="center"/></w:tcPr>' + W.p(W.run(mark, { b:true, sz:big, color:'FFFFFF' }), { align:'center', after:0 }) + '</w:tc>'
+      + '<w:tc><w:tcPr><w:tcW w:w="' + (tw - a) + '" w:type="dxa"/><w:vAlign w:val="center"/></w:tcPr>' + W.p(W.run(title, { b:true, sz:24, color }), { after:60 }) + W.p(W.run(text, { sz:18, color:DOC_COLORS.ink2 }), { after:0 }) + '</w:tc></w:tr></w:tbl>' + W.p('', { after:160 });
+  },
+  /* Encadré « À retenir » */
+  box(title, text) {
+    const tw = 9638;
+    return '<w:tbl><w:tblPr><w:tblW w:w="5000" w:type="pct"/><w:tblBorders><w:top w:val="nil"/><w:left w:val="single" w:sz="24" w:color="' + DOC_COLORS.accent + '"/><w:bottom w:val="nil"/><w:right w:val="nil"/></w:tblBorders><w:tblCellMar><w:top w:w="100" w:type="dxa"/><w:left w:w="200" w:type="dxa"/><w:bottom w:w="100" w:type="dxa"/><w:right w:w="160" w:type="dxa"/></w:tblCellMar></w:tblPr><w:tblGrid><w:gridCol w:w="' + tw + '"/></w:tblGrid><w:tr><w:trPr><w:cantSplit/></w:trPr><w:tc><w:tcPr><w:tcW w:w="' + tw + '" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="' + DOC_COLORS.zebra + '"/></w:tcPr>'
+      + W.p(W.run(title, { b:true, sz:19, color:DOC_COLORS.accent }), { after:40 }) + W.p(W.run(text, { sz:19 }), { after:0 }) + '</w:tc></w:tr></w:tbl>' + W.p('', { after:120 });
+  },
   /* rows : tableau de cellules (texte ou {t, b, color, align}) ; la première ligne est l'en-tête */
   table(rows, o = {}) {
     const ncol = Math.max(...rows.map(r => r.length));
@@ -1989,11 +2021,145 @@ async function svgToPng(svg, wPx) {
   if (!blob) throw new Error('png');
   return { bytes:new Uint8Array(await blob.arrayBuffer()), w:c.width, h:c.height };
 }
-const REPORT_SECTIONS = [['synthese', 'Synthèse et points clés'], ['dynamique', 'Dynamique du bilan et du compte de résultat'], ['structure', 'Ratios de structure (transformation, liquidité, levier, solvabilité)'], ['renta', 'Rentabilité : ROA, ROE et effet de levier'], ['faillite', 'Test de faillite'], ['bale', 'Bâle III : fonds propres et actifs pondérés'], ['methode', 'Méthodologie, seuils et données manquantes']];
+const REPORT_SECTIONS = [['synthese', 'Synthèse et points clés'], ['dynamique', 'Dynamique du bilan et du compte de résultat'], ['structure', 'Ratios de structure (transformation, liquidité, levier, solvabilité)'], ['renta', 'Rentabilité : ROA, ROE et effet de levier'], ['faillite', 'Test de faillite'], ['bale', 'Bâle III : fonds propres et actifs pondérés'], ['conclusion', 'Conclusion et recommandations'], ['methode', 'Méthodologie, glossaire et données manquantes']];
+/* Modèles de rapport : [clé, nom, contenu, longueur] */
+const REPORT_TYPES = [
+  ['complet', 'Rapport complet', 'Toute l’analyse partie par partie : formules en équations Word, applications numériques, tableaux, graphiques, interprétations, conclusion.', '15 à 40 pages'],
+  ['synthese', 'Note de synthèse', 'Pour un décideur : note globale, tableau de bord, chiffres clés, graphiques, points forts, vigilance et recommandations. Sans formules.', '3 à 5 pages'],
+  ['prudentiel', 'Conformité prudentielle', 'Normes BCEAO et Bâle III par exercice, excédent ou déficit de fonds propres, stress tests (PNB, coût du risque, défauts de crédits), résistance à la faillite.', '5 à 8 pages'],
+  ['corrige', 'Corrigé de TD', 'Format exercice : énoncé puis chaque question du cours résolue (formule, application numérique pour chaque année, réponse, à retenir).', '10 à 25 pages'],
+  ['comparaison', 'Comparaison de banques', 'Plusieurs banques côte à côte sur leur dernier exercice : classement, chiffres clés, ratios, graphiques et lecture ratio par ratio.', '4 à 8 pages']
+];
+const REPORT_FILE = { complet:'Analyse', synthese:'Note_synthese', prudentiel:'Conformite', corrige:'Corrige', comparaison:'Comparaison' };
+const DOC_THEMES = {
+  classique: { n:'Vert et bleu (classique)', accent:'0C5A48', head:'E8EDE8', zebra:'F5F7F5', chart:'#2a78d6', soft:'#9cc3f1' },
+  marine: { n:'Bleu marine', accent:'1F3B73', head:'E3E9F4', zebra:'F4F6FB', chart:'#2a5bb8', soft:'#a8bfe8' },
+  bordeaux: { n:'Bordeaux', accent:'7A1E32', head:'F3E6E9', zebra:'FAF5F6', chart:'#9b2c45', soft:'#dcaab5' },
+  anthracite: { n:'Anthracite et or', accent:'2E3A44', head:'ECE9E1', zebra:'F7F6F2', chart:'#b8862b', soft:'#e2cc9c' }
+};
+function reportTitle(type, b) {
+  return ({ synthese:'Note de synthèse : ' + b.name, prudentiel:'Conformité prudentielle : ' + b.name, corrige:'Corrigé : analyse financière de ' + b.name, comparaison:'Comparaison de banques UMOA' })[type] || 'Analyse financière de ' + b.name;
+}
+
+/* Note globale indicative : chaque ratio suivi rapporte ses points s'il est conforme, la moitié avec une marge faible, rien hors seuil */
+const SCORE_W = [['solva', 20], ['cet1', 10], ['levier_b', 10], ['liq', 15], ['transfo', 10], ['roe', 10], ['roa', 5], ['coef', 10], ['cdr', 10]];
+const GRADES = [[85, 'A', 'Très solide'], [70, 'B', 'Solide'], [55, 'C', 'Correcte, à surveiller'], [40, 'D', 'Fragile'], [0, 'E', 'Critique']];
+function scoreCard(n) {
+  let tot = 0, got = 0; const rows = [];
+  SCORE_W.forEach(([id, w]) => {
+    const v = series(I[id])[n], st = status(I[id], v);
+    rows.push({ id, w, v, st });
+    if (st === 'na' || st === 'info') return;
+    tot += w; got += w * (st === 'ok' ? 1 : st === 'warn' ? 0.5 : 0);
+  });
+  if (tot < 40) return { score:NaN, grade:'—', label:'Données insuffisantes', rows, cover:tot };
+  const score = Math.round(got / tot * 100), g = GRADES.find(x => score >= x[0]);
+  return { score, grade:g[1], label:g[2], rows, cover:tot };
+}
+const RECO = {
+  solva:['Recapitaliser : augmentation de capital, mise en réserve intégrale des bénéfices ou émission de dettes subordonnées éligibles ; à défaut, réduire les actifs les plus pondérés.', 'Constituer un coussin au-dessus du minimum : modérer les dividendes et suivre la croissance des actifs pondérés.'],
+  cet1:['Renforcer le noyau dur : augmentation de capital en numéraire et mise en réserve des résultats ; les dettes subordonnées ne comptent pas dans le CET1.', 'Préserver le CET1 : politique de dividendes prudente tant que la marge reste faible.'],
+  levier_b:['Réduire le levier : ralentir la croissance du bilan et du hors bilan, ou renforcer le Tier 1.', 'Aligner la croissance du bilan sur celle des fonds propres.'],
+  liq:['Reconstituer la liquidité : plus de titres publics refinançables auprès de la BCEAO et de placements interbancaires courts, des ressources plus longues.', 'Renforcer le coussin de liquidité et diversifier les ressources pour dépendre moins des dépôts à vue.'],
+  transfo:['Rééquilibrer crédits et dépôts : intensifier la collecte (réseau, épargne, dépôts à terme) ou ralentir la production de crédits.', 'Accompagner la croissance des crédits par une collecte de dépôts au même rythme.'],
+  roe:['Restaurer la rentabilité : développer les commissions (monétique, transferts, banque digitale), tarifer selon le risque, maîtriser les charges.', 'Consolider la rentabilité : diversifier les revenus et contenir le coût du risque.'],
+  roa:['Améliorer le rendement des actifs : réallouer le bilan vers les emplois rentables et réduire les actifs improductifs.', 'Optimiser l’allocation des actifs pour soutenir le ROA.'],
+  coef:['Réduire les charges d’exploitation : digitalisation des opérations, rationalisation du réseau d’agences, contrôle des frais généraux.', 'Faire croître les charges moins vite que le PNB (effet de ciseaux favorable).'],
+  cdr:['Assainir le portefeuille de crédits : critères d’octroi plus stricts, suivi des créances en souffrance, recouvrement, garanties.', 'Surveiller les créances sensibles avant qu’elles ne deviennent douteuses.']
+};
+function recommendations(n) {
+  const out = [];
+  const rn = qv('RN', n);
+  if (fin(rn) && rn < 0) out.push('<b>Résultat net négatif</b> (' + fmtM(rn) + ' M) : bâtir un plan de retour à l’équilibre (revenus, charges, coût du risque) et le suivre trimestre par trimestre.');
+  SCORE_W.forEach(([id]) => {
+    const v = series(I[id])[n], st = status(I[id], v);
+    if ((st === 'bad' || st === 'warn') && RECO[id]) out.push('<b>' + I[id].n + '</b> (' + fmtP(v, 1) + ', ' + stLabel(I[id], st).toLowerCase() + ') : ' + RECO[id][st === 'bad' ? 0 : 1]);
+  });
+  const ran = raw('P9f', n);
+  if (ran !== null && ran < 0) out.push('<b>Report à nouveau négatif</b> : apurer les pertes antérieures (affectation des résultats futurs, ou réduction de capital suivie d’une augmentation).');
+  if (!out.length) out.push('Aucun ratio suivi n’est hors seuil : <b>maintenir la trajectoire</b> (fonds propres au rythme du bilan, maîtrise des charges et du coût du risque) et suivre les indicateurs chaque trimestre.');
+  return out;
+}
+function conclusionText(n) {
+  const yrs = Y(), sc = scoreCard(n), b = bank(), parts = [];
+  if (fin(sc.score)) parts.push('Au terme de l’analyse ' + (n > 0 ? 'de la période ' + yrs[0] + '–' + yrs[n] : 'de l’exercice ' + yrs[n]) + ', la situation financière de ' + b.name + ' apparaît <b>' + sc.label.toLowerCase() + '</b> (note indicative ' + sc.grade + ', ' + sc.score + '/100).');
+  else parts.push('Les données saisies ne suffisent pas pour une appréciation globale de ' + b.name + '.');
+  const bad = sc.rows.filter(r => r.st === 'bad').map(r => I[r.id].n), warn = sc.rows.filter(r => r.st === 'warn').map(r => I[r.id].n);
+  if (bad.length) parts.push('Les faiblesses portent sur : ' + bad.join(', ') + '.');
+  if (warn.length) parts.push('À surveiller : ' + warn.join(', ') + '.');
+  if (!bad.length && !warn.length && fin(sc.score)) parts.push('Tous les ratios suivis respectent leur seuil.');
+  const rn = qv('RN', n), rn0 = n > 0 ? qv('RN', n - 1) : NaN;
+  if (fin(rn) && fin(rn0)) parts.push('Le résultat net ' + (rn >= rn0 ? 'progresse' : 'recule') + ' de ' + fmtM(rn0) + ' à ' + fmtM(rn) + ' M en ' + yrs[n] + '.');
+  const ch = val(nodeOf(I.chute), n);
+  if (fin(ch)) parts.push(ch >= 1 ? 'Le test de faillite est rassurant : même la disparition totale du PNB n’effacerait pas les fonds propres en un exercice.' : 'Le test de faillite montre qu’une baisse du PNB de ' + fmtP(ch, 1) + ' suffirait à effacer les fonds propres.');
+  return parts.join(' ');
+}
+/* Stress tests sur le dernier exercice : le choc réduit le résultat avant impôt ; le résultat de l'exercice fait partie des fonds propres */
+function stressTests(n) {
+  const pnb = qv('PNB', n), rai = qv('RAI', n), rn = qv('RN', n), imp = raw('R15', n) ?? 0, fp = qv('FPT', n), rwa = qv('RWA', n), cdr = raw('R13', n), cr = raw('A4', n);
+  const taux = fin(rai) && rai > 0 && imp > 0 ? imp / rai : 0;
+  const sc = [['Situation actuelle', 0]];
+  if (fin(pnb) && pnb > 0) sc.push(['Chute du PNB de 20 %', 0.2 * pnb], ['Chute du PNB de 50 %', 0.5 * pnb]);
+  if (fin(cdr) && cdr > 0) sc.push(['Coût du risque multiplié par 2', cdr], ['Coût du risque multiplié par 3', 2 * cdr]);
+  if (fin(cr) && cr > 0) sc.push(['Défaut de 5 % des crédits', 0.05 * cr], ['Défaut de 10 % des crédits', 0.1 * cr]);
+  return sc.map(([l, choc]) => {
+    if (!choc) { const s = fp / rwa; return { l, choc, rn, fp, solva:s, st:status(I.solva, s) }; }
+    const rai2 = rai - choc, rn2 = rai2 > 0 ? rai2 * (1 - taux) : rai2;
+    const fp2 = fp - (fin(rn) ? rn : 0) + rn2, s = fp2 / rwa;
+    return { l, choc, rn:rn2, fp:fp2, solva:s, st:status(I.solva, s) };
+  });
+}
+/* Barres horizontales (comparaison de banques, stress tests) */
+function printHBars({ title, subtitle, labels, values, fmt, thr, bad }) {
+  const W = 640, rowH = 26, gap = 10, pl = 228, pr = 78, pt = subtitle ? 64 : 48;
+  const H = pt + labels.length * (rowH + gap) + (thr ? 26 : 8);
+  const f = fmt === 'pct' ? (v => fmtP(v, 1)) : fmt === 'score' ? (v => Math.round(v) + '/100') : fmt === 'x' ? fmtX : (v => fmtM(v));
+  const vs = values.filter(fin), lo = Math.min(0, ...vs, thr ? thr.value : 0), hi = Math.max(0, ...vs, thr ? thr.value : 0);
+  const span = (hi - lo) || 1, sx = v => pl + (v - lo) / span * (W - pl - pr);
+  let g = svgT(12, 26, title, { size:17, weight:700 });
+  if (subtitle) g += svgT(12, 46, subtitle, { size:12.5, color:PC.ink2 });
+  labels.forEach((l, i) => {
+    const y = pt + i * (rowH + gap), v = values[i], name = l.length > 32 ? l.slice(0, 31) + '…' : l;
+    g += svgT(pl - 10, y + rowH / 2 + 5, name, { size:12.5, anchor:'end', color:PC.ink });
+    if (fin(v)) {
+      const x0 = sx(Math.min(0, v)), w = Math.max(1.5, Math.abs(sx(v) - sx(0)));
+      g += '<rect x="' + x0.toFixed(1) + '" y="' + y + '" width="' + w.toFixed(1) + '" height="' + rowH + '" rx="3" fill="' + (bad && bad[i] ? PC.bad : PC.s[0]) + '"/>';
+      g += svgT(v >= 0 ? x0 + w + 6 : x0 - 6, y + rowH / 2 + 5, f(v), { size:12, anchor:v >= 0 ? 'start' : 'end', weight:700 });
+    } else g += svgT(pl + 4, y + rowH / 2 + 5, 'n.d.', { size:11.5, color:PC.ink2 });
+  });
+  g += '<line x1="' + sx(0).toFixed(1) + '" x2="' + sx(0).toFixed(1) + '" y1="' + (pt - 6) + '" y2="' + (pt + labels.length * (rowH + gap) - gap + 4) + '" stroke="' + PC.axis + '"/>';
+  if (thr && fin(thr.value)) {
+    const x = sx(thr.value), yb = pt + labels.length * (rowH + gap);
+    g += '<line x1="' + x.toFixed(1) + '" x2="' + x.toFixed(1) + '" y1="' + (pt - 8) + '" y2="' + (yb - 4) + '" stroke="' + PC.ink + '" stroke-width="1.6" stroke-dasharray="6 4"/>' + svgT(x, yb + 14, thr.label, { size:12, anchor:x > W - 120 ? 'end' : 'middle', weight:700 });
+  }
+  return '<svg viewBox="0 0 ' + W + ' ' + H + '" width="' + W + '" height="' + H + '">' + g + '</svg>';
+}
+const gradeColor = g => g === 'A' || g === 'B' ? DOC_COLORS.ok : g === 'C' ? DOC_COLORS.warn : g === 'D' || g === 'E' ? DOC_COLORS.bad : DOC_COLORS.ink3;
+const COMPARE_IDS = ['solva', 'cet1', 'levier_b', 'liq', 'transfo', 'levier', 'roe', 'roa', 'coef', 'cdr', 'chute'];
+const GLOSSARY = [['PNB', 'Produit net bancaire : marge d’intérêts + commissions nettes + gains nets sur portefeuilles + autres produits nets. C’est le « chiffre d’affaires » de la banque.'],
+  ['RBE', 'Résultat brut d’exploitation : PNB − charges générales − dotations aux amortissements.'], ['Coût du risque', 'Dotations nettes aux provisions sur créances douteuses et pertes sur créances irrécouvrables.'],
+  ['RWA', 'Risk-weighted assets : actifs pondérés selon leur risque (crédit, opérationnel). Dénominateur des ratios de solvabilité.'],
+  ['CET1', 'Common Equity Tier 1 : capital, primes, réserves, report à nouveau et résultat, moins les immobilisations incorporelles.'],
+  ['Tier 1 / Tier 2', 'Fonds propres de base / complémentaires (dettes subordonnées, écarts de réévaluation). Ensemble : fonds propres effectifs.'],
+  ['Ratio de levier', 'Tier 1 rapporté à l’exposition totale non pondérée : garde-fou contre l’endettement excessif.'],
+  ['LCR', 'Liquidity Coverage Ratio : actifs liquides de haute qualité / sorties nettes de trésorerie sur 30 jours de crise.'],
+  ['ROA / ROE', 'Résultat net rapporté au total actif / aux capitaux propres. ROE = ROA × multiplicateur de fonds propres (identité de Du Pont).'],
+  ['PNB critique', 'Niveau de PNB qui produirait une perte égale aux capitaux propres, toutes charges égales par ailleurs.']];
+
 async function buildReport(opt) {
   await lib('jszip');
-  const yrs = Y(), y = state.yi, b = bank(), media = [];
-  const body = [], parts = [];
+  const type = REPORT_TYPES.some(t => t[0] === opt.type) ? opt.type : 'complet';
+  const theme = DOC_THEMES[opt.theme] || DOC_THEMES.classique;
+  const saved = { c:Object.assign({}, DOC_COLORS), s0:PC.s[0], soft:PC.soft };
+  Object.assign(DOC_COLORS, { accent:theme.accent, head:theme.head, zebra:theme.zebra }); PC.s[0] = theme.chart; PC.soft = theme.soft;
+  try { return await buildReportDoc(opt, type); }
+  finally { Object.assign(DOC_COLORS, saved.c); PC.s[0] = saved.s0; PC.soft = saved.soft; }
+}
+async function buildReportDoc(opt, type) {
+  const yrs = Y(), y = state.yi, b = bank(), media = [], n = yrs.length - 1;
+  const body = [];
+  const typeLabel = REPORT_TYPES.find(t => t[0] === type)[1];
+  const title = opt.title || reportTitle(type, b);
   let fig = 0;
   const addChart = async (svg, caption) => {
     if (!opt.charts || !svg) return;
@@ -2008,15 +2174,17 @@ async function buildReport(opt) {
   };
   const fmtCell = (ind, v) => fmtBy(ind.fmt || 'pct', v);
   const stCell = (ind, v) => { const st = status(ind, v); return { t:st === 'info' ? '' : st === 'na' ? 'Non calculé' : ST_LABEL[st][0] + ' ' + stLabel(ind, st), color:st === 'ok' ? DOC_COLORS.ok : st === 'warn' ? DOC_COLORS.warn : st === 'bad' ? DOC_COLORS.bad : DOC_COLORS.ink3 }; };
-  const indicator = async (ind, level = 3) => {
+  const valSt = (ind, v) => { const st = status(ind, v); return { t:fmtCell(ind, v) + (st === 'ok' || st === 'warn' || st === 'bad' ? ' ' + ST_LABEL[st][0] : ''), color:st === 'ok' ? DOC_COLORS.ok : st === 'warn' ? DOC_COLORS.warn : st === 'bad' ? DOC_COLORS.bad : null }; };
+  const thrTxt = ind => ind.thr ? (ind.thr.dir === 'min' ? '≥ ' : '≤ ') + fmtP(thrVal(ind), 1) : '—';
+  const indicator = async (ind, level = 3, allYears = opt.allYears) => {
     const node = nodeOf(ind), vals = yrs.map((_, i) => val(node, i));
     body.push(W.h(level, ind.n + (ind.long ? ' (' + ind.long + ')' : '')));
-    body.push(W.p(W.run(KIND[ind.kind] + (ind.thr ? ' · seuil ' + (ind.thr.dir === 'min' ? '≥ ' : '≤ ') + fmtP(thrVal(ind), 1) + (ind.thr.reg ? ' (norme)' : ' (repère)') : ''), { i:true, sz:17, color:DOC_COLORS.ink3 }), { after:60 }));
-    if (ind.opt && !vals.some(fin)) { body.push(W.note('Non calculé : les données réglementaires nécessaires (' + [...new Set(collectVars(node))].map(k => F[k].l).join(', ') + ') ne sont pas saisies.')); return; }
+    body.push(W.p(W.run(KIND[ind.kind] + (ind.thr ? ' · seuil ' + thrTxt(ind) + (ind.thr.reg ? ' (norme)' : ' (repère)') : ''), { i:true, sz:17, color:DOC_COLORS.ink3 }), { after:60 }));
+    if (ind.opt && !vals.some(fin)) { body.push(W.note('Non calculé : les données réglementaires nécessaires (' + [...new Set(collectVars(node))].map(k => F[k].l).join(', ') + ') ne sont pas saisies.')); return vals; }
     body.push(W.p(W.run(ind.about, { sz:19 })));
     body.push(W.p(W.run('Formule', { b:true, sz:18, color:DOC_COLORS.accent }), { keep:true, after:0 }));
     M.lines(ind.n + ' = ', node, 'sym').forEach(l => body.push(l));
-    const ys = opt.allYears ? yrs.map((_, i) => i) : [y];
+    const ys = allYears ? yrs.map((_, i) => i) : [y];
     ys.forEach(i => {
       body.push(W.p(W.run('Application numérique ' + yrs[i] + ' (M FCFA)', { b:true, sz:18, color:DOC_COLORS.accent }), { keep:true, after:0 }));
       M.lines(ind.n + ' = ', node, 'num', i, ' = ' + fmtCell(ind, vals[i])).forEach(l => body.push(l));
@@ -2025,41 +2193,11 @@ async function buildReport(opt) {
     if (miss.size) body.push(W.note('Données manquantes pour ' + yrs[y] + ' : ' + [...miss].map(k => F[k].l).join(', ') + '.'));
     body.push(W.table([['Exercice', ...yrs.map(String)], ['Valeur', ...vals.map(v => fmtCell(ind, v))], ['Appréciation', ...vals.map(v => stCell(ind, v))]], { firstCol:22 }));
     if (vals.some(fin)) { await addChart(printIndicator(ind, vals), ind.n + ' par exercice'); body.push(W.fromHtml(interpret(ind, vals))); }
+    return vals;
   };
-  const has = k => opt.sections.includes(k);
-
-  /* Page de titre */
-  body.push(W.p(W.run(opt.title || ('Analyse financière de ' + b.name), {}), { style:'Title' }));
-  body.push(W.p(W.run([b.country, 'Exercices ' + yrs[0] + (yrs.length > 1 ? ' à ' + yrs[yrs.length - 1] : ''), 'Montants en ' + b.unit].filter(Boolean).join(' · '), { color:DOC_COLORS.ink2 })));
-  if (opt.author) body.push(W.p(W.run('Réalisé par ' + opt.author, { color:DOC_COLORS.ink2 })));
-  body.push(W.p(W.run('Document généré le ' + new Date().toLocaleDateString('fr-FR', { day:'numeric', month:'long', year:'numeric' }) + ' avec Analyste Bancaire UMOA (référentiel PCB révisé, dispositif prudentiel BCEAO).', { i:true, sz:18, color:DOC_COLORS.ink3 })));
-  if (b.source) body.push(W.p(W.run('Source des données : ' + b.source, { i:true, sz:18, color:DOC_COLORS.ink3 })));
-  body.push(W.h(2, 'Sommaire'));
-  REPORT_SECTIONS.filter(([k]) => has(k)).forEach(([, l], i) => body.push(W.p(W.run((i + 1) + '. ' + l), { after:40 })));
-  let num = 0;
-  const section = (k, t) => { num++; body.push(W.h(1, num + '. ' + t, { pageBreak:true })); };
-
-  if (has('synthese')) {
-    section('synthese', 'Synthèse et points clés');
-    const n = yrs.length - 1;
-    const kp = [['Total bilan (M)', qv('TA', n), 'm'], ['PNB (M)', qv('PNB', n), 'm'], ['Résultat net (M)', qv('RN', n), 'm']];
-    const ki = ['roe', 'roa', 'solva', 'levier_b', 'transfo', 'liq', 'coef'];
-    body.push(W.p(W.run('Indicateurs clés de l’exercice ' + yrs[n] + '.')));
-    body.push(W.table([['Indicateur', yrs[n] + '', 'Évolution sur un an', 'Appréciation'],
-      ...kp.map(([l, v, f]) => { const p = qv(l.startsWith('Total') ? 'TA' : l.startsWith('PNB') ? 'PNB' : 'RN', n - 1); return [l, fmtM(v), fin(v) && fin(p) && p ? (v >= p ? '+' : '') + fmtP((v - p) / Math.abs(p), 1) : '—', '']; }),
-      ...ki.map(id => { const s = series(I[id]); return [I[id].n, fmtP(s[n]), fin(s[n]) && fin(s[n - 1]) ? fmtPts(s[n] - s[n - 1]) : '—', stCell(I[id], s[n])]; })], { firstCol:34 }));
-    const { good, watch } = synthLists();
-    body.push(W.h(2, 'Points forts'));
-    body.push(good.length ? W.bullets(good) : W.note('Aucun point fort identifié avec les données saisies.'));
-    body.push(W.h(2, 'Points de vigilance'));
-    body.push(watch.length ? W.bullets(watch) : W.note('Aucun signal d’alerte avec les données saisies.'));
-    if (opt.comment) { body.push(W.h(2, 'Commentaire de l’analyste')); opt.comment.split(/\n+/).filter(Boolean).forEach(l => body.push(W.text(l))); }
-  }
-  if (has('dynamique')) {
-    section('dynamique', 'Dynamique du bilan et du compte de résultat');
-    body.push(W.p(W.run('Pour chaque poste : montant par exercice, variation absolue (ΔX = X')+W.run('N', { sub:true })+W.run(' − X')+W.run('N−1', { sub:true })+W.run(') et taux de variation (ΔX / X')+W.run('N−1', { sub:true })+W.run('). Montants en millions de FCFA.')));
-    for (const [kind, title] of [['actif', 'Actif'], ['passif', 'Passif'], ['cr', 'Compte de résultat']]) {
-      body.push(W.h(2, title));
+  const dynTables = async kinds => {
+    for (const [kind, ttl] of [['actif', 'Actif'], ['passif', 'Passif'], ['cr', 'Compte de résultat']].filter(k => kinds.includes(k[0]))) {
+      body.push(W.h(2, ttl));
       const rows = dynRows(kind), header = ['Poste', ...yrs.map(String)];
       for (let i = 1; i < yrs.length; i++) header.push('Δ% ' + yrs[i]);
       const tbl = [header], bold = [];
@@ -2074,33 +2212,236 @@ async function buildReport(opt) {
       const hl = highlights(kind);
       if (hl) body.push(W.fromHtml(hl));
       if (kind !== 'cr') await addChart(printStack(kind), 'Structure du ' + kind + ' par exercice');
-      if (kind === 'passif') await addChart(printBars({ title:'Total du bilan, crédits et dépôts', subtitle:'Millions FCFA', years:yrs, series:[{ name:'Total actif', values:yrs.map((_, i) => qv('TA', i)) }, { name:'Crédits clientèle', values:yrs.map((_, i) => raw('A4', i) ?? NaN) }, { name:'Dépôts clientèle', values:yrs.map((_, i) => raw('P3', i) ?? NaN) }], fmt:'m' }), 'Total du bilan, crédits et dépôts');
-      if (kind === 'cr') await addChart(printBars({ title:'PNB, résultat brut d’exploitation et résultat net', subtitle:'Millions FCFA', years:yrs, series:[{ name:'PNB', values:yrs.map((_, i) => qv('PNB', i)) }, { name:'RBE', values:yrs.map((_, i) => qv('RBE', i)) }, { name:'Résultat net', values:yrs.map((_, i) => qv('RN', i)) }], fmt:'m' }), 'PNB, RBE et résultat net');
+      if (kind === 'passif') await addChart(chartBilan(), 'Total du bilan, crédits et dépôts');
+      if (kind === 'cr') await addChart(chartResultats(), 'PNB, RBE et résultat net');
     }
-  }
-  if (has('structure')) {
-    section('structure', 'Ratios de structure');
-    for (const [t, ids] of [['Transformation', ['transfo', 'couv_mlt']], ['Liquidité', ['liq', 'coefliq', 'lcr']], ['Levier', ['levier', 'levier_b', 'mult']], ['Solvabilité', ['solva_s', 'solva', 'cet1', 't1']]]) {
-      body.push(W.h(2, t));
-      for (const id of ids) await indicator(I[id]);
+  };
+  const chartBilan = () => printBars({ title:'Total du bilan, crédits et dépôts', subtitle:'Millions FCFA', years:yrs, series:[{ name:'Total actif', values:yrs.map((_, i) => qv('TA', i)) }, { name:'Crédits clientèle', values:yrs.map((_, i) => raw('A4', i) ?? NaN) }, { name:'Dépôts clientèle', values:yrs.map((_, i) => raw('P3', i) ?? NaN) }], fmt:'m' });
+  const chartResultats = () => printBars({ title:'PNB, résultat brut d’exploitation et résultat net', subtitle:'Millions FCFA', years:yrs, series:[{ name:'PNB', values:yrs.map((_, i) => qv('PNB', i)) }, { name:'RBE', values:yrs.map((_, i) => qv('RBE', i)) }, { name:'Résultat net', values:yrs.map((_, i) => qv('RN', i)) }], fmt:'m' });
+  const chartRenta = () => printBars({ title:'Rentabilité : ROE et ROA', subtitle:'En % · ROE = ROA × multiplicateur de fonds propres', years:yrs, series:[{ name:'ROE', values:series(I.roe) }, { name:'ROA', values:series(I.roa) }], fmt:'pct' });
+  const kpiRow = i => {
+    const it = (k, id, lbl) => { const v = qv(id, i), p = i > 0 ? qv(id, i - 1) : NaN, d = fin(v) && fin(p) && p ? (v - p) / Math.abs(p) : NaN; return { k:lbl + ' ' + yrs[i], v:fmtM(v), d:fin(d) ? (d >= 0 ? '▲ +' : '▼ ') + fmtP(d, 1) + ' sur un an' : 'millions FCFA', dcolor:fin(d) ? (d >= 0 ? DOC_COLORS.ok : DOC_COLORS.bad) : null, color:id === 'RN' && fin(v) && v < 0 ? DOC_COLORS.bad : null }; };
+    return W.kpis([it('k', 'TA', 'Total bilan'), it('k', 'PNB', 'PNB'), it('k', 'RN', 'Résultat net'), it('k', 'CP', 'Capitaux propres')]);
+  };
+  const gradeBlock = i => {
+    const sc = scoreCard(i);
+    body.push(W.gradeBox(sc.grade, gradeColor(sc.grade), fin(sc.score) ? 'Appréciation globale : ' + sc.label : 'Appréciation globale non disponible',
+      fin(sc.score) ? 'Note indicative ' + sc.score + '/100 en ' + yrs[i] + ', calculée sur ' + sc.rows.filter(r => r.st !== 'na').length + ' ratios suivis (solvabilité, CET1, levier, liquidité, transformation, rentabilité, efficacité, coût du risque). Ce n’est pas une notation officielle.' : 'Il faut au moins les ratios de solvabilité et de liquidité pour noter la banque.'));
+    return sc;
+  };
+  const dashboard = i => {
+    const ids = ['solva', 'cet1', 't1', 'levier_b', 'liq', 'transfo', 'levier', 'roe', 'roa', 'coef', 'cdr', 'marge'];
+    return W.table([['Indicateur', i > 0 ? String(yrs[i - 1]) : '', String(yrs[i]), 'Évolution', 'Seuil', 'Appréciation'],
+      ...ids.map(id => { const s = series(I[id]), v = s[i], p = i > 0 ? s[i - 1] : NaN; return [I[id].n, i > 0 ? fmtCell(I[id], p) : '', fmtCell(I[id], v), fin(v) && fin(p) ? fmtPts(v - p) : '—', thrTxt(I[id]), stCell(I[id], v)]; })], { firstCol:30 });
+  };
+
+  /* Page de titre */
+  const cover = (sub) => {
+    body.push(W.p('', { after:1400 }));
+    body.push(W.band([{ t:typeLabel.toUpperCase(), sz:18, b:true, after:120 }, { t:title, sz:44, b:true, after:120 }, { t:sub, sz:22, after:0 }]));
+    if (opt.author) body.push(W.p(W.run('Réalisé par ' + opt.author, { color:DOC_COLORS.ink2 })));
+    body.push(W.p(W.run('Document généré le ' + new Date().toLocaleDateString('fr-FR', { day:'numeric', month:'long', year:'numeric' }) + ' avec Analyste Bancaire UMOA (référentiel PCB révisé, dispositif prudentiel BCEAO).', { i:true, sz:18, color:DOC_COLORS.ink3 })));
+    if (b.source && type !== 'comparaison') body.push(W.p(W.run('Source des données : ' + b.source, { i:true, sz:18, color:DOC_COLORS.ink3 })));
+  };
+  const bankSub = [b.country, 'Exercices ' + yrs[0] + (yrs.length > 1 ? ' à ' + yrs[n] : ''), 'Montants en ' + b.unit].filter(Boolean).join(' · ');
+  let num = 0;
+  const section = (t, brk = true) => { num++; body.push(W.h(1, num + '. ' + t, { pageBreak:brk })); };
+  const comment = () => { if (opt.comment) { body.push(W.h(2, 'Commentaire de l’analyste')); opt.comment.split(/\n+/).filter(Boolean).forEach(l => body.push(W.text(l))); } };
+  const recoBlock = () => { body.push(W.h(2, 'Recommandations')); body.push(W.bullets(recommendations(n))); body.push(W.h(2, 'Conclusion')); body.push(W.fromHtml(conclusionText(n))); };
+
+  if (type === 'complet') {
+    cover(bankSub);
+    const has = k => opt.sections.includes(k);
+    body.push(W.h(2, 'Sommaire'));
+    REPORT_SECTIONS.filter(([k]) => has(k)).forEach(([, l], i) => body.push(W.p(W.run((i + 1) + '. ' + l), { after:40 })));
+    if (has('synthese')) {
+      section('Synthèse et points clés');
+      body.push(kpiRow(n));
+      gradeBlock(n);
+      body.push(W.p(W.run('Tableau de bord de l’exercice ' + yrs[n] + '.', { b:true })));
+      body.push(dashboard(n));
+      const { good, watch } = synthLists();
+      body.push(W.h(2, 'Points forts'));
+      body.push(good.length ? W.bullets(good) : W.note('Aucun point fort identifié avec les données saisies.'));
+      body.push(W.h(2, 'Points de vigilance'));
+      body.push(watch.length ? W.bullets(watch) : W.note('Aucun signal d’alerte avec les données saisies.'));
+      comment();
     }
+    if (has('dynamique')) {
+      section('Dynamique du bilan et du compte de résultat');
+      body.push(W.p(W.run('Pour chaque poste : montant par exercice, variation absolue (ΔX = X') + W.run('N', { sub:true }) + W.run(' − X') + W.run('N−1', { sub:true }) + W.run(') et taux de variation (ΔX / X') + W.run('N−1', { sub:true }) + W.run('). Montants en millions de FCFA.')));
+      await dynTables(['actif', 'passif', 'cr']);
+    }
+    if (has('structure')) {
+      section('Ratios de structure');
+      for (const [t, ids] of [['Transformation', ['transfo', 'couv_mlt']], ['Liquidité', ['liq', 'coefliq', 'lcr']], ['Levier', ['levier', 'levier_b', 'mult']], ['Solvabilité', ['solva_s', 'solva', 'cet1', 't1']]]) {
+        body.push(W.h(2, t));
+        for (const id of ids) await indicator(I[id]);
+      }
+    }
+    if (has('renta')) {
+      section('Rentabilité : ROA, ROE et effet de levier');
+      body.push(W.note('Base de calcul : ' + (state.base === 'moy' ? 'moyenne des exercices N et N−1.' : 'montants de fin d’exercice.')));
+      await indicator(I.roa, 2); await indicator(I.roe, 2);
+      dupontBlock();
+      body.push(W.h(2, 'Exploitation'));
+      for (const id of ['coef', 'cdr', 'marge', 'mi_pnb', 'com_pnb', 'pnb_ta']) await indicator(I[id]);
+    }
+    if (has('faillite')) { section('Test de faillite'); await failliteBlock(); for (const id of ['pnbc', 'chute', 'cdrc', 'abs_a', 'abs_c', 'lmax']) await indicator(I[id]); }
+    if (has('bale')) { section('Bâle III : fonds propres et actifs pondérés'); baleTables(); for (const id of ['solva', 'cet1', 'levier_b']) await indicator(I[id]); }
+    if (has('conclusion')) { section('Conclusion et recommandations'); recoBlock(); }
+    if (has('methode')) {
+      section('Méthodologie, glossaire et données manquantes');
+      body.push(W.p(W.run('Les états financiers suivent le plan comptable bancaire révisé de l’UMOA. Les seuils réglementaires reprennent le dispositif prudentiel de la BCEAO ; les repères d’analyse ne sont pas des normes. Chaque formule de ce rapport est produite par le même moteur de calcul que l’application.')));
+      paramsTable();
+      body.push(W.h(2, 'Glossaire'));
+      body.push(W.table([['Terme', 'Définition'], ...GLOSSARY.map(([t, d]) => [{ t, b:true }, { t:d, align:'left' }])], { firstCol:22 }));
+      missingBlock();
+    }
+  } else if (type === 'synthese') {
+    cover(bankSub);
+    section('L’essentiel en une page', false);
+    body.push(kpiRow(n));
+    gradeBlock(n);
+    body.push(W.fromHtml(conclusionText(n)));
+    section('Tableau de bord');
+    body.push(dashboard(n));
+    body.push(W.note('✓ conforme ou dans le repère · ! marge faible (moins de ' + (state.params.marge ?? 10) + ' % au-dessus du seuil) · ✕ hors seuil. Normes BCEAO et Bâle III estimées à partir du bilan lorsque les états réglementaires ne sont pas saisis.'));
+    await addChart(chartBilan(), 'Total du bilan, crédits et dépôts');
+    await addChart(chartResultats(), 'PNB, RBE et résultat net');
+    await addChart(printIndicator(I.solva, series(I.solva)), 'Ratio de solvabilité global');
+    await addChart(chartRenta(), 'ROE et ROA');
+    section('Analyse');
+    const { good, watch } = synthLists();
+    body.push(W.h(2, 'Points forts'));
+    body.push(good.length ? W.bullets(good) : W.note('Aucun point fort identifié avec les données saisies.'));
+    body.push(W.h(2, 'Points de vigilance'));
+    body.push(watch.length ? W.bullets(watch) : W.note('Aucun signal d’alerte avec les données saisies.'));
+    const dl = dupontLines();
+    if (dl.length) { body.push(W.h(2, 'Ce qui explique la rentabilité')); body.push(W.bullets(dl)); }
+    body.push(W.h(2, 'Recommandations'));
+    body.push(W.bullets(recommendations(n)));
+    comment();
+  } else if (type === 'prudentiel') {
+    cover(bankSub);
+    const reg = IND.filter(i => i.thr && i.thr.reg), rep = IND.filter(i => i.thr && !i.thr.reg);
+    const regV = reg.map(i => ({ i, v:series(i)[n] })).filter(x => fin(x.v));
+    const nOk = regV.filter(x => status(x.i, x.v) !== 'bad').length;
+    section('Verdict', false);
+    body.push(W.gradeBox(regV.length ? nOk + '/' + regV.length : '—', !regV.length ? DOC_COLORS.ink3 : nOk === regV.length ? DOC_COLORS.ok : DOC_COLORS.bad,
+      regV.length ? (nOk === regV.length ? 'Toutes les normes calculées sont respectées en ' + yrs[n] : (regV.length - nOk) + ' norme(s) non respectée(s) en ' + yrs[n]) : 'Normes non calculables',
+      'Normes prudentielles UMOA (dispositif BCEAO, Bâle II/III). Sans états réglementaires, fonds propres et actifs pondérés sont estimés à partir du bilan.', true));
+    body.push(W.table([['Norme', 'Seuil', String(yrs[n]), 'Appréciation'], ...reg.map(i => { const v = series(i)[n]; return [i.n, thrTxt(i), fmtCell(i, v), stCell(i, v)]; })], { firstCol:44 }));
+    section('Évolution des normes');
+    body.push(W.p(W.run('Valeur de chaque norme par exercice (✓ conforme, ! marge faible, ✕ non conforme).')));
+    body.push(W.table([['Norme', 'Seuil', ...yrs.map(String)], ...reg.map(i => [i.n, thrTxt(i), ...series(i).map(v => valSt(i, v))])], { firstCol:34 }));
+    body.push(W.h(2, 'Repères d’analyse'));
+    body.push(W.note('Ces repères ne sont pas des normes : ce sont des valeurs de référence pour juger la banque.'));
+    body.push(W.table([['Repère', 'Seuil', ...yrs.map(String)], ...rep.map(i => [i.n, thrTxt(i), ...series(i).map(v => valSt(i, v))])], { firstCol:34 }));
+    await addChart(printIndicator(I.solva, series(I.solva)), 'Ratio de solvabilité global');
+    section('Fonds propres et marges de manœuvre');
+    const pp = k => (state.params[k] ?? DEFAULT_PARAMS[k]) / 100;
+    body.push(W.p(W.run('Excédent (+) ou déficit (−) de fonds propres par rapport à chaque minimum, en millions FCFA : fonds propres − seuil × dénominateur.')));
+    const sur = (q, k, d) => yrs.map((_, i) => { const v = qv(q, i) - pp(k) * qv(d, i); return { t:fmtSigned(v), color:fin(v) ? (v >= 0 ? DOC_COLORS.ok : DOC_COLORS.bad) : null }; });
+    body.push(W.table([['Marge', ...yrs.map(String)],
+      ['Fonds propres effectifs', ...yrs.map((_, i) => fmtM(qv('FPT', i)))], ['Actifs pondérés (RWA)', ...yrs.map((_, i) => fmtM(qv('RWA', i)))],
+      ['Excédent CET1 (seuil ' + fmtP(pp('seuil_cet1'), 1) + ')', ...sur('CET1', 'seuil_cet1', 'RWA')], ['Excédent Tier 1 (seuil ' + fmtP(pp('seuil_t1'), 1) + ')', ...sur('T1', 'seuil_t1', 'RWA')],
+      ['Excédent de solvabilité (seuil ' + fmtP(pp('seuil_solva'), 1) + ')', ...sur('FPT', 'seuil_solva', 'RWA')], ['Excédent de levier (seuil ' + fmtP(pp('seuil_levier'), 1) + ')', ...sur('T1', 'seuil_levier', 'EXP')],
+      ['Actifs pondérés supplémentaires possibles', ...yrs.map((_, i) => fmtSigned(qv('FPT', i) / pp('seuil_solva') - qv('RWA', i)))]], { firstCol:42, boldRows:[5] }));
+    body.push(W.note('Dernière ligne : croissance des actifs pondérés que les fonds propres actuels peuvent encore porter avant de passer sous le ratio de solvabilité minimum.'));
+    section('Stress tests (' + yrs[n] + ')');
+    const st = stressTests(n);
+    body.push(W.p(W.run('Chaque scénario réduit le résultat avant impôt de l’exercice ; l’impôt disparaît en cas de perte ; le résultat fait partie des fonds propres. Les actifs pondérés sont supposés inchangés (hypothèse prudente pour les défauts de crédits).')));
+    body.push(W.table([['Scénario', 'Choc (M)', 'Résultat net', 'Fonds propres', 'Solvabilité', 'Appréciation'], ...st.map(s => [s.l, s.choc ? fmtM(-s.choc) : '—', fmtM(s.rn), fmtM(s.fp), fmtP(s.solva, 1), stCell(I.solva, s.solva)])], { firstCol:30, boldRows:[1] }));
+    await addChart(printHBars({ title:'Solvabilité après choc', subtitle:'Ratio de solvabilité global estimé, ' + yrs[n], labels:st.map(s => s.l), values:st.map(s => s.solva), fmt:'pct', thr:{ value:thrVal(I.solva), label:'minimum ' + fmtP(thrVal(I.solva), 1) }, bad:st.map(s => s.st === 'bad') }), 'Solvabilité après choc');
+    const worst = st.filter(s => s.st === 'bad');
+    body.push(W.fromHtml(worst.length ? 'La banque passe sous le minimum de solvabilité dans ' + worst.length + ' scénario(s) sur ' + (st.length - 1) + ' : <b>' + worst.map(s => s.l.toLowerCase()).join(', ') + '</b>.' : 'La banque reste au-dessus du minimum de solvabilité dans tous les scénarios testés.'));
+    section('Résistance à la faillite');
+    await failliteBlock(false);
+    body.push(W.table([['Indicateur', ...yrs.map(String)], ...['pnbc', 'chute', 'abs_a', 'abs_c', 'lmax'].map(id => [I[id].n, ...series(I[id]).map(v => fmtCell(I[id], v))])], { firstCol:40 }));
+    section('Recommandations et conclusion');
+    recoBlock();
+    comment();
+  } else if (type === 'corrige') {
+    cover(bankSub);
+    section('Énoncé', false);
+    body.push(W.p(W.run('À partir des bilans et comptes de résultat de ' + b.name + ' (' + (yrs.length > 1 ? 'exercices ' + yrs[0] + ' à ' + yrs[n] : 'exercice ' + yrs[0]) + ', montants en ' + b.unit + '), on demande :')));
+    const QS = [
+      ['Analysez la dynamique du bilan (actif et passif).', async () => { await dynTables(['actif', 'passif']); }, 'Le total du bilan mesure la taille de la banque ; on regarde quels postes portent sa croissance (crédits, titres, dépôts) et si les fonds propres suivent.'],
+      ['Analysez la dynamique du compte de résultat.', async () => { await dynTables(['cr']); }, 'On descend la cascade : marge d’intérêts, PNB, RBE, résultat d’exploitation, résultat net. Un PNB qui progresse moins vite que les charges dégrade le RBE.'],
+      ['Calculez et commentez le ratio de transformation.', async () => { await indicator(I.transfo, 3, true); }, I.transfo.about],
+      ['Calculez et commentez le ratio de liquidité.', async () => { await indicator(I.liq, 3, true); }, I.liq.about],
+      ['Calculez et commentez le ratio de levier.', async () => { await indicator(I.levier, 3, true); await indicator(I.mult, 3, true); }, 'Levier et multiplicateur sont inverses l’un de l’autre : plus la banque est endettée, plus le multiplicateur est grand.'],
+      ['Calculez et commentez le ratio de solvabilité.', async () => { await indicator(I.solva_s, 3, true); await indicator(I.solva, 3, true); }, 'La version bilan ne pondère pas les risques ; la version Bâle rapporte les fonds propres effectifs aux actifs pondérés (minimum ' + fmtP(thrVal(I.solva), 1) + ').'],
+      ['Calculez le ROA et le ROE de chaque année et expliquez l’évolution du ROE.', async () => { await indicator(I.roa, 3, true); await indicator(I.roe, 3, true); dupontBlock(3); }, 'ROE = ROA × multiplicateur : le ROE varie soit parce que les actifs rapportent plus ou moins, soit parce que la banque est plus ou moins endettée.'],
+      ['Quel niveau de pertes provoquerait la faillite de la banque ?', async () => { await indicator(I.perte, 3, true); await indicator(I.abs_a, 3, true); await indicator(I.abs_c, 3, true); }, 'La faillite comptable survient quand les pertes effacent les capitaux propres : RN* = −Capitaux propres.'],
+      ['Quel niveau de PNB provoquerait ces pertes ?', async () => { await failliteBlock(false); await indicator(I.pnbc, 3, true); await indicator(I.chute, 3, true); }, 'On remonte la cascade du compte de résultat à partir de RN* (impôt nul en cas de perte) pour trouver le PNB critique PNB*.']
+    ];
+    QS.forEach(([q], i) => body.push(W.p(W.run((i + 1) + '. ' + q), { ind:360, after:40 })));
+    body.push(W.note('Convention : les ratios de rentabilité sont calculés sur ' + (state.base === 'moy' ? 'la moyenne des exercices N et N−1' : 'les montants de fin d’exercice') + '. Seuils de la BCEAO et repères d’analyse rappelés à chaque question.'));
+    for (let i = 0; i < QS.length; i++) {
+      const [q, solve, keep] = QS[i];
+      section('Question ' + (i + 1));
+      body.push(W.p(W.run(q, { b:true, i:true })));
+      body.push(W.p(W.run('Réponse', { b:true, color:DOC_COLORS.accent, sz:22 }), { keep:true }));
+      await solve();
+      body.push(W.box('À retenir', keep));
+    }
+    section('Conclusion générale');
+    body.push(W.fromHtml(conclusionText(n)));
+    comment();
+  } else if (type === 'comparaison') {
+    const ids = (opt.banks || []).filter(id => state.banks[id]);
+    if (ids.length < 2) throw new Error('Choisis au moins deux banques à comparer.');
+    const rows = ids.map(id => withFull(() => {
+      const bb = bank(), k = bb.years.length - 1, o = { name:bb.name, year:bb.years[k], unit:bb.unit, v:{}, sc:scoreCard(k) };
+      ['TA', 'PNB', 'RN', 'CP'].forEach(q => { o.v[q] = qv(q, k); });
+      COMPARE_IDS.forEach(x => { o.v[x] = val(nodeOf(I[x]), k); });
+      return o;
+    }, state.banks[id]));
+    cover(rows.length + ' banques comparées sur leur dernier exercice disponible');
+    section('Classement général', false);
+    const units = [...new Set(rows.map(r => r.unit))];
+    if (units.length > 1) body.push(W.note('Attention : les banques ne sont pas saisies dans la même unité (' + units.join(', ') + ') ; les montants ne sont pas directement comparables, les ratios le sont.'));
+    const ranked = rows.slice().sort((a, c) => (fin(c.sc.score) ? c.sc.score : -1) - (fin(a.sc.score) ? a.sc.score : -1));
+    body.push(W.table([['Rang', 'Banque', 'Exercice', 'Note', 'Score', 'Appréciation'], ...ranked.map((r, i) => [String(i + 1), { t:r.name, align:'left', b:i === 0 }, String(r.year), { t:r.sc.grade, b:true, color:gradeColor(r.sc.grade), align:'center' }, fin(r.sc.score) ? r.sc.score + '/100' : '—', { t:r.sc.label, align:'left' }])], { firstCol:8 }));
+    body.push(W.note('Note indicative sur 100 calculée sur les mêmes ratios pour chaque banque (solvabilité, CET1, levier, liquidité, transformation, ROE, ROA, coefficient d’exploitation, coût du risque).'));
+    await addChart(printHBars({ title:'Note globale', subtitle:'Score indicatif sur 100', labels:ranked.map(r => r.name), values:ranked.map(r => fin(r.sc.score) ? r.sc.score : NaN), fmt:'score', bad:ranked.map(r => r.sc.score < 55) }), 'Note globale par banque');
+    section('Chiffres clés');
+    body.push(W.table([['Banque', 'Exercice', 'Total bilan', 'PNB', 'Résultat net', 'Capitaux propres'], ...rows.map(r => [r.name, String(r.year), fmtM(r.v.TA), fmtM(r.v.PNB), fmtM(r.v.RN), fmtM(r.v.CP)])], { firstCol:30 }));
+    await addChart(printHBars({ title:'Total du bilan', subtitle:'Millions FCFA, dernier exercice', labels:rows.map(r => r.name), values:rows.map(r => r.v.TA), fmt:'m' }), 'Taille des banques (total du bilan)');
+    section('Ratios');
+    body.push(W.table([['Ratio', 'Seuil', ...rows.map(r => r.name)], ...COMPARE_IDS.map(id => [I[id].n, thrTxt(I[id]), ...rows.map(r => valSt(I[id], r.v[id]))])], { firstCol:28 }));
+    for (const id of ['solva', 'liq', 'transfo', 'roe', 'coef']) {
+      const ind = I[id], t = thrVal(ind);
+      await addChart(printHBars({ title:ind.n, subtitle:'Dernier exercice disponible de chaque banque', labels:rows.map(r => r.name), values:rows.map(r => r.v[id]), fmt:'pct', thr:ind.thr ? { value:t, label:(ind.thr.dir === 'min' ? 'minimum ' : 'plafond ') + fmtP(t, 1) } : null, bad:rows.map(r => status(ind, r.v[id]) === 'bad') }), ind.n + ' par banque');
+    }
+    section('Lecture ratio par ratio');
+    const lines = [];
+    COMPARE_IDS.forEach(id => {
+      const ind = I[id], ok = rows.filter(r => fin(r.v[id])); if (ok.length < 2) return;
+      const lowBetter = ind.thr && ind.thr.dir === 'max';
+      const s = ok.slice().sort((a, c) => lowBetter ? a.v[id] - c.v[id] : c.v[id] - a.v[id]);
+      const off = ok.filter(r => status(ind, r.v[id]) === 'bad').map(r => r.name);
+      lines.push('<b>' + ind.n + '</b> : meilleur niveau pour ' + s[0].name + ' (' + fmtCell(ind, s[0].v[id]) + '), le plus faible pour ' + s[s.length - 1].name + ' (' + fmtCell(ind, s[s.length - 1].v[id]) + ')' + (off.length ? ' ; hors seuil : ' + off.join(', ') : '') + '.');
+    });
+    body.push(lines.length ? W.bullets(lines) : W.note('Pas assez de données pour comparer les ratios.'));
+    section('Conclusion');
+    const top = ranked[0], last = ranked[ranked.length - 1];
+    body.push(W.fromHtml(fin(top.sc.score) ? '<b>' + top.name + '</b> présente le profil le plus solide (note ' + top.sc.grade + ', ' + top.sc.score + '/100)' + (last !== top && fin(last.sc.score) ? ', <b>' + last.name + '</b> le plus fragile (note ' + last.sc.grade + ', ' + last.sc.score + '/100).' : '.') + ' Le classement repose sur les états financiers saisis et sur des ratios Bâle estimés à partir du bilan lorsque les données réglementaires manquent.' : 'Les données saisies ne suffisent pas pour classer les banques.'));
+    comment();
   }
-  if (has('renta')) {
-    section('renta', 'Rentabilité : ROA, ROE et effet de levier');
-    body.push(W.note('Base de calcul : ' + (state.base === 'moy' ? 'moyenne des exercices N et N−1.' : 'montants de fin d’exercice.')));
-    await indicator(I.roa, 2); await indicator(I.roe, 2);
-    body.push(W.h(2, 'Effet de levier : identité de Du Pont'));
+
+  function dupontBlock(level = 2) {
+    body.push(W.h(level, 'Effet de levier : identité de Du Pont'));
     body.push(M.para(M.r('ROE = ') + '<m:f><m:num>' + M.r('Résultat net') + '</m:num><m:den>' + M.r('Capitaux propres') + '</m:den></m:f>' + M.r(' = ') + '<m:f><m:num>' + M.r('Résultat net') + '</m:num><m:den>' + M.r('Total actif') + '</m:den></m:f>' + M.r(' × ') + '<m:f><m:num>' + M.r('Total actif') + '</m:num><m:den>' + M.r('Capitaux propres') + '</m:den></m:f>' + M.r(' = ROA × Multiplicateur')));
     const roa = series(I.roa), m = series(I.mult), roe = series(I.roe);
     body.push(W.table([['Décomposition', ...yrs.map(String)], ['ROA', ...roa.map(v => fmtP(v))], ['× Multiplicateur', ...m.map(fmtX)], ['= ROE', ...roe.map(v => fmtP(v))]], { boldRows:[3], firstCol:30 }));
     const dl = dupontLines();
     if (dl.length) { body.push(W.p(W.run('Ce qui explique la variation du ROE', { b:true }))); body.push(W.bullets(dl)); }
-    body.push(W.h(2, 'Exploitation'));
-    for (const id of ['coef', 'cdr', 'marge', 'mi_pnb', 'com_pnb', 'pnb_ta']) await indicator(I[id]);
   }
-  if (has('faillite')) {
-    section('faillite', 'Test de faillite');
-    body.push(W.p(W.run('Une banque est en faillite lorsque ses pertes effacent ses capitaux propres. On détermine d’abord la perte critique, puis le niveau de produit net bancaire (PNB) qui la provoque, toutes charges égales par ailleurs. L’impôt est nul en cas de perte.')));
+  async function failliteBlock(full = true) {
+    if (full) body.push(W.p(W.run('Une banque est en faillite lorsque ses pertes effacent ses capitaux propres. On détermine d’abord la perte critique, puis le niveau de produit net bancaire (PNB) qui la provoque, toutes charges égales par ailleurs. L’impôt est nul en cas de perte.')));
     body.push(M.para(M.r('RN*') + M.r(' = ') + M.r('−') + M.r('Capitaux propres')));
     M.lines('PNB* = ', QTY.PNBC.node, 'sym').forEach(l => body.push(l));
     await addChart(printBars({ title:'Test de faillite : PNB réel et PNB critique', subtitle:'Millions FCFA · la banque fait faillite si le PNB tombe au niveau critique', years:yrs, series:[{ name:'PNB réel', values:yrs.map((_, i) => qv('PNB', i)) }, { name:'PNB critique (PNB*)', values:yrs.map((_, i) => qv('PNBC', i)) }], fmt:'m' }), 'PNB réel et PNB critique');
@@ -2108,10 +2449,8 @@ async function buildReport(opt) {
       ['Capitaux propres', ...yrs.map((_, i) => fmtM(qv('CP', i)))], ['Perte critique RN*', ...yrs.map((_, i) => fmtM(-qv('CP', i)))],
       ['PNB réel', ...yrs.map((_, i) => fmtM(qv('PNB', i)))], ['PNB critique PNB*', ...yrs.map((_, i) => fmtM(qv('PNBC', i)))],
       ['Baisse de PNB tolérable', ...yrs.map((_, i) => fmtM(qv('PNB', i) - qv('PNBC', i)))], ['… en % du PNB', ...yrs.map((_, i) => fmtP(val(nodeOf(I.chute), i), 1))]], { boldRows:[2, 4, 6], firstCol:34 }));
-    for (const id of ['pnbc', 'chute', 'cdrc', 'abs_a', 'abs_c', 'lmax']) await indicator(I[id]);
   }
-  if (has('bale')) {
-    section('bale', 'Bâle III : fonds propres et actifs pondérés');
+  function baleTables() {
     body.push(W.p(W.run('Sans les états réglementaires, les fonds propres et les actifs pondérés sont estimés à partir du bilan : approche standard simplifiée pour le risque de crédit et approche indicateur de base pour le risque opérationnel. Les chiffres déclarés, lorsqu’ils sont saisis, remplacent ces estimations.')));
     const rv = k => yrs.map((_, i) => fmtM(raw(k, i) ?? NaN));
     body.push(W.h(2, 'Fonds propres'));
@@ -2120,44 +2459,54 @@ async function buildReport(opt) {
       ['+ Emprunts subordonnés et écarts de réévaluation (Tier 2)', ...yrs.map((_, i) => fmtM(qv('T2', i)))], ['= Fonds propres effectifs', ...yrs.map((_, i) => fmtM(qv('FPT', i)))]], { boldRows:[8, 10], firstCol:40 }));
     body.push(W.h(2, 'Actifs pondérés par les risques'));
     body.push(W.table([['Composante', ...yrs.map(String)], ['RWA risque de crédit', ...yrs.map((_, i) => fmtM(qv('RWAC', i)))], ['RWA risque opérationnel', ...yrs.map((_, i) => fmtM(qv('RWAO', i)))], ['Total RWA', ...yrs.map((_, i) => fmtM(qv('RWA', i)))], ['Densité (RWA / Total actif)', ...yrs.map((_, i) => fmtP(qv('RWA', i) / qv('TA', i), 1))]], { boldRows:[3], firstCol:40 }));
-    for (const id of ['solva', 'cet1', 'levier_b']) await indicator(I[id]);
   }
-  if (has('methode')) {
-    section('methode', 'Méthodologie, seuils et données manquantes');
-    body.push(W.p(W.run('Les états financiers suivent le plan comptable bancaire révisé de l’UMOA. Les seuils réglementaires reprennent le dispositif prudentiel de la BCEAO ; les repères d’analyse ne sont pas des normes. Chaque formule de ce rapport est produite par le même moteur de calcul que l’application.')));
+  function paramsTable() {
     body.push(W.table([['Paramètre', 'Valeur', 'Source'], ...PARAMS.filter(p => !p.k.startsWith('w_') && !p.k.startsWith('ccf') && p.k !== 'alpha_ro').map(p => [p.l, nf(p.v % 1 || state.params[p.k] % 1 ? 1 : 0).format(state.params[p.k]) + ' %', { t:p.src, align:'left' }])], { firstCol:42 }));
+  }
+  function missingBlock() {
     const missAll = new Set();
     IND.forEach(ind => { if (!ind.opt) yrs.forEach((_, i) => calc(nodeOf(ind), i).c.miss.forEach(k => missAll.add(k))); });
     body.push(W.h(2, 'Données manquantes'));
     body.push(missAll.size ? W.p(W.run('Les postes suivants ne sont pas saisis pour au moins un exercice ; les indicateurs qui en dépendent sont marqués « Non calculé » : ' + [...missAll].map(k => F[k].l).join(', ') + '.')) : W.p(W.run('Toutes les données utilisées par les indicateurs sont renseignées.')));
   }
 
+  const headRight = type === 'comparaison' ? 'Comparaison de banques' : b.name;
   const NS = 'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"';
   const doc = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document ' + NS + '><w:body>' + body.join('')
-    + '<w:sectPr><w:footerReference w:type="default" r:id="rIdFooter"/><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1247" w:right="1134" w:bottom="1247" w:left="1134" w:header="567" w:footer="567" w:gutter="0"/></w:sectPr></w:body></w:document>';
+    + '<w:sectPr><w:headerReference w:type="default" r:id="rIdHeader"/><w:headerReference w:type="first" r:id="rIdHeaderFirst"/><w:footerReference w:type="default" r:id="rIdFooter"/><w:footerReference w:type="first" r:id="rIdFooterFirst"/><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1247" w:right="1134" w:bottom="1247" w:left="1134" w:header="567" w:footer="567" w:gutter="0"/><w:titlePg/></w:sectPr></w:body></w:document>';
   const styles = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
     + '<w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri" w:eastAsia="Calibri" w:cs="Calibri"/><w:sz w:val="21"/><w:szCs w:val="21"/><w:lang w:val="fr-FR"/></w:rPr></w:rPrDefault><w:pPrDefault><w:pPr><w:spacing w:after="120" w:line="264" w:lineRule="auto"/></w:pPr></w:pPrDefault></w:docDefaults>'
     + '<w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/><w:qFormat/></w:style>'
     + '<w:style w:type="paragraph" w:styleId="Title"><w:name w:val="Title"/><w:basedOn w:val="Normal"/><w:qFormat/><w:pPr><w:spacing w:before="2400" w:after="240"/></w:pPr><w:rPr><w:b/><w:color w:val="' + DOC_COLORS.accent + '"/><w:sz w:val="52"/><w:szCs w:val="52"/></w:rPr></w:style>'
-    + [1, 2, 3].map(l => '<w:style w:type="paragraph" w:styleId="Heading' + l + '"><w:name w:val="heading ' + l + '"/><w:basedOn w:val="Normal"/><w:next w:val="Normal"/><w:qFormat/><w:pPr><w:keepNext/><w:spacing w:before="' + [0, 360, 280, 220][l] + '" w:after="' + [0, 160, 120, 80][l] + '"/><w:outlineLvl w:val="' + (l - 1) + '"/></w:pPr><w:rPr><w:b/><w:color w:val="' + (l === 3 ? '13201A' : DOC_COLORS.accent) + '"/><w:sz w:val="' + [0, 34, 27, 23][l] + '"/><w:szCs w:val="' + [0, 34, 27, 23][l] + '"/></w:rPr></w:style>').join('')
+    + [1, 2, 3].map(l => '<w:style w:type="paragraph" w:styleId="Heading' + l + '"><w:name w:val="heading ' + l + '"/><w:basedOn w:val="Normal"/><w:next w:val="Normal"/><w:qFormat/><w:pPr><w:keepNext/>' + (l === 1 ? '<w:pBdr><w:bottom w:val="single" w:sz="8" w:space="4" w:color="' + DOC_COLORS.accent + '"/></w:pBdr>' : '') + '<w:spacing w:before="' + [0, 360, 280, 220][l] + '" w:after="' + [0, 200, 120, 80][l] + '"/><w:outlineLvl w:val="' + (l - 1) + '"/></w:pPr><w:rPr><w:b/><w:color w:val="' + (l === 3 ? '13201A' : DOC_COLORS.accent) + '"/><w:sz w:val="' + [0, 34, 27, 23][l] + '"/><w:szCs w:val="' + [0, 34, 27, 23][l] + '"/></w:rPr></w:style>').join('')
     + '<w:style w:type="paragraph" w:styleId="Note"><w:name w:val="Note"/><w:basedOn w:val="Normal"/><w:rPr><w:i/><w:color w:val="' + DOC_COLORS.ink3 + '"/><w:sz w:val="18"/></w:rPr></w:style>'
     + '<w:style w:type="table" w:styleId="Grille"><w:name w:val="Grille"/><w:tblPr><w:tblBorders><w:top w:val="single" w:sz="4" w:color="C9D2CC"/><w:left w:val="single" w:sz="4" w:color="C9D2CC"/><w:bottom w:val="single" w:sz="4" w:color="C9D2CC"/><w:right w:val="single" w:sz="4" w:color="C9D2CC"/><w:insideH w:val="single" w:sz="4" w:color="C9D2CC"/><w:insideV w:val="single" w:sz="4" w:color="C9D2CC"/></w:tblBorders><w:tblCellMar><w:top w:w="40" w:type="dxa"/><w:left w:w="90" w:type="dxa"/><w:bottom w:w="40" w:type="dxa"/><w:right w:w="90" w:type="dxa"/></w:tblCellMar></w:tblPr></w:style>'
     + '</w:styles>';
-  const footer = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:ftr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:p><w:pPr><w:jc w:val="right"/></w:pPr><w:r><w:rPr><w:color w:val="' + DOC_COLORS.ink3 + '"/><w:sz w:val="16"/></w:rPr><w:t xml:space="preserve">' + XE(b.name) + ' · page </w:t></w:r><w:r><w:rPr><w:color w:val="' + DOC_COLORS.ink3 + '"/><w:sz w:val="16"/></w:rPr><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:rPr><w:color w:val="' + DOC_COLORS.ink3 + '"/><w:sz w:val="16"/></w:rPr><w:instrText xml:space="preserve"> PAGE </w:instrText></w:r><w:r><w:rPr><w:color w:val="' + DOC_COLORS.ink3 + '"/><w:sz w:val="16"/></w:rPr><w:fldChar w:fldCharType="separate"/></w:r><w:r><w:rPr><w:color w:val="' + DOC_COLORS.ink3 + '"/><w:sz w:val="16"/></w:rPr><w:t>1</w:t></w:r><w:r><w:rPr><w:color w:val="' + DOC_COLORS.ink3 + '"/><w:sz w:val="16"/></w:rPr><w:fldChar w:fldCharType="end"/></w:r></w:p></w:ftr>';
-  const rels = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rIdStyles" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/><Relationship Id="rIdFooter" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer" Target="footer1.xml"/>'
-    + media.map((_, i) => '<Relationship Id="rIdImg' + (i + 1) + '" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/graphique' + (i + 1) + '.png"/>').join('') + '</Relationships>';
+  const small = '<w:rPr><w:color w:val="' + DOC_COLORS.ink3 + '"/><w:sz w:val="16"/></w:rPr>';
+  const fld = code => '<w:r>' + small + '<w:fldChar w:fldCharType="begin"/></w:r><w:r>' + small + '<w:instrText xml:space="preserve"> ' + code + ' </w:instrText></w:r><w:r>' + small + '<w:fldChar w:fldCharType="separate"/></w:r><w:r>' + small + '<w:t>1</w:t></w:r><w:r>' + small + '<w:fldChar w:fldCharType="end"/></w:r>';
+  const WNS = 'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"';
+  const footer = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:ftr ' + WNS + '><w:p><w:pPr><w:jc w:val="right"/></w:pPr><w:r>' + small + '<w:t xml:space="preserve">' + XE(headRight) + ' · page </w:t></w:r>' + fld('PAGE') + '<w:r>' + small + '<w:t xml:space="preserve"> sur </w:t></w:r>' + fld('NUMPAGES') + '</w:p></w:ftr>';
+  const header = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:hdr ' + WNS + '><w:p><w:pPr><w:pBdr><w:bottom w:val="single" w:sz="4" w:space="4" w:color="' + DOC_COLORS.accent + '"/></w:pBdr><w:tabs><w:tab w:val="right" w:pos="9638"/></w:tabs></w:pPr><w:r><w:rPr><w:b/><w:color w:val="' + DOC_COLORS.accent + '"/><w:sz w:val="16"/></w:rPr><w:t xml:space="preserve">' + XE(typeLabel.toUpperCase()) + '</w:t></w:r><w:r>' + small + '<w:tab/><w:t xml:space="preserve">' + XE(headRight) + '</w:t></w:r></w:p></w:hdr>';
+  const emptyHdr = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:hdr ' + WNS + '><w:p/></w:hdr>', emptyFtr = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:ftr ' + WNS + '><w:p/></w:ftr>';
+  const REL = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/';
+  const rels = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rIdStyles" Type="' + REL + 'styles" Target="styles.xml"/><Relationship Id="rIdFooter" Type="' + REL + 'footer" Target="footer1.xml"/><Relationship Id="rIdFooterFirst" Type="' + REL + 'footer" Target="footer2.xml"/><Relationship Id="rIdHeader" Type="' + REL + 'header" Target="header1.xml"/><Relationship Id="rIdHeaderFirst" Type="' + REL + 'header" Target="header2.xml"/>'
+    + media.map((_, i) => '<Relationship Id="rIdImg' + (i + 1) + '" Type="' + REL + 'image" Target="media/graphique' + (i + 1) + '.png"/>').join('') + '</Relationships>';
   const now = new Date().toISOString().replace(/\.\d+Z$/, 'Z');
-  const core = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"><dc:title>' + XE(opt.title || ('Analyse financière de ' + b.name)) + '</dc:title><dc:creator>' + XE(opt.author || 'Analyste Bancaire UMOA') + '</dc:creator><dc:language>fr-FR</dc:language><dcterms:created xsi:type="dcterms:W3CDTF">' + now + '</dcterms:created></cp:coreProperties>';
+  const core = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"><dc:title>' + XE(title) + '</dc:title><dc:subject>' + XE(typeLabel) + '</dc:subject><dc:creator>' + XE(opt.author || 'Analyste Bancaire UMOA') + '</dc:creator><dc:language>fr-FR</dc:language><dcterms:created xsi:type="dcterms:W3CDTF">' + now + '</dcterms:created></cp:coreProperties>';
   const zip = new JSZip();
-  zip.file('[Content_Types].xml', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Default Extension="png" ContentType="image/png"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/><Override PartName="/word/footer1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml"/><Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/></Types>');
+  const WML = 'application/vnd.openxmlformats-officedocument.wordprocessingml.';
+  zip.file('[Content_Types].xml', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Default Extension="png" ContentType="image/png"/><Override PartName="/word/document.xml" ContentType="' + WML + 'document.main+xml"/><Override PartName="/word/styles.xml" ContentType="' + WML + 'styles+xml"/><Override PartName="/word/footer1.xml" ContentType="' + WML + 'footer+xml"/><Override PartName="/word/footer2.xml" ContentType="' + WML + 'footer+xml"/><Override PartName="/word/header1.xml" ContentType="' + WML + 'header+xml"/><Override PartName="/word/header2.xml" ContentType="' + WML + 'header+xml"/><Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/></Types>');
   zip.file('_rels/.rels', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/></Relationships>');
   zip.file('docProps/core.xml', core);
   zip.file('word/document.xml', doc);
   zip.file('word/styles.xml', styles);
   zip.file('word/footer1.xml', footer);
+  zip.file('word/footer2.xml', emptyFtr);
+  zip.file('word/header1.xml', header);
+  zip.file('word/header2.xml', emptyHdr);
   zip.file('word/_rels/document.xml.rels', rels);
   media.forEach((bytes, i) => zip.file('word/media/graphique' + (i + 1) + '.png', bytes));
-  return zip.generateAsync({ type:'blob', mimeType:'application/vnd.openxmlformats-officedocument.wordprocessingml.document', compression:'DEFLATE' });
+  return zip.generateAsync({ type:'blob', mimeType:WML + 'document', compression:'DEFLATE' });
 }
 async function saveFile(name, data, type) {
   if (CAN_DOWNLOAD) { download(name, data, type); return; }
@@ -2168,33 +2517,49 @@ async function saveFile(name, data, type) {
   catch (e) { toast(e && e.code === 'declined' ? 'Téléchargement annulé' : e && e.code === 'rate_limited' ? 'Une demande est déjà ouverte, réessaie dans un instant' : 'Téléchargement impossible ici'); }
 }
 function vRapport() {
-  const b = bank(), o = state.report || {};
+  const b = bank(), o = state.report || {}, type = REPORT_TYPES.some(t => t[0] === o.type) ? o.type : 'complet';
   const secs = o.sections || REPORT_SECTIONS.map(([k]) => k);
-  let h = head('Export', 'Rapport Word', 'Génère un document Word (.docx) avec l’analyse complète de la période choisie : formules en équations Word, applications numériques, tableaux, graphiques et interprétations. Tu peux ensuite le modifier dans Word, Pages ou Google Docs.');
+  const allBanks = Object.values(state.banks), chosen = o.banks || allBanks.map(x => x.id);
+  let h = head('Export', 'Rapport Word', 'Génère un document Word (.docx) prêt à rendre ou à présenter. Choisis le modèle selon le lecteur : cours, direction, contrôle prudentiel ou comparaison. Tu peux ensuite le modifier dans Word, Pages ou Google Docs.');
   h += exampleBanner();
-  h += '<div class="card"><h3>Contenu</h3><div class="meta-grid">'
-    + '<label>Titre<input type="text" id="rTitle" maxlength="150" value="' + esc(o.title || ('Analyse financière de ' + b.name)) + '"></label>'
-    + '<label>Auteur (facultatif)<input type="text" id="rAuthor" maxlength="80" value="' + esc(o.author || '') + '"></label></div>'
-    + '<div class="checks" style="margin-top:6px">' + REPORT_SECTIONS.map(([k, l]) => '<label class="check" for="rs-' + k + '"><input type="checkbox" id="rs-' + k + '" data-rsec="' + k + '"' + (secs.includes(k) ? ' checked' : '') + '> ' + l + '</label>').join('') + '</div>'
-    + '<div class="checks" style="margin-top:6px"><label class="check" for="rCharts"><input type="checkbox" id="rCharts"' + (o.charts === false ? '' : ' checked') + '> Inclure les graphiques</label>'
-    + '<label class="check" for="rAll"><input type="checkbox" id="rAll"' + (o.allYears ? ' checked' : '') + '> Application numérique pour chaque exercice (sinon seulement ' + Y()[state.yi] + ', l’année détaillée)</label></div>'
-    + '<label class="note" for="rComment" style="display:grid;gap:4px;margin-top:6px">Commentaire de l’analyste, ajouté à la synthèse (facultatif)<textarea id="rComment" maxlength="4000" style="min-height:80px;font-family:inherit;font-size:.9rem">' + esc(o.comment || '') + '</textarea></label>'
-    + '<div class="row" style="margin-top:8px"><button class="btn pri" id="rGo">Générer le rapport Word</button><span class="note">Période ' + Y()[0] + '–' + Y()[Y().length - 1] + ' · ' + esc(b.name) + '</span></div><div id="rStatus" class="file-status" hidden></div></div>';
+  h += '<div class="card"><h3>1. Modèle de rapport</h3><div class="rtypes" role="radiogroup" aria-label="Modèle de rapport">' + REPORT_TYPES.map(([k, l, d, p]) => '<label class="rtype' + (k === type ? ' on' : '') + '" for="rt-' + k + '"><input type="radio" name="rtype" id="rt-' + k + '" value="' + k + '"' + (k === type ? ' checked' : '') + '><span class="rtype-h"><b>' + l + '</b><span class="tag">' + p + '</span></span><span class="note">' + d + '</span></label>').join('') + '</div></div>';
+  h += '<div class="card"><h3>2. Contenu</h3><div class="meta-grid">'
+    + '<label>Titre<input type="text" id="rTitle" maxlength="150" value="' + esc(o.title || '') + '" placeholder="' + esc(reportTitle(type, b)) + '"></label>'
+    + '<label>Auteur (facultatif)<input type="text" id="rAuthor" maxlength="80" value="' + esc(o.author || '') + '"></label>'
+    + '<label>Couleurs<select id="rTheme">' + Object.entries(DOC_THEMES).map(([k, t]) => '<option value="' + k + '"' + ((o.theme || 'classique') === k ? ' selected' : '') + '>' + t.n + '</option>').join('') + '</select></label></div>';
+  if (type === 'complet') h += '<p class="eyebrow" style="margin:6px 0 0">Parties</p><div class="checks">' + REPORT_SECTIONS.map(([k, l]) => '<label class="check" for="rs-' + k + '"><input type="checkbox" id="rs-' + k + '" data-rsec="' + k + '"' + (secs.includes(k) ? ' checked' : '') + '> ' + l + '</label>').join('') + '</div>';
+  if (type === 'comparaison') h += '<p class="eyebrow" style="margin:6px 0 0">Banques à comparer (2 au moins)</p><div class="checks">' + allBanks.map(x => '<label class="check" for="rb-' + esc(x.id) + '"><input type="checkbox" id="rb-' + esc(x.id) + '" data-rbank="' + esc(x.id) + '"' + (chosen.includes(x.id) ? ' checked' : '') + '> ' + esc(x.name) + ' <span class="note">(' + esc(x.years[0] + (x.years.length > 1 ? '–' + x.years[x.years.length - 1] : '')) + ')</span></label>').join('') + '</div>'
+    + (allBanks.length < 2 ? '<p class="miss">Il n’y a qu’une banque : ajoute ou importe d’autres banques pour les comparer.</p>' : '');
+  h += '<div class="checks" style="margin-top:6px"><label class="check" for="rCharts"><input type="checkbox" id="rCharts"' + (o.charts === false ? '' : ' checked') + '> Inclure les graphiques</label>'
+    + (type === 'complet' ? '<label class="check" for="rAll"><input type="checkbox" id="rAll"' + (o.allYears ? ' checked' : '') + '> Application numérique pour chaque exercice (sinon seulement ' + Y()[state.yi] + ', l’année détaillée)</label>' : '') + '</div>'
+    + '<label class="note" for="rComment" style="display:grid;gap:4px;margin-top:6px">Commentaire de l’analyste, ajouté au rapport (facultatif)<textarea id="rComment" maxlength="4000" style="min-height:80px;font-family:inherit;font-size:.9rem">' + esc(o.comment || '') + '</textarea></label>'
+    + '<div class="row" style="margin-top:8px"><button class="btn pri" id="rGo">Générer : ' + REPORT_TYPES.find(t => t[0] === type)[1] + '</button><span class="note">' + (type === 'comparaison' ? 'Dernier exercice de chaque banque' : 'Période ' + Y()[0] + '–' + Y()[Y().length - 1] + ' · ' + esc(b.name)) + '</span></div><div id="rStatus" class="file-status" hidden></div></div>';
   return h;
 }
 function bindRapport() {
-  const read = () => ({ title:$('#rTitle').value.trim(), author:$('#rAuthor').value.trim(), sections:[...view.querySelectorAll('[data-rsec]')].filter(c => c.checked).map(c => c.dataset.rsec), charts:$('#rCharts').checked, allYears:$('#rAll').checked, comment:$('#rComment').value.trim() });
-  view.querySelectorAll('#rTitle,#rAuthor,#rComment,[data-rsec],#rCharts,#rAll').forEach(el => el.addEventListener('change', () => { state.report = read(); }));
+  const prev = () => state.report || {};
+  const read = () => {
+    const p = prev(), type = (view.querySelector('[name="rtype"]:checked') || {}).value || 'complet';
+    return { type, title:$('#rTitle').value.trim(), author:$('#rAuthor').value.trim(), theme:$('#rTheme').value,
+      sections:$('[data-rsec]') ? [...view.querySelectorAll('[data-rsec]')].filter(c => c.checked).map(c => c.dataset.rsec) : (p.sections || REPORT_SECTIONS.map(([k]) => k)),
+      banks:$('[data-rbank]') ? [...view.querySelectorAll('[data-rbank]')].filter(c => c.checked).map(c => c.dataset.rbank) : p.banks,
+      charts:$('#rCharts').checked, allYears:$('#rAll') ? $('#rAll').checked : !!p.allYears, comment:$('#rComment').value.trim() };
+  };
+  view.querySelectorAll('#rTitle,#rAuthor,#rComment,#rTheme,[data-rsec],[data-rbank],#rCharts,#rAll').forEach(el => el.addEventListener('change', () => { state.report = read(); }));
+  view.querySelectorAll('[name="rtype"]').forEach(r => r.addEventListener('change', () => { const o = read(); if (o.title === reportTitle(prev().type || 'complet', bank())) o.title = ''; state.report = o; renderAll(); }));
   $('#rGo').onclick = async () => {
     const o = state.report = read();
     const st = $('#rStatus');
-    if (!o.sections.length) { st.hidden = false; st.className = 'file-status err'; st.textContent = 'Coche au moins une partie.'; return; }
+    const fail = m => { st.hidden = false; st.className = 'file-status err'; st.textContent = m; };
+    if (o.type === 'complet' && !o.sections.length) return fail('Coche au moins une partie.');
+    if (o.type === 'comparaison' && (o.banks || []).filter(id => state.banks[id]).length < 2) return fail('Coche au moins deux banques à comparer.');
     $('#rGo').disabled = true; st.hidden = false; st.className = 'file-status'; st.textContent = 'Préparation du rapport…';
     try {
       const blob = await buildReport(o);
       st.textContent = 'Rapport prêt (' + Math.max(1, Math.round(blob.size / 1024)) + ' Ko).';
-      await saveFile('Analyse_' + fileBase() + '_' + Y()[0] + '-' + Y()[Y().length - 1] + '.docx', blob, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
-    } catch (e) { st.className = 'file-status err'; st.textContent = e && /chargé/.test(e.message || '') ? e.message : 'Le rapport n’a pas pu être généré. Réessaie ; si le problème persiste, décoche les graphiques.'; }
+      const name = o.type === 'comparaison' ? 'Comparaison_banques_' + new Date().toISOString().slice(0, 10) + '.docx' : (REPORT_FILE[o.type] || 'Analyse') + '_' + fileBase() + '_' + Y()[0] + '-' + Y()[Y().length - 1] + '.docx';
+      await saveFile(name, blob, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+    } catch (e) { st.className = 'file-status err'; st.textContent = e && /chargé|banques/.test(e.message || '') ? e.message : 'Le rapport n’a pas pu être généré. Réessaie ; si le problème persiste, décoche les graphiques.'; }
     finally { $('#rGo').disabled = false; }
   };
 }
@@ -2822,13 +3187,332 @@ function rScript() {
   L.push(R_GRAPHS.replace('@@DOSSIER@@', 'graphiques_' + fileBase()).replace('@@TITRE@@', rStr(b.name)));
   return L.map(rAscii).join('\n');
 }
+/* Styles de code R : même moteur de formules (toR), présentations différentes */
+const R_STYLES = [
+  ['complet', 'Complet', 'R de base', 'Tous les calculs de l’app, contrôle des seuils, 14 graphiques en PNG et PDF (et Word avec officer). Aucun package.'],
+  ['essentiel', 'Essentiel', 'court, sans package', 'Le strict nécessaire, lisible d’un coup d’œil : les chiffres, les ratios clés, un verdict OK / ALERTE et deux graphiques.'],
+  ['moderne', 'Moderne', 'tidyverse + ggplot2', 'Un tableau, un pipe |> et mutate() ; tableau des ratios avec statut, quatre graphiques ggplot2 soignés enregistrés en PNG.'],
+  ['rmd', 'Rapport R Markdown', '.Rmd → Word ou HTML', 'Un rapport rédigé où les chiffres du texte sont calculés par R : bouton « Knit » dans RStudio pour obtenir un Word ou une page web.']
+];
+const R_ESS_IDS = ['transfo', 'liq', 'levier', 'mult', 'solva_s', 'solva', 'cet1', 'levier_b', 'roa', 'roe', 'coef', 'cdr', 'pnbc', 'chute'];
+/* Grandeurs, postes et paramètres dont dépendent des indicateurs */
+function rDeps(ids) {
+  const qs = new Set(), vs = new Set(), ps = new Set();
+  const walk = n => {
+    if (!n) return;
+    if (n.t === 'v') vs.add(n.k); else if (n.t === 'q') addQ(n.id); else if (n.t === 'p') ps.add(n.k);
+    if (n.t === 's') n.a.forEach(([, x]) => walk(x)); else if (n.a) n.a.forEach(walk);
+    if (n.x) walk(n.x);
+  };
+  const addQ = id => { if (qs.has(id)) return; qs.add(id); const q = QTY[id]; walk(q.node); walk(q.alt); if (q.decl) vs.add(q.decl); };
+  ids.forEach(id => { walk(nodeOf(I[id])); if (I[id].thr) ps.add(I[id].thr.k); });
+  return { qs:qtyOrder().filter(q => qs.has(q)), vs:FIELDS.filter(f => vs.has(f.k)), ps:PARAMS.filter(p => ps.has(p.k)) };
+}
+const rVec = (b, k) => 'c(' + b.years.map((_, i) => { const x = b.v[k] && b.v[k][i]; return fin(x) ? rNum(x) : 'NA'; }).join(', ') + ')';
+const rBar = (t, w = 66) => { const s = '# ---- ' + t + ' '; return s + '-'.repeat(Math.max(4, w - s.length)); };
+const rHelpers = code => [
+  /\blag1\(/.test(code) ? 'lag1 <- function(x) c(NA, head(x, -1))                  # exercice precedent' : null,
+  /\bsi_absent\(/.test(code) ? 'si_absent <- function(x, sinon) ifelse(is.na(x), sinon, x)  # valeur declaree, sinon estimee' : null,
+  /\bmoy_pos3\(/.test(code) ? 'moy_pos3 <- function(x) sapply(seq_along(x), function(i) {  # moyenne des valeurs > 0 sur 3 ans\n  v <- x[max(1, i - 2):i]; v <- v[!is.na(v) & v > 0]; if (length(v)) mean(v) else NA\n})' : null
+].filter(Boolean);
+const rThrLine = (id, nom) => { const t = I[id].thr; return 'verdict(' + JSON.stringify(nom) + ', ' + id + ', p$' + t.k + ', "' + t.dir + '")'; };
+
+function rScriptEssentiel() {
+  const b = bank(), d = rDeps(R_ESS_IDS), pad = (x, n) => x + ' '.repeat(Math.max(1, n - x.length));
+  const calc = [];
+  d.qs.forEach(id => calc.push(pad(id + ' <- ' + rQtyExpr(id), 54) + '# ' + rComment(QTY[id].long || QTY[id].n)));
+  const ind = R_ESS_IDS.map(id => pad(id + ' <- ' + stripOuter(toR(nodeOf(I[id]))), 54) + '# ' + rComment(I[id].n));
+  const helpers = rHelpers(calc.concat(ind).join('\n'));
+  const L = [
+    '# ==============================================================',
+    '#   ' + rComment(b.name) + '  --  l\'essentiel en R',
+    '#   Genere le ' + new Date().toLocaleDateString('fr-FR') + ' par Analyste Bancaire UMOA',
+    '#   R de base, zero package : copie, colle, lance. C\'est tout.',
+    '# ==============================================================', '',
+    rBar('1. Les chiffres (' + rComment(b.unit) + ', NA = pas saisi)'),
+    pad('annee <- c(' + b.years.join(', ') + ')', 54) + '# exercices',
+    ...d.vs.map(f => pad(rName(f.k) + ' <- ' + rVec(b, f.k), 54) + '# ' + rComment(f.l)), '',
+    rBar('2. Les reglages (en %)'),
+    'p <- list(',
+    d.ps.map((pp, i) => pad('  ' + pp.k + ' = ' + rNum(state.params[pp.k]) + (i < d.ps.length - 1 ? ',' : ''), 30) + '# ' + rComment(pp.l)).join('\n'),
+    ')',
+    'p <- lapply(p, function(x) x / 100)                        # 11.5 % devient 0.115', ''];
+  if (helpers.length) L.push(rBar('3. Les petits outils'), ...helpers, '');
+  L.push(rBar('4. Les grandeurs'), ...calc, '');
+  L.push(rBar('5. Les ratios (proportions : 0.15 = 15 %)'), ...ind, '');
+  L.push(rBar('6. Le tableau de bord (en %)'),
+    'pct <- function(x) round(100 * x, 2)',
+    'tableau <- data.frame(',
+    '  annee,',
+    ['transfo', 'liq', 'levier', 'solva_s', 'solva', 'cet1', 'levier_b', 'roa', 'roe', 'coef', 'cdr', 'chute'].map(id => '  ' + id + ' = pct(' + id + ')').join(',\n'),
+    ')',
+    'print(tableau, row.names = FALSE)', '');
+  L.push(rBar('7. Verdict express (dernier exercice)'),
+    'n <- length(annee)',
+    'verdict <- function(nom, x, seuil, sens = "min") {',
+    '  v <- x[n]',
+    '  ok <- if (is.na(v)) NA else if (sens == "min") v >= seuil else v <= seuil',
+    '  etat <- if (is.na(ok)) "  ?   " else if (ok) "  OK  " else "ALERTE"',
+    '  cat(sprintf("[%s] %-34s %8.2f %%   (seuil %s %.1f %%)\\n", etat, nom, 100 * v, if (sens == "min") ">=" else "<=", 100 * seuil))',
+    '}',
+    'cat("\\n== Verdict", annee[n], "==\\n")',
+    rThrLine('solva', 'Solvabilite globale (Bale)'), rThrLine('cet1', 'Ratio CET1'), rThrLine('levier_b', 'Levier Bale III'),
+    rThrLine('liq', 'Liquidite (bilan)'), rThrLine('transfo', 'Transformation'), rThrLine('roe', 'ROE'), rThrLine('roa', 'ROA'),
+    rThrLine('coef', 'Coefficient d\'exploitation'), rThrLine('cdr', 'Cout du risque / credits'),
+    'if (!is.na(chute[n])) cat(if (chute[n] >= 1) "\\nFaillite : meme un PNB nul n\'effacerait pas les fonds propres en un an. Solide.\\n" else sprintf("\\nFaillite : une chute du PNB de %.1f %% suffirait a effacer les fonds propres.\\n", 100 * chute[n]))', '');
+  L.push(rBar('8. Deux graphiques, et c\'est plie'),
+    'op <- par(mfrow = c(1, 2), mar = c(4, 4, 3, 1), las = 1)',
+    'if (any(!is.na(c(roe, roa)))) {',
+    '  barplot(100 * rbind(roe, roa), beside = TRUE, names.arg = annee, col = c("#2a78d6", "#eb6834"), border = NA,',
+    '          main = "Rentabilit\\u00e9 (%)", legend.text = c("ROE", "ROA"), args.legend = list(bty = "n"))',
+    '  abline(h = 0, col = "grey60")',
+    '}',
+    'if (any(!is.na(solva))) {',
+    '  barplot(100 * solva, names.arg = annee, border = NA, main = "Solvabilit\\u00e9 globale (%)",',
+    '          col = ifelse(!is.na(solva) & solva >= p$seuil_solva, "#1baf7a", "#b3302a"), ylim = c(0, max(100 * c(solva, p$seuil_solva), na.rm = TRUE) * 1.2))',
+    '  abline(h = 100 * p$seuil_solva, lty = 2)',
+    '}',
+    'par(op)');
+  return L.map(rAscii).join('\n');
+}
+
+function rScriptModerne() {
+  const b = bank(), yrs = b.years, Yv = Y(), pad = (x, n) => x + ' '.repeat(Math.max(1, n - x.length));
+  const calc = [];
+  qtyOrder().forEach(id => calc.push(pad('    ' + id + ' = ' + rQtyExpr(id) + ',', 60) + '# ' + rComment(QTY[id].long || QTY[id].n)));
+  IND.forEach(i => calc.push(pad('    ' + i.id + ' = ' + stripOuter(toR(nodeOf(i))) + ',', 60) + '# ' + rComment(i.n)));
+  calc[calc.length - 1] = calc[calc.length - 1].replace(/,(\s+#)/, ' $1');
+  const helpers = rHelpers(calc.join('\n'));
+  const pctIds = IND.filter(i => (i.fmt || 'pct') === 'pct').map(i => i.id);
+  const L = [
+    '# ==============================================================',
+    '#   ' + rComment(b.name) + '  --  version tidyverse',
+    '#   Genere le ' + new Date().toLocaleDateString('fr-FR') + ' par Analyste Bancaire UMOA',
+    '#   Packages : dplyr, tidyr, ggplot2  ->  install.packages("tidyverse")',
+    '# ==============================================================', '',
+    'library(dplyr)', 'library(tidyr)', 'library(ggplot2)', '',
+    rBar('1. Les donnees (' + rComment(b.unit) + ')'),
+    'banque <- tibble(',
+    '  annee = c(' + yrs.join(', ') + '),',
+    FIELDS.map((f, i) => pad('  ' + rName(f.k) + ' = ' + rVec(b, f.k) + (i < FIELDS.length - 1 ? ',' : ''), 60) + '# ' + rComment(f.l)).join('\n'),
+    ')', '',
+    rBar('2. Les reglages (en %, convertis en proportions)'),
+    'p <- list(',
+    PARAMS.map((pp, i) => pad('  ' + pp.k + ' = ' + rNum(state.params[pp.k]) + (i < PARAMS.length - 1 ? ',' : ''), 30) + '# ' + rComment(pp.l)).join('\n'),
+    ') |> lapply(function(x) x / 100)', '',
+    rBar('3. Les outils'), ...helpers, '',
+    rBar('4. Tout le calcul en un seul mutate()'),
+    '# Base des rentabilites : ' + (state.base === 'moy' ? 'moyenne N / N-1' : 'fin d\'exercice'),
+    'analyse <- banque |>',
+    '  arrange(annee) |>',
+    '  mutate(',
+    ...calc,
+    '  )', '',
+    rBar('5. Les ratios en format long, avec leur statut'),
+    'seuils <- tibble(',
+    '  id     = c(' + pctIds.map(x => '"' + x + '"').join(', ') + '),',
+    '  ratio  = c(' + pctIds.map(x => '"' + I[x].n + '"').join(', ') + '),',
+    '  seuil  = c(' + pctIds.map(x => I[x].thr ? 'p$' + I[x].thr.k : 'NA').join(', ') + '),',
+    '  sens   = c(' + pctIds.map(x => I[x].thr ? '"' + I[x].thr.dir + '"' : 'NA').join(', ') + ')',
+    ')',
+    'ratios <- analyse |>',
+    '  filter(annee >= ' + Yv[0] + ', annee <= ' + Yv[Yv.length - 1] + ') |>',
+    '  select(annee, all_of(seuils$id)) |>',
+    '  pivot_longer(-annee, names_to = "id", values_to = "valeur") |>',
+    '  left_join(seuils, by = "id") |>',
+    '  mutate(statut = case_when(',
+    '    is.na(valeur)                       ~ "n.d.",',
+    '    is.na(seuil)                        ~ "information",',
+    '    sens == "min" & valeur >= seuil     ~ "conforme",',
+    '    sens == "max" & valeur <= seuil     ~ "conforme",',
+    '    TRUE                                ~ "hors seuil"',
+    '  ))', '',
+    '# Tableau lisible : une ligne par ratio, une colonne par annee (en %)',
+    'ratios |>',
+    '  mutate(valeur = round(100 * valeur, 2)) |>',
+    '  select(ratio, annee, valeur) |>',
+    '  pivot_wider(names_from = annee, values_from = valeur) |>',
+    '  print(n = Inf)', '',
+    '# Ce qui coince sur le dernier exercice',
+    'ratios |> filter(annee == max(annee), statut == "hors seuil") |> select(ratio, valeur, seuil) |> print()', '',
+    rBar('6. Les graphiques ggplot2'),
+    'dossier <- "ggplot_' + fileBase() + '"',
+    'dir.create(dossier, showWarnings = FALSE)',
+    'theme_banque <- theme_minimal(base_size = 12) +',
+    '  theme(plot.title = element_text(face = "bold"), plot.title.position = "plot",',
+    '        panel.grid.minor = element_blank(), panel.grid.major.x = element_blank(), legend.position = "bottom")',
+    'couleurs <- c(conforme = "#1baf7a", "hors seuil" = "#b3302a", information = "#2a78d6", "n.d." = "grey75")', '',
+    '# a) Six ratios cles face a leur seuil',
+    'g_ratios <- ratios |>',
+    '  filter(id %in% c("solva", "cet1", "levier_b", "liq", "transfo", "roe")) |>',
+    '  ggplot(aes(factor(annee), valeur, fill = statut)) +',
+    '  geom_col(width = 0.65, na.rm = TRUE) +',
+    '  geom_hline(aes(yintercept = seuil), linetype = "dashed", na.rm = TRUE) +',
+    '  geom_text(aes(label = scales::percent(valeur, accuracy = 0.1, decimal.mark = ",", suffix = " %")), vjust = -0.4, size = 3, na.rm = TRUE) +',
+    '  facet_wrap(~ ratio, scales = "free_y", ncol = 3) +',
+    '  scale_y_continuous(labels = scales::label_percent(decimal.mark = ",", suffix = " %"), expand = expansion(mult = c(0, 0.18))) +',
+    '  scale_fill_manual(values = couleurs, drop = TRUE) +',
+    '  labs(title = "Ratios cl\\u00e9s et seuils", subtitle = "Pointill\\u00e9s : seuil r\\u00e9glementaire ou rep\\u00e8re", x = NULL, y = NULL, fill = NULL) +',
+    '  theme_banque', '',
+    '# b) ROE et ROA',
+    'g_renta <- analyse |>',
+    '  select(annee, ROE = roe, ROA = roa) |>',
+    '  pivot_longer(-annee, names_to = "ratio", values_to = "valeur") |>',
+    '  ggplot(aes(annee, valeur, colour = ratio)) +',
+    '  geom_line(linewidth = 1.2, na.rm = TRUE) + geom_point(size = 3, na.rm = TRUE) +',
+    '  geom_text(aes(label = scales::percent(valeur, accuracy = 0.1, decimal.mark = ",", suffix = " %")), vjust = -1, size = 3.2, na.rm = TRUE, show.legend = FALSE) +',
+    '  scale_x_continuous(breaks = analyse$annee) +',
+    '  scale_y_continuous(labels = scales::label_percent(decimal.mark = ",", suffix = " %"), expand = expansion(mult = c(0.1, 0.25))) +',
+    '  scale_colour_manual(values = c(ROE = "#2a78d6", ROA = "#eb6834")) +',
+    '  labs(title = "Rentabilit\\u00e9", subtitle = "ROE = ROA x multiplicateur de fonds propres", x = NULL, y = NULL, colour = NULL) +',
+    '  theme_banque', '',
+    '# c) Du PNB au resultat net',
+    'g_resultats <- analyse |>',
+    '  select(annee, PNB, RBE, RN) |>',
+    '  pivot_longer(-annee, names_to = "solde", values_to = "montant") |>',
+    '  mutate(solde = factor(solde, levels = c("PNB", "RBE", "RN"), labels = c("PNB", "RBE", "R\\u00e9sultat net"))) |>',
+    '  ggplot(aes(factor(annee), montant, fill = solde)) +',
+    '  geom_col(position = position_dodge(width = 0.75), width = 0.7, na.rm = TRUE) +',
+    '  geom_hline(yintercept = 0, colour = "grey50") +',
+    '  scale_y_continuous(labels = scales::label_number(big.mark = " ")) +',
+    '  scale_fill_manual(values = c("#2a78d6", "#1baf7a", "#eda100")) +',
+    '  labs(title = "Soldes interm\\u00e9diaires de gestion", subtitle = "' + rComment(b.unit) + '", x = NULL, y = NULL, fill = NULL) +',
+    '  theme_banque', '',
+    '# d) Test de faillite : PNB reel contre PNB critique',
+    'g_faillite <- analyse |>',
+    '  select(annee, PNB, PNBC) |>',
+    '  pivot_longer(-annee, names_to = "serie", values_to = "montant") |>',
+    '  mutate(serie = factor(serie, levels = c("PNB", "PNBC"), labels = c("PNB r\\u00e9el", "PNB critique"))) |>',
+    '  ggplot(aes(factor(annee), montant, fill = serie)) +',
+    '  geom_col(position = position_dodge(width = 0.75), width = 0.7, na.rm = TRUE) +',
+    '  geom_hline(yintercept = 0, colour = "grey50") +',
+    '  scale_y_continuous(labels = scales::label_number(big.mark = " ")) +',
+    '  scale_fill_manual(values = c("#2a78d6", "#b3302a")) +',
+    '  labs(title = "Test de faillite", subtitle = "La banque fait faillite si le PNB tombe au niveau critique", x = NULL, y = NULL, fill = NULL) +',
+    '  theme_banque', '',
+    'graphiques <- list(ratios = g_ratios, rentabilite = g_renta, resultats = g_resultats, faillite = g_faillite)',
+    'for (nom in names(graphiques)) tryCatch({',
+    '  print(graphiques[[nom]])',
+    '  ggsave(file.path(dossier, paste0(nom, ".png")), graphiques[[nom]], width = 9, height = 5.5, dpi = 200, bg = "white")',
+    '}, error = function(e) message("Graphique ", nom, " ignore : pas assez de donnees."))',
+    'cat("Graphiques enregistres dans :", normalizePath(dossier), "\\n")'];
+  return L.map(rAscii).join('\n');
+}
+
+function rMarkdown() {
+  const b = bank(), d = rDeps(R_ESS_IDS.concat(['t1', 'marge'])), yrs = b.years;
+  const calc = [];
+  d.qs.forEach(id => calc.push(id + ' <- ' + rQtyExpr(id)));
+  const ids = R_ESS_IDS.concat(['t1', 'marge']);
+  ids.forEach(id => calc.push(id + ' <- ' + stripOuter(toR(nodeOf(I[id])))));
+  const helpers = rHelpers(calc.join('\n'));
+  const chunk = (name, lines, opts = '') => ['```{r ' + name + opts + '}', ...lines.map(rAscii), '```', ''];
+  const yaml = s => String(s).replace(/["\\]/g, '').replace(/[\r\n]+/g, ' ');
+  const tabRows = [['transfo', 'Transformation'], ['liq', 'Liquidit\u00e9 (bilan)'], ['levier', 'Levier (bilan)'], ['solva_s', 'Solvabilit\u00e9 (bilan)'], ['solva', 'Solvabilit\u00e9 globale (B\u00e2le)'], ['cet1', 'Ratio CET1'], ['levier_b', 'Levier B\u00e2le III'], ['roa', 'ROA'], ['roe', 'ROE'], ['coef', "Coefficient d'exploitation"], ['cdr', 'Co\u00fbt du risque / cr\u00e9dits'], ['marge', 'Marge nette']];
+  const L = [
+    '---',
+    'title: "Analyse financière : ' + yaml(b.name) + '"',
+    'subtitle: "' + (yrs.length > 1 ? 'Exercices ' + yrs[0] + ' à ' + yrs[yrs.length - 1] : 'Exercice ' + yrs[0]) + ' · montants en ' + yaml(b.unit) + '"',
+    'author: "Analyste Bancaire UMOA"',
+    'date: "`r format(Sys.Date(), \'%d/%m/%Y\')`"',
+    'output:',
+    '  word_document: default',
+    '  html_document:',
+    '    toc: true',
+    '---', '',
+    '<!-- Généré par Analyste Bancaire UMOA. Dans RStudio : bouton « Knit » (packages rmarkdown et knitr).',
+    '     Tous les chiffres du texte sont recalculés par R : change une donnée plus bas et relance. -->', '',
+    ...chunk('reglages', ['knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE, fig.width = 7, fig.height = 3.6, dpi = 150)'], ', include = FALSE'),
+    ...chunk('donnees', [
+      '# Donnees (' + rComment(b.unit) + ', NA = non saisi)',
+      'annee <- c(' + yrs.join(', ') + ')',
+      ...d.vs.map(f => rName(f.k) + ' <- ' + rVec(b, f.k) + '   # ' + rComment(f.l)),
+      'p <- lapply(list(' + d.ps.map(pp => pp.k + ' = ' + rNum(state.params[pp.k])).join(', ') + '), function(x) x / 100)',
+      ...helpers,
+      '# Grandeurs et ratios (memes formules que l\'app)',
+      ...calc,
+      'n <- length(annee)',
+      'pc <- function(x, d = 1) ifelse(is.na(x), "n.d.", paste0(formatC(100 * x, format = "f", digits = d, decimal.mark = ","), " %"))',
+      'mi <- function(x) ifelse(is.na(x), "n.d.", formatC(x, format = "f", digits = 0, big.mark = " "))',
+      'respecte <- function(x, seuil, sens = "min") !is.na(x) && (if (sens == "min") x >= seuil else x <= seuil)'
+    ], ', include = FALSE'),
+    '# Synthèse', '',
+    'En `r annee[n]`, ' + yaml(b.name) + ' affiche un total de bilan de **`r mi(TA[n])`** millions, un PNB de **`r mi(PNB[n])`** et un résultat net de **`r mi(RN[n])`**. ',
+    'Le ROE atteint **`r pc(roe[n])`** et le ROA **`r pc(roa[n])`**.', '',
+    'Le ratio de solvabilité global estimé s\'établit à **`r pc(solva[n])`** pour un minimum de `r pc(p$seuil_solva)` : `r if (respecte(solva[n], p$seuil_solva)) "la norme est respectée" else "la norme n\'est pas respectée"`. ',
+    'Le ratio CET1 est de `r pc(cet1[n])` (minimum `r pc(p$seuil_cet1)`) et le levier Bâle III de `r pc(levier_b[n])` (minimum `r pc(p$seuil_levier)`).', '',
+    ...chunk('tableau', [
+      'lignes <- list(' + tabRows.map(([id, l]) => '"' + l + '" = ' + id).join(', ') + ')',
+      'm <- matrix(unlist(lapply(lignes, function(x) pc(x, 2))), nrow = length(lignes), byrow = TRUE, dimnames = list(NULL, annee))',
+      'tab <- data.frame(Ratio = names(lignes), m, check.names = FALSE)',
+      'knitr::kable(tab, caption = "Ratios cl\\u00e9s par exercice", align = c("l", rep("r", n)))'
+    ]),
+    '# Structure financière', '',
+    'Le ratio de transformation (crédits / dépôts) passe à **`r pc(transfo[n])`** en `r annee[n]` ; `r if (respecte(transfo[n], p$rep_transfo, "max")) "la banque prête moins qu\'elle ne collecte" else "la banque prête plus qu\'elle ne collecte : elle dépend du refinancement"`. ',
+    'La liquidité bilan est de `r pc(liq[n])` et les capitaux propres financent `r pc(levier[n])` du bilan.', '',
+    ...chunk('graphique-structure', [
+      'par(mar = c(3, 4, 2.5, 1), las = 1)',
+      'm <- 100 * rbind(Transformation = transfo, "Liquidit\\u00e9" = liq, "Solvabilit\\u00e9 (B\\u00e2le)" = solva)',
+      'if (any(!is.na(m))) {',
+      '  barplot(m, beside = TRUE, names.arg = annee, col = c("#2a78d6", "#1baf7a", "#eda100"), border = NA, main = "Structure (en %)", ylim = c(0, max(m, na.rm = TRUE) * 1.25))',
+      '  legend("topleft", legend = rownames(m), fill = c("#2a78d6", "#1baf7a", "#eda100"), border = NA, bty = "n", horiz = TRUE, cex = 0.85)',
+      '}'
+    ]),
+    '# Rentabilité', '',
+    'Identité de Du Pont : ROE = ROA × multiplicateur de fonds propres, soit en `r annee[n]` : `r pc(roa[n], 2)` × `r formatC(mult[n], format = "f", digits = 2, decimal.mark = ",")` = **`r pc(roe[n], 2)`**. ',
+    'Le coefficient d\'exploitation est de `r pc(coef[n])` (repère `r pc(p$rep_coef)`) et le coût du risque représente `r pc(cdr[n], 2)` des crédits.', '',
+    ...chunk('graphique-rentabilite', [
+      'par(mar = c(3, 4, 2.5, 1), las = 1)',
+      'r <- 100 * rbind(ROE = roe, ROA = roa)',
+      'if (any(!is.na(r))) {',
+      '  barplot(r, beside = TRUE, names.arg = annee, col = c("#2a78d6", "#eb6834"), border = NA, main = "ROE et ROA (en %)")',
+      '  abline(h = 0, col = "grey60")',
+      '  legend("topright", legend = rownames(r), fill = c("#2a78d6", "#eb6834"), border = NA, bty = "n")',
+      '}'
+    ]),
+    '# Test de faillite', '',
+    'La banque est en faillite lorsque ses pertes effacent ses capitaux propres, soit une perte de **`r mi(CP[n])`** millions en `r annee[n]`. ',
+    'Le PNB qui produirait cette perte (PNB critique) est de `r mi(pnbc[n])` millions contre un PNB réel de `r mi(PNB[n])` : `r if (!is.na(chute[n]) && chute[n] >= 1) "même la disparition totale du PNB n\'effacerait pas les fonds propres" else paste0("une chute du PNB de ", pc(chute[n]), " suffirait")`.', '',
+    ...chunk('graphique-faillite', [
+      'par(mar = c(3, 5, 2.5, 1), las = 1)',
+      'f <- rbind("PNB r\\u00e9el" = PNB, "PNB critique" = pnbc)',
+      'if (any(!is.na(f))) {',
+      '  barplot(f, beside = TRUE, names.arg = annee, col = c("#2a78d6", "#b3302a"), border = NA, main = "PNB r\\u00e9el et PNB critique (millions)")',
+      '  abline(h = 0, col = "grey60")',
+      '  legend("topleft", legend = rownames(f), fill = c("#2a78d6", "#b3302a"), border = NA, bty = "n", horiz = TRUE, cex = 0.85)',
+      '}'
+    ]),
+    '# Conformité aux seuils (`r annee[n]`)', '',
+    ...chunk('conformite', [
+      'v <- data.frame(',
+      '  Indicateur = c(' + ['solva', 'cet1', 't1', 'levier_b', 'liq', 'transfo', 'roe', 'roa', 'coef', 'cdr'].map(id => '"' + I[id].n + '"').join(', ') + '),',
+      '  Valeur = c(' + ['solva', 'cet1', 't1', 'levier_b', 'liq', 'transfo', 'roe', 'roa', 'coef', 'cdr'].map(id => id + '[n]').join(', ') + '),',
+      '  Seuil = c(' + ['solva', 'cet1', 't1', 'levier_b', 'liq', 'transfo', 'roe', 'roa', 'coef', 'cdr'].map(id => 'p$' + I[id].thr.k).join(', ') + '),',
+      '  Sens = c(' + ['solva', 'cet1', 't1', 'levier_b', 'liq', 'transfo', 'roe', 'roa', 'coef', 'cdr'].map(id => '"' + I[id].thr.dir + '"').join(', ') + ')',
+      ')',
+      'v$Statut <- mapply(function(x, s, d) if (is.na(x)) "n.d." else if (respecte(x, s, d)) "Conforme" else "Hors seuil", v$Valeur, v$Seuil, v$Sens)',
+      'v$Valeur <- pc(v$Valeur, 2); v$Seuil <- paste(ifelse(v$Sens == "min", ">=", "<="), pc(v$Seuil))',
+      'knitr::kable(v[, c("Indicateur", "Valeur", "Seuil", "Statut")], row.names = FALSE)'
+    ]),
+    '# Méthode', '',
+    'États financiers au format du PCB révisé de l\'UMOA. Fonds propres et actifs pondérés estimés à partir du bilan lorsque les états réglementaires ne sont pas saisis (approche standard simplifiée pour le risque de crédit, indicateur de base pour le risque opérationnel). Rentabilités calculées sur ' + (state.base === 'moy' ? 'la moyenne des exercices N et N−1' : 'les montants de fin d\'exercice') + '.', ''
+  ];
+  return L.join('\n');
+}
+const rCode = style => style === 'essentiel' ? rScriptEssentiel() : style === 'moderne' ? rScriptModerne() : style === 'rmd' ? rMarkdown() : rScript();
+const rFileName = style => fileBase() + (style === 'essentiel' ? '_essentiel.R' : style === 'moderne' ? '_tidyverse.R' : style === 'rmd' ? '_rapport.Rmd' : '.R');
 function vR() {
-  const code = rScript();
-  let h = head('Reproductibilité', 'Code R', 'Le script ci-dessous refait tous les calculs de l’app en R : données, paramètres, grandeurs intermédiaires, indicateurs, contrôle des seuils et graphiques. Il est généré à partir des mêmes formules que l’app, il donne donc les mêmes résultats. Il fonctionne en R de base, sans package à installer.');
-  h += '<div class="card"><h3>Comment l’utiliser</h3><ul style="margin:0;padding-left:1.1em;display:grid;gap:4px"><li>Sur ordinateur : colle le script dans RStudio, puis Ctrl + Entrée (ou « Source »).</li><li>Sur iPhone, sans installation : ouvre posit.cloud ou rdrr.io/snippets dans Safari et colle le script.</li><li>Chaque bloc commenté correspond à un onglet de l’app. Tu peux modifier une donnée ou un seuil dans les sections 1 et 2, puis relancer.</li></ul>'
-    + '<div class="row"><button class="btn pri" id="rCopy">Copier le script R</button>' + (CAN_DOWNLOAD ? '<button class="btn" id="rDl">Télécharger le fichier .R</button>' : '') + '<span class="note">' + code.split('\n').length + ' lignes · exercices ' + bank().years.join(', ') + '</span></div></div>';
-  h += '<div class="card"><h3>Exemples de traduction</h3><div class="method-list">' + ['transfo', 'roe', 'solva', 'pnbc'].map(id => { const ind = I[id]; return '<div class="method-item"><b>' + ind.n + '</b><div class="f-line">' + R(nodeOf(ind), 'sym') + '</div><pre class="rcode">' + esc(rIndLine(ind)) + '</pre></div>'; }).join('') + '</div></div>';
-  h += '<div class="card"><h3>Script complet</h3><pre class="rcode" id="rOut">' + esc(code) + '</pre></div>';
+  const style = R_STYLES.some(s => s[0] === state.rStyle) ? state.rStyle : 'complet', code = rCode(style), cur = R_STYLES.find(s => s[0] === style);
+  let h = head('Reproductibilité', 'Code R', 'Les calculs de l’app traduits en R, à partir des mêmes formules : le script donne les mêmes résultats. Choisis le style qui te va, du script complet au rapport R Markdown.');
+  h += '<div class="card"><h3>Style de code</h3><div class="rtypes" role="radiogroup" aria-label="Style de code R">' + R_STYLES.map(([k, l, t, d]) => '<label class="rtype' + (k === style ? ' on' : '') + '" for="rst-' + k + '"><input type="radio" name="rstyle" id="rst-' + k + '" value="' + k + '"' + (k === style ? ' checked' : '') + '><span class="rtype-h"><b>' + l + '</b><span class="tag">' + t + '</span></span><span class="note">' + d + '</span></label>').join('') + '</div></div>';
+  h += '<div class="card"><h3>Comment l’utiliser</h3><ul style="margin:0;padding-left:1.1em;display:grid;gap:4px">'
+    + (style === 'rmd' ? '<li>Dans RStudio : <b>File › New File › R Markdown…</b>, efface le contenu, colle le fichier (ou ouvre le .Rmd téléchargé), puis bouton <b>Knit</b> : choisis Word ou HTML.</li><li>Il faut les packages rmarkdown et knitr (installés avec RStudio).</li>'
+      : style === 'moderne' ? '<li>Une seule fois : <code>install.packages("tidyverse")</code>.</li><li>Colle le script dans RStudio puis <b>Source</b> : tableau des ratios dans la console, quatre graphiques à l’écran et en PNG.</li>'
+      : '<li>Sur ordinateur : colle le script dans RStudio, puis Ctrl + Entrée (ou « Source »).</li><li>Sur iPhone, sans installation : ouvre posit.cloud ou rdrr.io/snippets dans Safari et colle le script.</li>')
+    + '<li>Modifie une donnée ou un seuil en haut du fichier, relance : tout se recalcule.</li></ul>'
+    + '<div class="row"><button class="btn pri" id="rCopy">Copier le code</button>' + (CAN_DOWNLOAD ? '<button class="btn" id="rDl">Télécharger ' + esc(rFileName(style)) + '</button>' : '') + '<span class="note">' + cur[1] + ' · ' + code.split('\n').length + ' lignes · exercices ' + bank().years.join(', ') + '</span></div></div>';
+  if (style === 'complet') h += '<div class="card"><h3>Exemples de traduction</h3><div class="method-list">' + ['transfo', 'roe', 'solva', 'pnbc'].map(id => { const ind = I[id]; return '<div class="method-item"><b>' + ind.n + '</b><div class="f-line">' + R(nodeOf(ind), 'sym') + '</div><pre class="rcode">' + esc(rIndLine(ind)) + '</pre></div>'; }).join('') + '</div></div>';
+  h += '<div class="card"><h3>' + (style === 'rmd' ? 'Fichier R Markdown' : 'Script complet') + '</h3><pre class="rcode" id="rOut">' + esc(code) + '</pre></div>';
   return h;
 }
 
@@ -2943,7 +3627,12 @@ function bindView() {
   if (state.tab === 'rapport') bindRapport();
   if (state.tab === 'admin') { renderAdmin(); if (!acct.isAdmin && $('#accountCard') && accountsPossible()) bindAccount(); }
   view.querySelectorAll('[data-hsave]').forEach(b => b.onclick = () => { addHistory('manuel', bank().name + ' · ' + Y()[0] + '–' + Y()[Y().length - 1], ''); toast('Analyse enregistrée dans l’historique'); renderAll(true); });
-  if (state.tab === 'r') { $('#rCopy').onclick = () => copyText(rScript()); if ($('#rDl')) $('#rDl').onclick = () => download(fileBase() + '.R', rScript()); }
+  if (state.tab === 'r') {
+    const st = () => R_STYLES.some(s => s[0] === state.rStyle) ? state.rStyle : 'complet';
+    $('#rCopy').onclick = () => copyText(rCode(st()));
+    if ($('#rDl')) $('#rDl').onclick = () => download(rFileName(st()), rCode(st()));
+    view.querySelectorAll('[name="rstyle"]').forEach(r => r.addEventListener('change', () => { state.rStyle = r.value; save(); renderAll(); }));
+  }
   if (state.tab === 'import') {
     $('#impParse').onclick = () => { importSource = ''; previewImport(parseImport($('#impText').value)); };
     $('#impFile').onchange = e => { importFiles([...e.target.files]); e.target.value = ''; };

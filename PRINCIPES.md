@@ -148,13 +148,26 @@ Sur le site Netlify, les banques et l'historique peuvent être liés à un compt
 Lien direct `/admin` (ou `#admin`) : écran de connexion administrateur puis tableau de bord. Onglet « Admin » visible uniquement par les comptes administrateurs (réglage Netlify ADMIN_EMAILS ; par défaut koussaisaac199@gmail.com), contrôle fait côté serveur à chaque requête : statistiques (comptes, actifs à 7 et 30 jours, banques, analyses, activité sur 30 jours, banques les plus analysées), liste des comptes (sans aucun mot de passe), consultation en lecture seule des banques et analyses d'un utilisateur (avec copie possible chez l'admin), nouveau mot de passe (déconnecte l'utilisateur), déblocage, suppression d'un compte et de ses données (confirmation en retapant l'adresse), **appareils utilisés** par chaque compte (téléphone, tablette ou ordinateur ; système, navigateur, modèle quand le navigateur le donne ; ville approximative ; première et dernière utilisation) et journal des 30 dernières connexions, ouvertures de l'app et mots de passe incorrects. Aucune adresse IP n'est conservée. Fonction `/api/admin/*` (server/admin.mjs).
 
 ## 6 quater. Rapport Word
-L'onglet « Rapport Word » génère un .docx : page de titre, sommaire, synthèse (points forts, vigilance, commentaire), dynamique des comptes, ratios de structure, rentabilité et Du Pont, test de faillite, Bâle III, méthodologie. Les formules sont de vraies équations Word produites par le même moteur que l'app (formule puis application numérique), suivies du tableau des valeurs, du graphique et de l'interprétation. Parties, graphiques et applications numériques sont au choix.
+L'onglet « Rapport Word » génère un .docx selon **cinq modèles**, au choix du lecteur visé :
+1. **Rapport complet** : couverture, sommaire, synthèse (chiffres clés, note globale, tableau de bord, points forts et de vigilance), dynamique des comptes, ratios de structure, rentabilité et Du Pont, test de faillite, Bâle III, conclusion et recommandations, méthodologie et glossaire. Formules en vraies équations Word (formule puis application numérique), tableaux, graphiques et interprétations ; parties au choix.
+2. **Note de synthèse** (3 à 5 pages, sans formules) pour un décideur : l'essentiel en une page, tableau de bord, quatre graphiques, analyse, recommandations.
+3. **Conformité prudentielle** : verdict, normes BCEAO / Bâle III et repères par exercice, excédent ou déficit de fonds propres (CET1, Tier 1, solvabilité, levier) et actifs pondérés encore finançables, stress tests (PNB −20 % / −50 %, coût du risque ×2 / ×3, défaut de 5 % / 10 % des crédits), résistance à la faillite.
+4. **Corrigé de TD** : énoncé puis les neuf questions du cours (dynamique du bilan et du compte de résultat, transformation, liquidité, levier, solvabilité, ROA/ROE, pertes et PNB de faillite), chacune avec formule, application numérique pour chaque année, réponse et encadré « À retenir ».
+5. **Comparaison de banques** : plusieurs banques sur leur dernier exercice, classement par note globale, chiffres clés, ratios avec statut, graphiques, lecture ratio par ratio.
+
+Communs à tous : quatre jeux de couleurs, bandeau de couverture, en-tête et pied de page « page X sur Y », **note globale indicative** (A à E, sur 100, pondérée sur solvabilité, CET1, levier, liquidité, transformation, ROE, ROA, coefficient d'exploitation, coût du risque ; ce n'est pas une notation officielle) et recommandations générées à partir des ratios hors seuil.
 
 ## 6 ter. Historique d'analyse
 L'onglet « Historique » enregistre des instantanés : copie des données de la banque, paramètres et résultats clés de tous les exercices. Chaque entrée peut être revue, comparée à l'état actuel ou à une autre entrée, et restaurée (l'état remplacé est d'abord sauvegardé). Un import crée une entrée automatique. 60 entrées au plus, conservées sur l'appareil et incluses dans la sauvegarde JSON.
 
 ## 6 bis. Traduction en R
-L'onglet « Code R » génère un script R de base (sans package), 100 % ASCII (commentaires sans accents, accents des textes en \uXXXX : il s'ouvre correctement sous Windows comme ailleurs), à partir des mêmes arbres de formules que l'app : données, paramètres, grandeurs intermédiaires, indicateurs, conformité aux seuils et 14 graphiques (écran, PNG haute résolution, PDF, et document Word si le package officer est installé). Le script est vérifié : il produit les mêmes valeurs que l'app.
+L'onglet « Code R » traduit les calculs en R à partir des mêmes arbres de formules que l'app, en **quatre styles** :
+1. **Complet** (R de base, sans package) : données, paramètres, grandeurs, tous les indicateurs, conformité aux seuils, 14 graphiques (écran, PNG, PDF, et Word si le package officer est installé).
+2. **Essentiel** (R de base, court) : seulement les chiffres utiles, les ratios clés, un tableau de bord, un « verdict express » OK / ALERTE et deux graphiques.
+3. **Moderne** (dplyr, tidyr, ggplot2) : tout le calcul dans un seul `mutate()`, ratios en format long avec statut, quatre graphiques ggplot2 enregistrés en PNG.
+4. **Rapport R Markdown** (.Rmd) : rapport rédigé dont les chiffres du texte sont calculés par R ; « Knit » produit un Word ou une page HTML.
+
+Les scripts .R sont 100 % ASCII (accents des textes en \uXXXX) ; le .Rmd est en UTF-8. Les tests vérifient que les styles complet, essentiel et moderne donnent les mêmes valeurs que l'app et que le R Markdown se rend en Word et en HTML.
 
 ## 7. Livraison par étapes
 1. Cœur : saisie manuelle et modules 1 à 4 avec formules, graphiques et interprétations
