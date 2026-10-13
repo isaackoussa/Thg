@@ -3,7 +3,8 @@ import { getStore } from '@netlify/blobs';
 import { handleCompte } from '../../server/compte.mjs';
 
 export default async (req, context) => handleCompte(req, context.params.action, {
-  store: getStore({ name: 'comptes', consistency: 'strong' })
+  store: getStore({ name: 'comptes', consistency: 'strong' }),
+  geo: context.geo
 });
 
 export const config = { path: '/api/compte/:action', method: ['GET', 'POST'] };

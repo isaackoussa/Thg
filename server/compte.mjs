@@ -5,6 +5,7 @@ import { scryptSync, randomBytes, timingSafeEqual, createHmac, createHash, rando
 
 export const COOKIE = 'umoa_session';
 const SESSION_DAYS = 30, MAX_FAILS = 5, LOCK_MIN = 15;
+const MAX_DEVICES = 10, MAX_JOURNAL = 30, SEEN_EVERY_MS = 3600e3;
 
 const json = (body, status = 200, headers = {}) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', ...headers } });
 const b64u = buf => Buffer.from(buf).toString('base64url');
@@ -14,6 +15,56 @@ const userKey = email => 'u/' + createHash('sha256').update(email).digest('hex')
 export const userKeyOf = email => userKey(normEmail(email));
 const hashPw = (pw, salt) => scryptSync(String(pw), salt, 64, { N: 16384, r: 8, p: 1 }).toString('hex');
 export function hashPassword(pw) { const salt = randomBytes(16).toString('hex'); return { salt, hash: hashPw(pw, salt) }; }
+
+// Appareil d'après l'en-tête User-Agent (+ modèle envoyé par l'app quand le navigateur le donne)
+export function parseDevice(ua, hint) {
+  ua = String(ua || '').slice(0, 400);
+  const m = (re) => { const x = ua.match(re); return x ? x[1] : ''; };
+  let type = 'Ordinateur', os = 'Autre système', model = '';
+  if (/iPhone/.test(ua)) { type = 'Téléphone'; model = 'iPhone'; os = 'iOS ' + m(/OS (\d+(?:_\d+)?)/).replace('_', '.'); }
+  else if (/iPad/.test(ua)) { type = 'Tablette'; model = 'iPad'; os = 'iPadOS ' + m(/OS (\d+(?:_\d+)?)/).replace('_', '.'); }
+  else if (/Android/.test(ua)) {
+    type = /Mobile/.test(ua) ? 'Téléphone' : 'Tablette'; os = 'Android ' + m(/Android (\d+(?:\.\d+)?)/);
+    const md = m(/Android [\d.]+; ([^;)]+?)(?: Build[^;)]*)?\)/).trim();
+    if (md && md !== 'K' && !/^[a-z]{2}[-_][a-z]{2}$/i.test(md)) model = md;
+  }
+  else if (/Windows NT/.test(ua)) os = 'Windows';
+  else if (/CrOS/.test(ua)) os = 'ChromeOS';
+  else if (/Mac OS X|Macintosh/.test(ua)) { os = 'macOS'; model = 'Mac'; }
+  else if (/Linux/.test(ua)) os = 'Linux';
+  const h = String(hint || '').replace(/[^\w .+()\-]/g, '').trim().slice(0, 40);
+  if (h) model = h;
+  const browser = /Edg(e|A|iOS)?\//.test(ua) ? 'Edge' : /OPR\/|Opera/.test(ua) ? 'Opera' : /SamsungBrowser/.test(ua) ? 'Samsung Internet'
+    : /FBAN|FBAV/.test(ua) ? 'Facebook' : /Instagram/.test(ua) ? 'Instagram' : /WhatsApp/.test(ua) ? 'WhatsApp'
+    : /CriOS|Chrome\//.test(ua) ? 'Chrome' : /FxiOS|Firefox\//.test(ua) ? 'Firefox' : /Safari\//.test(ua) ? 'Safari' : 'Navigateur inconnu';
+  os = os.trim();
+  const label = (model ? model + ' · ' : '') + os + ' · ' + browser;
+  const id = createHash('sha256').update(type + '|' + os.replace(/ [\d.]+$/, '') + '|' + model + '|' + browser).digest('hex').slice(0, 16);
+  return { id, type, os, model, browser, label };
+}
+function placeOf(geo) {
+  if (!geo) return '';
+  const country = geo.country && (geo.country.name || geo.country.code) || '';
+  return [geo.city, country].filter(Boolean).join(', ').slice(0, 80);
+}
+// Note l'appareil et l'événement dans le compte (sans adresse IP). Retourne true si le compte a changé.
+export function recordDevice(user, req, geo, event, now = Date.now()) {
+  const d = parseDevice(req.headers.get('user-agent'), req.headers.get('x-appareil'));
+  const at = new Date(now).toISOString(), lieu = placeOf(geo);
+  const devices = Array.isArray(user.devices) ? user.devices : [];
+  let dv = devices.find(x => x.id === d.id);
+  if (event === 'visite' && dv && now - Date.parse(dv.lastSeen) < SEEN_EVERY_MS) return false;
+  if (event !== 'echec') {
+    if (!dv) { dv = { ...d, firstSeen: at, count: 0 }; devices.push(dv); }
+    Object.assign(dv, { label: d.label, os: d.os, lastSeen: at, count: (dv.count || 0) + 1 }, lieu ? { lieu } : {});
+    devices.sort((a, b) => String(b.lastSeen).localeCompare(String(a.lastSeen)));
+    user.devices = devices.slice(0, MAX_DEVICES);
+  }
+  const journal = Array.isArray(user.journal) ? user.journal : [];
+  journal.unshift({ at, event, appareil: d.label, type: d.type, lieu });
+  user.journal = journal.slice(0, MAX_JOURNAL);
+  return true;
+}
 
 async function secret(store) {
   let s = await store.get('cle-session', { type: 'text' });
@@ -50,10 +101,13 @@ export async function userFromRequest(req, store) {
   } catch (e) { return null; }
 }
 
-export async function handleCompte(req, action, { store }) {
+export async function handleCompte(req, action, { store, geo }) {
   if (action === 'moi' && req.method === 'GET') {
     const u = await userFromRequest(req, store);
-    return u ? json({ email: u.email }) : json({ error: 'Non connecté' }, 401);
+    if (!u) return json({ error: 'Non connecté' }, 401);
+    // ouverture de l'app avec une session : appareil noté au plus une fois par heure
+    try { const key = userKeyOf(u.email), full = await store.get(key, { type: 'json' }); if (full && recordDevice(full, req, geo, 'visite')) await store.setJSON(key, full); } catch (e) {}
+    return json({ email: u.email });
   }
   if (req.method !== 'POST') return json({ error: 'Méthode non autorisée' }, 405);
   const origin = req.headers.get('origin');
@@ -73,6 +127,7 @@ export async function handleCompte(req, action, { store }) {
     const salt = randomBytes(16).toString('hex');
     const now = new Date().toISOString();
     const user = { id: randomUUID(), email, salt, hash: hashPw(password, salt), createdAt: now, lastLogin: now, fails: 0, lockedUntil: 0 };
+    recordDevice(user, req, geo, 'inscription');
     const { modified } = await store.setJSON(key, user, { onlyIfNew: true });
     if (modified === false) return json({ error: 'Un compte existe déjà avec cette adresse : connecte-toi.', code: 'exists' }, 409);
     return json({ email }, 201, { 'Set-Cookie': sessionCookie(req, await makeToken(user, store), SESSION_DAYS * 86400) });
@@ -87,9 +142,12 @@ export async function handleCompte(req, action, { store }) {
   if (!ok) {
     user.fails = (user.fails || 0) + 1;
     if (user.fails >= MAX_FAILS) { user.lockedUntil = Date.now() + LOCK_MIN * 60000; user.fails = 0; }
+    recordDevice(user, req, geo, 'echec');
     await store.setJSON(key, user);
     return bad();
   }
-  user.fails = 0; user.lockedUntil = 0; user.lastLogin = new Date().toISOString(); await store.setJSON(key, user);
+  user.fails = 0; user.lockedUntil = 0; user.lastLogin = new Date().toISOString();
+  recordDevice(user, req, geo, 'connexion');
+  await store.setJSON(key, user);
   return json({ email: user.email }, 200, { 'Set-Cookie': sessionCookie(req, await makeToken(user, store), SESSION_DAYS * 86400) });
 }

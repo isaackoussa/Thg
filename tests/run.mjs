@@ -956,6 +956,24 @@ else {
     ok(cp.length === 2 && el.banks === 1 && el.analyses === 1 && el.lastLogin && !('hash' in el) && !('salt' in el), 'admin : liste des comptes sans mot de passe', cp);
     const det = await (await ad('analyses', adm, undefined, '?id=' + el.id)).json();
     ok(det.email === 'eleve@test.ci' && det.banks.b1.name === 'BANQUE DE DAKAR' && det.history.length === 1, 'admin : consultation des analyses d’un utilisateur', det);
+    {
+      const { parseDevice, recordDevice } = await import('../server/compte.mjs');
+      const ip = parseDevice('Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1');
+      const an = parseDevice('Mozilla/5.0 (Linux; Android 13; SM-A515F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36');
+      const an2 = parseDevice('Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36', 'Pixel 7');
+      const pc = parseDevice('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36 Edg/120.0');
+      const mac = parseDevice('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15');
+      ok(ip.label === 'iPhone · iOS 17.5 · Safari' && ip.type === 'Téléphone' && an.label === 'SM-A515F · Android 13 · Chrome' && an2.label === 'Pixel 7 · Android 10 · Chrome' && pc.label === 'Windows · Edge' && pc.type === 'Ordinateur' && mac.label === 'Mac · macOS · Safari', 'appareils : reconnaissance du téléphone, du système et du navigateur', [ip.label, an.label, an2.label, pc.label, mac.label]);
+      const u = {}, rq = ua => new Request('https://app.test/', { headers: { 'user-agent': ua } }), geo = { city: 'Dakar', country: { code: 'SN', name: 'Senegal' } };
+      const UA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 Version/17.5 Mobile/15E148 Safari/604.1';
+      recordDevice(u, rq(UA), geo, 'connexion', 1e12);
+      const again = recordDevice(u, rq(UA), geo, 'visite', 1e12 + 60e3);
+      recordDevice(u, rq('Mozilla/5.0 (Windows NT 10.0) Chrome/120.0 Safari/537.36'), null, 'echec', 1e12 + 120e3);
+      recordDevice(u, rq(UA), geo, 'visite', 1e12 + 2 * 3600e3);
+      ok(again === false && u.devices.length === 1 && u.devices[0].count === 2 && u.devices[0].lieu === 'Dakar, Senegal' && u.journal.length === 3 && u.journal[1].event === 'echec' && !('ip' in u.devices[0]) && !('ip' in u.journal[0]), 'appareils : un appareil par téléphone, visites espacées, échecs notés, sans IP', u);
+    }
+    const cp0 = (await (await ad('comptes', adm)).json()).comptes.find(c => c.email === 'eleve@test.ci');
+    ok(cp0.device && cp0.nDevices === 1, 'admin : dernier appareil dans la liste des comptes', cp0);
     ok((await ad('motdepasse', adm, { email: 'eleve@test.ci', password: 'court' })).status === 400, 'admin : nouveau mot de passe trop court refusé');
     ok((await ad('motdepasse', adm, { email: 'eleve@test.ci', password: 'nouveaumdp1' })).status === 200, 'admin : nouveau mot de passe enregistré');
     ok(await userFromRequest(new Request('https://app.test/', { headers: { cookie: usr } }), cs) === null, 'admin : l’ancienne session de l’utilisateur est fermée');
@@ -987,7 +1005,10 @@ else {
     ok(/eleve2@test\.ci/.test(txt) && /Activité des 30 derniers jours/.test(txt) && /Banques les plus analysées/.test(txt), 'admin : tableau de bord affiché', txt.slice(0, 300));
     const uid = await Ad.page.evaluate(() => adm.comptes.find(c => c.email === 'eleve2@test.ci').id);
     await Ad.page.click('[data-av="' + uid + '"]');
-    await Ad.page.waitForFunction(() => /Analyses de eleve2/.test(document.querySelector('#admDetail').innerText));
+    await Ad.page.waitForFunction(() => /Compte eleve2/.test(document.querySelector('#admDetail').innerText));
+    const dtx = await Ad.page.innerText('#admDetail');
+    ok(/Appareils \(1\)/i.test(dtx) && /Connexions récentes/i.test(dtx) && /Inscription/.test(dtx), 'admin : appareils et connexions de l’utilisateur affichés', dtx.slice(0, 400));
+    ok(/Dernier appareil/i.test(await Ad.page.innerText('#adminBox')), 'admin : colonne dernier appareil');
     ok(/Analyse élève/.test(await Ad.page.innerText('#admDetail')), 'admin : analyses de l’utilisateur consultées');
     const nBefore = await Ad.page.evaluate(() => Object.keys(state.banks).length);
     await Ad.page.click('[data-acopy]');

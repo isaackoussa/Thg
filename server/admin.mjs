@@ -35,6 +35,7 @@ export async function handleAdmin(req, action, { comptes, historiques, adminEmai
       const hist = Array.isArray(doc.history) ? doc.history : [];
       rows.push({ email: u.email, id: u.id, createdAt: u.createdAt || null, lastLogin: u.lastLogin || null, lastSync: doc.updatedAt || null,
         locked: !!(u.lockedUntil && u.lockedUntil > Date.now()), banks: banks.length, analyses: hist.length,
+        device: (u.devices || [])[0] ? { label: u.devices[0].label, type: u.devices[0].type, lieu: u.devices[0].lieu || '' } : null, nDevices: (u.devices || []).length,
         bankNames: banks.map(b => String(b.name || '')).filter(Boolean), histDates: hist.map(e => dayOf(e.at)) });
     }
     rows.sort((a, b) => String(b.lastLogin || b.createdAt).localeCompare(String(a.lastLogin || a.createdAt)));
@@ -54,7 +55,7 @@ export async function handleAdmin(req, action, { comptes, historiques, adminEmai
     const users = await allUsers(comptes), u = users.find(x => x.id === id);
     if (!u) return json({ error: 'Compte introuvable' }, 404);
     const doc = await historiques.get('u/' + u.id, { type: 'json' }) || {};
-    return json({ email: u.email, banks: doc.banks || {}, history: doc.history || [], updatedAt: doc.updatedAt || null });
+    return json({ email: u.email, devices: u.devices || [], journal: u.journal || [], banks: doc.banks || {}, history: doc.history || [], updatedAt: doc.updatedAt || null });
   }
 
   if (req.method !== 'POST') return json({ error: 'Action inconnue' }, 404);

@@ -2273,9 +2273,18 @@ const acct = { user:null, status:'', err:false, syncing:false, lastSync:null, pe
 function accountsPossible() { try { return CAN_DOWNLOAD && /^https?:$/.test(location.protocol); } catch (e) { return false; } }
 function accRemember(on) { try { if (on) localStorage.setItem(ACC_KEY, '1'); else localStorage.removeItem(ACC_KEY); } catch (e) {} }
 function accRemembered() { try { return localStorage.getItem(ACC_KEY) === '1'; } catch (e) { return false; } }
+// modèle de l'appareil quand le navigateur le donne (Chrome sur Android) : affiché dans l'admin
+let devHint = null;
+async function deviceHint() {
+  if (devHint !== null) return devHint;
+  devHint = '';
+  try { const d = navigator.userAgentData; if (d && d.getHighEntropyValues) { const v = await d.getHighEntropyValues(['model']); devHint = String(v.model || '').replace(/[^\w .+()\-]/g, '').slice(0, 40); } } catch (e) {}
+  return devHint;
+}
 async function api(path, body) {
   let res;
-  try { res = await fetch('/api/compte/' + path, body === undefined ? { credentials:'same-origin' } : { method:'POST', credentials:'same-origin', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify(body) }); }
+  const hint = await deviceHint(), hh = hint ? { 'X-Appareil':hint } : {};
+  try { res = await fetch('/api/compte/' + path, body === undefined ? { credentials:'same-origin', headers:hh } : { method:'POST', credentials:'same-origin', headers:Object.assign({ 'Content-Type':'application/json' }, hh), body:JSON.stringify(body) }); }
   catch (e) { throw new Error('Le serveur ne répond pas. Vérifie ta connexion internet.'); }
   let data = {}; try { data = await res.json(); } catch (e) { data = {}; }
   if (res.status === 404 && !data.error) throw new Error('Les comptes ne sont pas encore disponibles sur ce site : il doit être déployé depuis GitHub pour inclure la partie serveur.');
@@ -2497,17 +2506,28 @@ function renderAdmin() {
   // comptes
   h += '<div class="card"><h3>Comptes (' + cps.length + ')</h3><label class="note" for="admFilter">Rechercher <input type="text" id="admFilter" placeholder="adresse e-mail" value="' + esc(adm.filter || '') + '" style="min-width:200px"></label>';
   const f = (adm.filter || '').toLowerCase(), list = cps.filter(c => !f || c.email.includes(f));
-  h += '<div class="tbl-wrap"><table><thead><tr><th>Adresse e-mail</th><th>Inscription</th><th>Dernière connexion</th><th>Banques</th><th>Analyses</th><th>État</th><th>Actions</th></tr></thead><tbody>'
-    + list.map(c => '<tr><td>' + esc(c.email) + (c.email === (acct.user && acct.user.email) ? ' <span class="tag">toi</span>' : '') + '</td><td>' + fmtD(c.createdAt) + '</td><td>' + fmtDT(c.lastLogin) + '</td><td>' + c.banks + '</td><td>' + c.analyses + '</td><td>' + (c.locked ? '<span class="chip st-warn"><i>!</i>Bloqué</span>' : '<span class="chip st-ok"><i>✓</i>Actif</span>') + '</td>'
+  h += '<div class="tbl-wrap"><table><thead><tr><th>Adresse e-mail</th><th>Inscription</th><th>Dernière connexion</th><th>Dernier appareil</th><th>Banques</th><th>Analyses</th><th>État</th><th>Actions</th></tr></thead><tbody>'
+    + list.map(c => '<tr><td>' + esc(c.email) + (c.email === (acct.user && acct.user.email) ? ' <span class="tag">toi</span>' : '') + '</td><td>' + fmtD(c.createdAt) + '</td><td>' + fmtDT(c.lastLogin) + '</td><td>' + (c.device ? devIcon(c.device.type) + ' ' + esc(c.device.label) + (c.device.lieu ? '<br><span class="note">' + esc(c.device.lieu) + '</span>' : '') + (c.nDevices > 1 ? '<br><span class="note">' + c.nDevices + ' appareils</span>' : '') : '<span class="note">—</span>') + '</td><td>' + c.banks + '</td><td>' + c.analyses + '</td><td>' + (c.locked ? '<span class="chip st-warn"><i>!</i>Bloqué</span>' : '<span class="chip st-ok"><i>✓</i>Actif</span>') + '</td>'
       + '<td style="white-space:nowrap"><button class="btn sm" data-av="' + esc(c.id) + '">Voir</button> <button class="btn sm" data-apw="' + esc(c.email) + '">Mot de passe</button>' + (c.locked ? ' <button class="btn sm" data-aun="' + esc(c.email) + '">Débloquer</button>' : '') + (c.email !== (acct.user && acct.user.email) ? ' <button class="btn sm danger" data-adel="' + esc(c.email) + '">Supprimer</button>' : '') + '</td></tr>').join('')
     + '</tbody></table></div><p class="note">Sur téléphone, fais défiler le tableau vers la droite pour voir les actions.</p><div id="admAction"></div></div>';
   h += '<div id="admDetail">' + (adm.detail ? adminDetail(adm.detail) : '') + '</div>';
   box.innerHTML = h;
   bindAdmin();
 }
+const devIcon = t => t === 'Téléphone' ? '📱' : t === 'Tablette' ? '📲' : '💻';
+const JOURNAL_LBL = { connexion:'Connexion', inscription:'Inscription', visite:'Ouverture de l’app', echec:'Mot de passe incorrect' };
+function adminDevices(d) {
+  const dv = d.devices || [], jr = d.journal || [];
+  return '<p class="eyebrow">Appareils (' + dv.length + ')</p>' + (dv.length ? '<div class="tbl-wrap"><table><thead><tr><th>Appareil</th><th>Type</th><th>Lieu</th><th>Première fois</th><th>Dernière fois</th><th>Connexions</th></tr></thead><tbody>'
+      + dv.map(x => '<tr><td>' + devIcon(x.type) + ' ' + esc(x.label) + '</td><td>' + esc(x.type) + '</td><td>' + esc(x.lieu || '—') + '</td><td>' + fmtDT(x.firstSeen) + '</td><td>' + fmtDT(x.lastSeen) + '</td><td>' + (x.count || 0) + '</td></tr>').join('') + '</tbody></table></div>'
+      : '<p class="note">Aucun appareil noté pour l’instant : il le sera à la prochaine connexion ou ouverture de l’app.</p>')
+    + (jr.length ? '<p class="eyebrow" style="margin-top:10px">Connexions récentes</p><div class="tbl-wrap"><table><thead><tr><th>Date</th><th>Événement</th><th>Appareil</th><th>Lieu</th></tr></thead><tbody>'
+      + jr.map(j => '<tr><td>' + fmtDT(j.at) + '</td><td>' + (j.event === 'echec' ? '<span class="chip st-warn"><i>!</i>' + JOURNAL_LBL.echec + '</span>' : esc(JOURNAL_LBL[j.event] || j.event)) + '</td><td>' + devIcon(j.type) + ' ' + esc(j.appareil) + '</td><td>' + esc(j.lieu || '—') + '</td></tr>').join('') + '</tbody></table></div>' : '')
+    + '<p class="note">L’appareil est déduit du navigateur (le modèle exact n’est connu que sur certains Android) ; le lieu est approximatif (ville du réseau). Aucune adresse IP n’est conservée.</p>';
+}
 function adminDetail(d) {
   const banks = Object.values(d.banks || {}), hist = d.history || [];
-  return '<div class="card"><h3>Analyses de ' + esc(d.email) + '</h3><p class="note">Lecture seule. « Ouvrir une copie » ajoute la banque à tes propres banques pour la consulter dans tous les onglets ; l’original de l’utilisateur n’est pas modifié.</p>'
+  return '<div class="card"><h3>Compte ' + esc(d.email) + '</h3>' + adminDevices(d) + '<h3 style="margin-top:14px">Analyses</h3><p class="note">Lecture seule. « Ouvrir une copie » ajoute la banque à tes propres banques pour la consulter dans tous les onglets ; l’original de l’utilisateur n’est pas modifié.</p>'
     + '<p class="eyebrow">Banques (' + banks.length + ')</p>' + (banks.length ? '<div class="tbl-wrap"><table><thead><tr><th>Banque</th><th>Exercices</th><th>Modifiée le</th><th></th></tr></thead><tbody>' + banks.map(b => '<tr><td>' + esc(b.name) + '</td><td>' + esc((b.years || []).join(', ')) + '</td><td>' + (b.mod ? fmtDT(new Date(b.mod).toISOString()) : '—') + '</td><td><button class="btn sm" data-acopy="' + esc(b.id) + '">Ouvrir une copie</button></td></tr>').join('') + '</tbody></table></div>' : '<p class="note">Aucune banque.</p>')
     + '<p class="eyebrow" style="margin-top:10px">Historique (' + hist.length + ')</p>' + (hist.length ? '<div class="tbl-wrap"><table><thead><tr><th>Analyse</th><th>Date</th><th>Type</th><th>ROE</th><th>Solvabilité</th></tr></thead><tbody>' + hist.map(e => { const y = (e.res && e.res.years || []).length - 1, v = id => e.res && e.res.vals && e.res.vals[id] ? e.res.vals[id][y] : null; return '<tr><td>' + esc(e.label) + '</td><td>' + fmtDT(e.at) + '</td><td>' + esc(KIND_LBL[e.kind] || e.kind || '') + '</td><td>' + fmtP(fin(v('roe')) ? v('roe') : NaN, 1) + '</td><td>' + fmtP(fin(v('solva')) ? v('solva') : NaN, 1) + '</td></tr>'; }).join('') + '</tbody></table></div>' : '<p class="note">Aucune analyse enregistrée.</p>')
     + '<div class="row" style="margin-top:8px"><button class="btn sm" id="admCloseDetail">Fermer</button></div></div>';
