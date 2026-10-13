@@ -84,6 +84,26 @@ main { max-width: 1180px; margin: 0 auto; padding: 18px 16px 60px; display: grid
 .tags { display: flex; gap: 6px; flex-wrap: wrap; }
 .tag { font-size: 0.68rem; letter-spacing: 0.06em; text-transform: uppercase; font-weight: 600; color: var(--ink-3); border: 1px solid var(--line); border-radius: 4px; padding: 1px 6px; }
 .tag.reg { color: var(--accent); border-color: var(--accent); }
+/* Entrée de l'app par e-mail */
+body.gated { overflow: hidden; }
+#gate { position: fixed; inset: 0; z-index: 100; overflow-y: auto; background: radial-gradient(ellipse at top, var(--accent-soft), var(--bg) 60%); display: flex; justify-content: center; padding: 28px 16px; }
+.g-wrap { width: 100%; max-width: 440px; display: grid; gap: 18px; align-content: start; margin: auto 0; }
+.g-brand { display: flex; gap: 12px; align-items: center; }
+.g-brand b { display: block; font-family: var(--f-display); font-size: 1.15rem; }
+.g-brand small { color: var(--ink-3); font-size: 0.82rem; }
+.g-card { background: var(--surface); border: 1px solid var(--line); border-radius: 18px; padding: 26px 22px; box-shadow: 0 18px 40px rgba(12, 40, 30, 0.12); }
+.g-form { display: grid; gap: 14px; }
+.g-form h1 { font-family: var(--f-display); font-size: clamp(1.6rem, 6vw, 2.1rem); line-height: 1.15; margin: 0; }
+.g-form h1 span { color: var(--accent); }
+.g-form label { display: grid; gap: 5px; font-size: 0.85rem; font-weight: 600; color: var(--ink-2); }
+.g-form input[type="email"], .g-form input[type="password"] { font-size: 1rem; padding: 10px 12px; }
+.g-code { font-family: var(--f-display); font-size: 1.9rem; letter-spacing: 0.45em; text-align: center; padding: 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: var(--ink); width: 100%; }
+.g-big { padding: 11px 14px; font-size: 1rem; }
+.g-back, .g-alt { justify-self: start; }
+.g-list { margin: 0; padding-left: 1.1em; display: grid; gap: 4px; color: var(--ink-2); font-size: 0.86rem; }
+.g-err { background: var(--bad-bg); color: var(--bad); border-radius: 8px; padding: 8px 10px; font-size: 0.88rem; }
+.g-info { background: var(--ok-bg); color: var(--ok); border-radius: 8px; padding: 8px 10px; font-size: 0.88rem; }
+.g-foot { color: var(--ink-3); font-size: 0.75rem; text-align: center; margin: 0; }
 .rtypes { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; }
 .rtype { position: relative; display: grid; gap: 6px; align-content: start; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; cursor: pointer; background: var(--surface); }
 .rtype input { position: absolute; opacity: 0; pointer-events: none; }
@@ -2657,18 +2677,119 @@ async function api(path, body) {
   return data;
 }
 function accSet(status, err) { acct.status = status; acct.err = !!err; renderAccount(); }
+/* ---- Entrée de l'app par e-mail (comme Anglais 365) : e-mail puis code à 6 chiffres, sans mot de passe ----
+   Le serveur dit s'il exige la connexion (config.gate) et s'il peut envoyer des codes (config.mail) ;
+   sans partie serveur (aperçu, fichier local), l'app reste libre d'accès. */
+const GATE_KEY = 'umoa-entree-v1';
+const gate = { on:false, loading:false, step:'email', email:'', err:'', info:'', busy:false, until:0, mail:true, pw:false, signup:false };
+function gateSeen(on) { try { if (on) localStorage.setItem(GATE_KEY, '1'); return localStorage.getItem(GATE_KEY) === '1'; } catch (e) { return false; } }
 async function accountBoot() {
-  if (!accountsPossible() || !accRemembered()) return;
-  try { const me = await api('moi'); acct.user = { email:me.email }; await syncHistory(true); checkAdmin(); }
-  catch (e) { if (e.status === 401) { accRemember(false); acct.user = null; } }
+  if (!accountsPossible()) return;
+  if (!accRemembered()) { gate.loading = true; renderGate(); }
+  let cfg = null, offline = false;
+  try { const r = await fetch('/api/compte/config', { credentials:'same-origin' }); if (r.ok) cfg = await r.json(); } catch (e) { offline = true; }
+  gate.on = !!(cfg && cfg.gate); gate.mail = !!(cfg && cfg.mail); gate.pw = !gate.mail;
+  if (gate.on) gateSeen(true);
+  if (gate.on || accRemembered()) {
+    try { const me = await api('moi'); acct.user = { email:me.email }; accRemember(true); }
+    catch (e) { if (e.status === 401) { accRemember(false); acct.user = null; } }
+  }
+  // hors ligne : on garde l'accès si l'appareil était connecté ; sinon la première connexion demande internet
+  if (offline && !accRemembered() && gateSeen()) { gate.on = true; gate.err = 'Pas de connexion internet : la première connexion demande internet.'; }
+  gate.loading = false; renderGate();
+  if (acct.user) { await syncHistory(true); checkAdmin(); }
   renderAccount();
 }
+function renderGate() {
+  let el = document.getElementById('gate');
+  const show = gate.loading || (gate.on && !acct.user);
+  document.body.classList.toggle('gated', show);
+  if (!show) { if (el) el.remove(); return; }
+  if (!el) { el = document.createElement('div'); el.id = 'gate'; el.setAttribute('role', 'dialog'); el.setAttribute('aria-modal', 'true'); el.setAttribute('aria-labelledby', 'gTitle'); document.body.appendChild(el); }
+  const keep = $('#gEmail') ? $('#gEmail').value : gate.email;
+  const brand = '<div class="g-brand"><span class="mark">UMOA</span><div><b>Analyste Bancaire</b><small>Analyse financière des banques de l’UEMOA</small></div></div>';
+  const err = gate.err ? '<div class="g-err" id="gErr" role="alert">' + esc(gate.err) + '</div>' : '';
+  const info = gate.info ? '<div class="g-info" id="gInfo">' + esc(gate.info) + '</div>' : '';
+  let card;
+  if (gate.loading) card = '<p class="note" id="gLoading">Chargement…</p>';
+  else if (gate.step === 'code') {
+    const wait = Math.max(0, Math.ceil((gate.until - Date.now()) / 1000));
+    card = '<form id="gCodeForm" class="g-form" novalidate><button type="button" class="btn sm g-back" id="gBack">← Changer d’e-mail</button>'
+      + '<h1 id="gTitle">Vérifie ta boîte mail 📬</h1><p class="note">Un code à 6 chiffres a été envoyé à <b>' + esc(gate.email) + '</b>. Pense à regarder dans les spams.</p>'
+      + '<input id="gCode" class="g-code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="••••••" aria-label="Code à 6 chiffres">' + err + info
+      + '<button class="btn pri g-big" id="gVerify" type="submit"' + (gate.busy ? ' disabled' : '') + '>' + (gate.busy ? 'Vérification…' : 'Me connecter') + '</button>'
+      + '<button type="button" class="btn" id="gResend"' + (wait > 0 || gate.busy ? ' disabled' : '') + '>' + (wait > 0 ? 'Renvoyer un code (' + wait + ' s)' : 'Renvoyer un code') + '</button></form>';
+  } else if (gate.pw) {
+    card = '<form id="gPwForm" class="g-form" novalidate><h1 id="gTitle">' + (gate.signup ? 'Créer ton espace' : 'Ton espace d’analyse') + '</h1>'
+      + '<p class="note">' + (gate.mail ? 'Connexion avec le mot de passe de ton compte.' : 'Connecte-toi avec ton e-mail et un mot de passe : tes banques et tes analyses te suivent sur tous tes appareils.') + '</p>'
+      + '<label>Adresse e-mail<input type="email" id="gEmail" autocomplete="email" placeholder="toi@exemple.com" required></label>'
+      + '<label>Mot de passe' + (gate.signup ? ' (8 caractères minimum)' : '') + '<input type="password" id="gPw" autocomplete="' + (gate.signup ? 'new-password' : 'current-password') + '" required></label>' + err + info
+      + '<button class="btn pri g-big" id="gPwGo" type="submit"' + (gate.busy ? ' disabled' : '') + '>' + (gate.signup ? 'Créer mon compte' : 'Me connecter') + '</button>'
+      + '<div class="row"><button type="button" class="btn sm" id="gSignup">' + (gate.signup ? 'J’ai déjà un compte' : 'Créer un compte') + '</button>' + (gate.mail ? '<button type="button" class="btn sm" id="gUseCode">Recevoir un code par e-mail</button>' : '') + '</div></form>';
+  } else {
+    card = '<form id="gMailForm" class="g-form" novalidate><h1 id="gTitle">Ton espace <span>d’analyse</span></h1>'
+      + '<p class="note">Connecte-toi avec ton e-mail : tes banques, tes analyses et ton historique sont sauvegardés et te suivent sur tous tes appareils. Pas de mot de passe, juste un code.</p>'
+      + '<label>Adresse e-mail<input type="email" id="gEmail" inputmode="email" autocomplete="email" placeholder="toi@exemple.com" required></label>' + err + info
+      + '<button class="btn pri g-big" id="gSend" type="submit"' + (gate.busy ? ' disabled' : '') + '>' + (gate.busy ? 'Envoi du code…' : 'Recevoir mon code →') + '</button>'
+      + '<ul class="g-list"><li>Tes banques et analyses sauvegardées en ligne, sur ordinateur et téléphone</li><li>Rapports Word, code R et formules, prêts à rendre</li><li>Tu restes connecté sur cet appareil pendant un an</li></ul>'
+      + '<button type="button" class="btn sm g-alt" id="gUsePw">Se connecter avec un mot de passe</button></form>';
+  }
+  el.innerHTML = '<div class="g-wrap">' + brand + '<div class="g-card">' + card + '</div><p class="g-foot">En continuant, tu acceptes de recevoir l’e-mail contenant ton code de connexion.</p></div>';
+  if ($('#gEmail')) $('#gEmail').value = keep || '';
+  bindGate();
+}
+function bindGate() {
+  const fail = e => { gate.busy = false; gate.info = ''; gate.err = e && e.message && !/fetch|network|load failed/i.test(e.message) ? e.message : 'Le serveur ne répond pas. Vérifie ta connexion internet.'; renderGate(); };
+  const entered = async (me, msg) => {
+    acct.user = { email:me.email }; accRemember(true); gate.busy = false; gate.err = gate.info = ''; gate.step = 'email';
+    renderGate(); renderAll(true);
+    await syncHistory(true); checkAdmin(); renderAccount();
+    toast(msg || 'Bienvenue ' + me.email);
+  };
+  const sendCode = async () => {
+    const email = (($('#gEmail') && $('#gEmail').value) || gate.email).trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { gate.err = 'Adresse e-mail invalide.'; renderGate(); return; }
+    gate.email = email; gate.busy = true; gate.err = gate.info = ''; renderGate();
+    try {
+      await api('code', { email });
+      gate.busy = false; gate.step = 'code'; gate.until = Date.now() + 30000; gate.info = '';
+      renderGate(); tickGate(); setTimeout(() => { if ($('#gCode')) $('#gCode').focus(); }, 50);
+    } catch (e) { if (e.code === 'mail') { gate.mail = false; gate.pw = true; } fail(e); }
+  };
+  const verify = async () => {
+    const code = ($('#gCode').value || '').replace(/\D/g, '');
+    if (code.length !== 6) { gate.err = 'Le code fait 6 chiffres.'; renderGate(); return; }
+    gate.busy = true; gate.err = ''; renderGate();
+    try { const me = await api('verifier', { email:gate.email, code }); await entered(me, me.isNew ? 'Bienvenue ! Ton espace est créé.' : 'Bon retour, ' + me.email); }
+    catch (e) { fail(e); if ($('#gCode')) $('#gCode').focus(); }
+  };
+  if ($('#gMailForm')) $('#gMailForm').addEventListener('submit', e => { e.preventDefault(); sendCode(); });
+  if ($('#gCodeForm')) $('#gCodeForm').addEventListener('submit', e => { e.preventDefault(); verify(); });
+  if ($('#gCode')) $('#gCode').addEventListener('input', e => { const v = e.target.value.replace(/\D/g, '').slice(0, 6); e.target.value = v; if (v.length === 6 && !gate.busy) verify(); });
+  if ($('#gResend')) $('#gResend').onclick = () => sendCode();
+  if ($('#gBack')) $('#gBack').onclick = () => { gate.step = 'email'; gate.err = gate.info = ''; renderGate(); };
+  if ($('#gUsePw')) $('#gUsePw').onclick = () => { gate.pw = true; gate.err = gate.info = ''; renderGate(); };
+  if ($('#gUseCode')) $('#gUseCode').onclick = () => { gate.pw = false; gate.signup = false; gate.err = gate.info = ''; renderGate(); };
+  if ($('#gSignup')) $('#gSignup').onclick = () => { gate.signup = !gate.signup; gate.err = gate.info = ''; renderGate(); };
+  if ($('#gPwForm')) $('#gPwForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    const email = $('#gEmail').value.trim(), pw = $('#gPw').value;
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { gate.err = 'Adresse e-mail invalide.'; renderGate(); return; }
+    if (gate.signup && pw.length < 8) { gate.err = 'Le mot de passe doit faire au moins 8 caractères.'; renderGate(); return; }
+    if (!pw) { gate.err = 'Saisis ton mot de passe.'; renderGate(); return; }
+    gate.email = email; gate.busy = true; gate.err = ''; renderGate();
+    try { const me = await api(gate.signup ? 'inscription' : 'connexion', { email, password:pw }); gate.signup = false; await entered(me, 'Connecté : ' + me.email); }
+    catch (e) { if (e.code === 'use_code' && gate.mail) { gate.pw = false; } fail(e); }
+  });
+}
+let gateTimer = null;
+function tickGate() { clearInterval(gateTimer); gateTimer = setInterval(() => { const b = $('#gResend'); if (!b) { clearInterval(gateTimer); return; } const w = Math.max(0, Math.ceil((gate.until - Date.now()) / 1000)); b.textContent = w > 0 ? 'Renvoyer un code (' + w + ' s)' : 'Renvoyer un code'; b.disabled = w > 0 || gate.busy; if (!w) clearInterval(gateTimer); }, 1000); }
 async function syncHistory(quiet) {
   if (!acct.user || acct.syncing) { if (acct.user) acct.pending = true; return; }
   acct.syncing = true; renderAccount();
   try {
     const res = await fetch('/api/historique', { method:'PUT', credentials:'same-origin', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify({ history:state.history, deleted:state.histDeleted, banks:state.banks, banksDeleted:state.banksDeleted }) });
-    if (res.status === 401) { acct.user = null; accRemember(false); throw new Error('Session expirée : reconnecte-toi.'); }
+    if (res.status === 401) { acct.user = null; accRemember(false); renderGate(); throw new Error('Session expirée : reconnecte-toi.'); }
     if (!res.ok) { let m = ''; try { m = (await res.json()).error; } catch (e) {} throw new Error(m || 'Synchronisation refusée (' + res.status + ').'); }
     const doc = await res.json();
     state.history = cleanHistory(doc.history);
@@ -2742,7 +2863,7 @@ function bindAccount() {
     if (wipe) { state.history = []; state.histDeleted = []; state.banks = { bab:clone(SAMPLE) }; state.banksDeleted = {}; state.cur = 'bab'; state.yi = 99; save({ silent:true }); }
     acct.status = wipe ? 'Déconnecté. Tes banques et ton historique ont été effacés de cet appareil ; ils restent sur ton compte.' : 'Déconnecté. L’historique reste sur cet appareil.';
     acct.err = false;
-    renderAll(true);
+    renderAll(true); renderGate();
   }, 'Déconnexion…');
   if ($('#accLogout')) $('#accLogout').onclick = () => logout(false);
   if ($('#accLogoutWipe')) $('#accLogoutWipe').onclick = () => logout(true);

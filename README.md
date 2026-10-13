@@ -17,9 +17,10 @@ npm run build      # construit dist/
 npm test           # construit puis teste (Rscript pour la parité R ; LibreOffice avec libreoffice-math pour vérifier le rapport Word)
 ```
 
-## Comptes (historique lié à une adresse e-mail)
-- Inscription par e-mail + mot de passe, sans vérification ni configuration Netlify.
-- `netlify/functions/compte.mjs` → `/api/compte/inscription|connexion|deconnexion` (POST) et `/api/compte/moi` (GET), logique dans `server/compte.mjs`.
+## Entrée par e-mail et comptes
+- À l'ouverture du site, l'app demande un e-mail puis un code à 6 chiffres envoyé par Brevo (comme Anglais 365) ; session d'un an.
+- Variables Netlify (Project configuration → Environment variables) : `BREVO_API_KEY`, `MAIL_FROM` (expéditeur validé dans Brevo), facultatif `MAIL_FROM_NAME`. Sans elles, l'entrée se fait par e-mail + mot de passe. `MAIL_DRY_RUN=1` : code écrit dans les journaux des fonctions. `ACCES_LIBRE=1` : pas d'écran d'entrée.
+- `netlify/functions/compte.mjs` → `/api/compte/code|verifier|inscription|connexion|deconnexion` (POST) et `/api/compte/moi|config` (GET), logique dans `server/compte.mjs`.
 - `netlify/functions/historique.mjs` → `/api/historique` (GET, PUT), logique dans `server/historique.mjs`.
 - Stockage : Netlify Blobs (stores `comptes` et `historiques`). La clé de signature des sessions est créée automatiquement.
 - Les fonctions ne sont déployées que si le dépôt est relié à Netlify (ou via la CLI) : le dépôt manuel du dossier `dist` ne les contient pas.

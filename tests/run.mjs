@@ -1130,6 +1130,107 @@ else {
     ok(!(await U.page.$('#adminBox table')), 'lien /admin : compte ordinaire refusé, aucune donnée affichée');
     await U.ctx.close();
   }
+  // ---------- Entrée de l'app par e-mail : code à 6 chiffres (comme Anglais 365) ----------
+  {
+    const cs = kv(), sent = [];
+    const send = async (to, subject, html, code) => { sent.push({ to, subject, html, code }); return true; };
+    const UA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 Version/17.5 Mobile/15E148 Safari/604.1';
+    const po = (action, body, deps = {}) => handleCompte(new Request('https://app.test/api/compte/' + action, { method: 'POST', headers: { origin: 'https://app.test', 'user-agent': UA }, body: JSON.stringify(body) }), action, { store: cs, send, ...deps });
+    const cfg = async deps => (await handleCompte(new Request('https://app.test/api/compte/config'), 'config', { store: cs, ...deps })).json();
+    ok(JSON.stringify(await cfg({})) === '{"gate":false,"mail":false}' && JSON.stringify(await cfg({ gate: true, env: k => ({ BREVO_API_KEY: 'k', MAIL_FROM: 'a@b.sn' })[k] })) === '{"gate":true,"mail":true}', 'entrée : configuration (accès, envoi des codes)');
+    ok((await handleCompte(new Request('https://app.test/api/compte/code', { method: 'POST', headers: { origin: 'https://app.test' }, body: '{"email":"a@b.sn"}' }), 'code', { store: cs })).status === 503, 'entrée : sans Brevo configuré, code refusé clairement');
+    let r = await po('code', { email: ' Nouveau@Test.SN ' });
+    ok(r.status === 200 && sent.length === 1 && sent[0].to === 'nouveau@test.sn' && /^\d{6}$/.test(sent[0].code) && sent[0].subject.startsWith(sent[0].code) && sent[0].html.includes(sent[0].code), 'entrée : code à 6 chiffres envoyé par e-mail');
+    ok(![...cs.m.values()].some(v => v.includes('"' + sent[0].code + '"')), 'entrée : le code n’est jamais stocké en clair');
+    ok((await po('code', { email: 'nouveau@test.sn' })).status === 429, 'entrée : renvoi bloqué pendant 30 secondes');
+    r = await po('verifier', { email: 'nouveau@test.sn', code: sent[0].code === '000000' ? '111111' : '000000' }); let d = await r.json();
+    ok(r.status === 400 && d.remaining === 4 && /4 essais restants/.test(d.error), 'entrée : mauvais code signalé avec les essais restants', d);
+    r = await po('verifier', { email: 'NOUVEAU@test.sn', code: sent[0].code }); d = await r.json();
+    const ckc = (r.headers.get('set-cookie') || '').split(';')[0];
+    ok(r.status === 201 && d.isNew && /Max-Age=31536000/.test(r.headers.get('set-cookie')), 'entrée : bon code, compte créé, connecté pour un an', [r.status, r.headers.get('set-cookie')]);
+    const u = JSON.parse([...cs.m.entries()].find(([k, v]) => k.startsWith('u/') && v.includes('nouveau@test.sn'))[1]);
+    ok(u.hash === '' && u.via === 'code' && u.devices.length === 1 && u.journal[0].event === 'inscription', 'entrée : compte sans mot de passe, appareil noté', u);
+    ok((await userFromRequest(new Request('https://app.test/', { headers: { cookie: ckc } }), cs)).email === 'nouveau@test.sn', 'entrée : session reconnue');
+    ok((await po('verifier', { email: 'nouveau@test.sn', code: sent[0].code })).status === 400, 'entrée : un code ne sert qu’une fois');
+    r = await po('connexion', { email: 'nouveau@test.sn', password: 'nimportequoi' }); d = await r.json();
+    ok(r.status === 400 && d.code === 'use_code', 'entrée : compte sans mot de passe, connexion par mot de passe refusée sans plantage', d);
+    // essais épuisés, code expiré
+    cs.m.delete([...cs.m.keys()].find(k => k.startsWith('c/')));
+    await po('code', { email: 'autre@test.ci' });
+    for (let i = 0; i < 4; i++) await po('verifier', { email: 'autre@test.ci', code: '99999' + i === sent[1].code ? '888888' : '99999' + i });
+    r = await po('verifier', { email: 'autre@test.ci', code: '777777' === sent[1].code ? '666666' : '777777' }); d = await r.json();
+    ok(/Trop d’essais/.test(d.error) && (await po('verifier', { email: 'autre@test.ci', code: sent[1].code })).status === 400, 'entrée : après 5 mauvais codes, le code est annulé', d);
+    const k = [...cs.m.keys()].find(x => x.startsWith('c/')); ok(!k, 'entrée : code annulé supprimé');
+    await new Promise(res => setTimeout(res, 10));
+    cs.m.forEach((v, kk) => { if (kk.startsWith('c/')) cs.m.delete(kk); });
+    await po('code', { email: 'expire@test.ci' });
+    const ck2 = [...cs.m.keys()].find(x => x.startsWith('c/')); const rec = JSON.parse(cs.m.get(ck2)); rec.expiresAt = Date.now() - 1; cs.m.set(ck2, JSON.stringify(rec));
+    r = await po('verifier', { email: 'expire@test.ci', code: sent[2].code }); d = await r.json();
+    ok(r.status === 400 && /expiré/.test(d.error), 'entrée : code expiré refusé', d);
+    ok((await po('code', { email: 'x@y.sn' }, { send: async () => false })).status === 502, 'entrée : échec d’envoi signalé');
+    // compte existant (mot de passe) : le code connecte au même compte
+    await po('inscription', { email: 'ancien@test.sn', password: 'motdepasse1' });
+    const before = [...cs.m.keys()].filter(x => x.startsWith('u/')).length;
+    await po('code', { email: 'ancien@test.sn' });
+    r = await po('verifier', { email: 'ancien@test.sn', code: sent[sent.length - 1].code }); d = await r.json();
+    ok(r.status === 200 && !d.isNew && [...cs.m.keys()].filter(x => x.startsWith('u/')).length === before && (await po('connexion', { email: 'ancien@test.sn', password: 'motdepasse1' })).status === 200, 'entrée : un compte avec mot de passe peut aussi entrer par code');
+  }
+  // ---------- Entrée de l'app dans le navigateur ----------
+  {
+    const gs = kv(), gh = memStore(), mails = [];
+    const gateDevice = async ({ mail = true, storageInit } = {}) => {
+      const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } });
+      await routeCdn(ctx);
+      await ctx.route(/\/api\/(compte\/[a-z]+|historique)$/, async route => {
+        const rq = route.request(), h = await rq.allHeaders();
+        const req = new Request(rq.url(), { method: rq.method(), headers: { origin: h.origin || '', cookie: h.cookie || '', 'content-type': 'application/json' }, body: ['POST', 'PUT'].includes(rq.method()) ? rq.postData() || '' : undefined });
+        const m = rq.url().match(/compte\/([a-z]+)$/);
+        const res = m ? await handleCompte(req, m[1], { store: gs, gate: true, send: mail ? async (to, s2, html, code) => { mails.push({ to, code }); return true; } : undefined }) : await handleHistorique(req, { getUser: () => userFromRequest(req, gs), store: gh });
+        const headers = { 'content-type': 'application/json' }; if (res.headers.get('set-cookie')) headers['set-cookie'] = res.headers.get('set-cookie');
+        route.fulfill({ status: res.status, headers, body: await res.text() });
+      });
+      const page = await ctx.newPage(); const errors = []; page.on('pageerror', e => errors.push(e.message));
+      await page.route(/fonts\.(googleapis|gstatic)\.com/, r2 => r2.abort());
+      await page.goto(BASE); await page.waitForSelector('#view .section-head');
+      return { ctx, page, errors };
+    };
+    const G = await gateDevice();
+    await G.page.waitForSelector('#gMailForm', { timeout: 15000 });
+    ok(/Ton espace/.test(await G.page.innerText('#gate')) && await G.page.evaluate(() => document.body.classList.contains('gated')), 'entrée : l’app demande un e-mail à l’ouverture');
+    ok(await G.page.evaluate(() => { const r = document.querySelector('#gate').getBoundingClientRect(); const top = document.elementFromPoint(200, 400); return r.width >= window.innerWidth && !!top.closest('#gate'); }), 'entrée : l’app est cachée derrière l’écran d’entrée');
+    await G.page.fill('#gEmail', 'pas-un-mail'); await G.page.click('#gSend');
+    ok(/invalide/.test(await G.page.innerText('#gErr')), 'entrée : adresse invalide signalée');
+    await G.page.fill('#gEmail', 'Eleve@Test.CI'); await G.page.click('#gSend');
+    await G.page.waitForSelector('#gCode', { timeout: 15000 });
+    ok(/eleve@test\.ci/.test(await G.page.innerText('#gate')) && /Renvoyer un code \(\d+ s\)/.test(await G.page.innerText('#gResend')) && await G.page.isDisabled('#gResend'), 'entrée : écran du code, renvoi possible après 30 s');
+    const code = mails[mails.length - 1].code;
+    await G.page.fill('#gCode', code === '123456' ? '654321' : '123456');
+    await G.page.waitForFunction(() => /Code incorrect/.test(document.querySelector('#gErr')?.innerText || ''), null, { timeout: 15000 });
+    ok(true, 'entrée : mauvais code refusé');
+    await G.page.fill('#gCode', code);
+    await G.page.waitForFunction(() => !document.querySelector('#gate'), null, { timeout: 15000 });
+    ok(await G.page.evaluate(() => acct.user && acct.user.email === 'eleve@test.ci' && !document.body.classList.contains('gated')), 'entrée : le code saisi ouvre l’app (envoi automatique au 6e chiffre)');
+    await G.page.reload(); await G.page.waitForSelector('#view .section-head');
+    await G.page.waitForFunction(() => acct.user && acct.user.email === 'eleve@test.ci', null, { timeout: 15000 });
+    ok(!(await G.page.$('#gate')), 'entrée : on reste connecté au rechargement');
+    await G.page.click('[data-tab="historique"]'); await G.page.click('#accLogout');
+    await G.page.waitForSelector('#gMailForm', { timeout: 15000 });
+    ok(true, 'entrée : la déconnexion ramène à l’écran d’entrée');
+    await G.page.click('#gUsePw'); await G.page.fill('#gEmail', 'eleve@test.ci'); await G.page.fill('#gPw', 'motdepasse'); await G.page.click('#gPwGo');
+    await G.page.waitForSelector('#gMailForm', { timeout: 15000 });
+    ok(/code reçu par e-mail/.test(await G.page.innerText('#gErr')), 'entrée : compte sans mot de passe renvoyé vers le code');
+    ok(await G.page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), 'entrée : pas de débordement sur téléphone');
+    ok(G.errors.length === 0, 'entrée : aucune erreur JavaScript', G.errors);
+    await G.ctx.close();
+    // Brevo pas encore configuré : entrée par e-mail et mot de passe
+    const P = await gateDevice({ mail: false });
+    await P.page.waitForSelector('#gPwForm', { timeout: 15000 });
+    await P.page.click('#gSignup'); await P.page.fill('#gEmail', 'mdp@test.sn'); await P.page.fill('#gPw', 'motdepasse1'); await P.page.click('#gPwGo');
+    await P.page.waitForFunction(() => !document.querySelector('#gate') && acct.user, null, { timeout: 15000 });
+    ok(true, 'entrée sans Brevo : création de compte avec mot de passe et accès à l’app');
+    ok(P.errors.length === 0, 'entrée sans Brevo : aucune erreur JavaScript', P.errors);
+    await P.ctx.close();
+  }
   // service de connexion injoignable : message clair
   {
     const { page, ctx, errors } = await openApp({ storage: undefined });

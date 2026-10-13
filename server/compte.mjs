@@ -1,10 +1,12 @@
 // Comptes simples : adresse e-mail + mot de passe, sans e-mail de vérification.
 // Mots de passe hachés (scrypt + sel), session dans un cookie HttpOnly signé (HMAC).
 // La clé de signature est créée au premier usage et gardée dans le stockage : aucun réglage à faire.
-import { scryptSync, randomBytes, timingSafeEqual, createHmac, createHash, randomUUID } from 'node:crypto';
+import { scryptSync, randomBytes, timingSafeEqual, createHmac, createHash, randomUUID, randomInt } from 'node:crypto';
 
 export const COOKIE = 'umoa_session';
-const SESSION_DAYS = 30, MAX_FAILS = 5, LOCK_MIN = 15;
+const SESSION_DAYS = 365, MAX_FAILS = 5, LOCK_MIN = 15;
+// Connexion par code reçu par e-mail (comme Anglais 365) : code à 6 chiffres valable 10 minutes, 5 essais, renvoi après 30 s
+const CODE_TTL_MS = 10 * 60 * 1000, CODE_COOLDOWN_MS = 30 * 1000, CODE_TRIES = 5;
 const MAX_DEVICES = 10, MAX_JOURNAL = 30, SEEN_EVERY_MS = 3600e3;
 
 const json = (body, status = 200, headers = {}) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', ...headers } });
@@ -66,6 +68,38 @@ export function recordDevice(user, req, geo, event, now = Date.now()) {
   return true;
 }
 
+/* ---- Envoi d'e-mails (Brevo) : BREVO_API_KEY + MAIL_FROM ; MAIL_DRY_RUN=1 écrit le code dans les journaux ---- */
+export const mailReady = env => env('MAIL_DRY_RUN') === '1' || !!(env('BREVO_API_KEY') && env('MAIL_FROM'));
+async function brevoSend(env, to, subject, html) {
+  if (env('MAIL_DRY_RUN') === '1') { console.log('[MAIL_DRY_RUN] à ' + to + ' : ' + subject); return true; }
+  try {
+    const res = await fetch('https://api.brevo.com/v3/smtp/email', {
+      method: 'POST', headers: { 'api-key': env('BREVO_API_KEY'), 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({ sender: { email: env('MAIL_FROM'), name: env('MAIL_FROM_NAME') || 'Analyste Bancaire UMOA' }, to: [{ email: to }], subject, htmlContent: html })
+    });
+    if (!res.ok) console.error('Brevo : échec d\'envoi', res.status, await res.text().catch(() => ''));
+    return res.ok;
+  } catch (e) { console.error('Brevo :', e); return false; }
+}
+export function codeEmail(code) {
+  return {
+    subject: code + ' est ton code Analyste Bancaire UMOA',
+    html: '<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Ton code de connexion</title></head>'
+      + '<body style="margin:0;padding:0;background:#f2f4f1;font-family:Segoe UI,Helvetica,Arial,sans-serif;color:#13201a">'
+      + '<span style="display:none;max-height:0;overflow:hidden">Ton code de connexion : ' + code + '</span>'
+      + '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f2f4f1;padding:24px 12px"><tr><td align="center">'
+      + '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;background:#ffffff;border-radius:16px;overflow:hidden;border:1px solid #d3dbd5">'
+      + '<tr><td style="background:#0c5a48;padding:24px 28px;color:#ffffff"><span style="display:inline-block;background:#ffffff;color:#0c5a48;font-weight:800;font-size:12px;letter-spacing:2px;padding:5px 8px;border-radius:4px">UMOA</span>'
+      + '<span style="font-weight:700;font-size:17px;padding-left:10px;color:#ffffff">Analyste Bancaire</span><h1 style="margin:16px 0 0;font-size:24px;color:#ffffff">Ton code de connexion</h1></td></tr>'
+      + '<tr><td style="padding:26px 28px;font-size:16px;line-height:1.6"><p style="margin:0 0 12px">Voici ton code pour te connecter à Analyste Bancaire UMOA :</p>'
+      + '<p style="margin:0 0 16px;font-size:36px;font-weight:800;letter-spacing:8px;color:#0c5a48">' + code + '</p>'
+      + '<p style="margin:0;font-size:14px;color:#45524b">Il est valable 10 minutes. Si tu n\'es pas à l\'origine de cette demande, ignore simplement ce message.</p></td></tr>'
+      + '</table></td></tr></table></body></html>'
+  };
+}
+const codeKey = email => 'c/' + createHash('sha256').update(email).digest('hex');
+const codeHash = (email, code) => createHash('sha256').update(email + ':' + code).digest('hex');
+
 async function secret(store) {
   let s = await store.get('cle-session', { type: 'text' });
   if (!s) { await store.set('cle-session', randomBytes(32).toString('hex'), { onlyIfNew: true }); s = await store.get('cle-session', { type: 'text' }); }
@@ -101,7 +135,9 @@ export async function userFromRequest(req, store) {
   } catch (e) { return null; }
 }
 
-export async function handleCompte(req, action, { store, geo }) {
+export async function handleCompte(req, action, { store, geo, env = () => undefined, gate = false, send }) {
+  // l'app demande si l'entrée exige un e-mail et si l'envoi de codes est possible
+  if (action === 'config' && req.method === 'GET') return json({ gate: !!gate, mail: mailReady(env) || !!send });
   if (action === 'moi' && req.method === 'GET') {
     const u = await userFromRequest(req, store);
     if (!u) return json({ error: 'Non connecté' }, 401);
@@ -113,12 +149,54 @@ export async function handleCompte(req, action, { store, geo }) {
   const origin = req.headers.get('origin');
   if (!origin || origin !== new URL(req.url).origin) return json({ error: 'Origine refusée' }, 403);
   if (action === 'deconnexion') return json({ ok: true }, 200, { 'Set-Cookie': sessionCookie(req, '', 0) });
-  if (action !== 'inscription' && action !== 'connexion') return json({ error: 'Action inconnue' }, 404);
+  if (!['inscription', 'connexion', 'code', 'verifier'].includes(action)) return json({ error: 'Action inconnue' }, 404);
 
   let body;
   try { body = JSON.parse((await req.text()).slice(0, 10000)); } catch (e) { return json({ error: 'Requête invalide' }, 400); }
   const email = normEmail(body && body.email), password = String((body && body.password) || '');
   if (!validEmail(email)) return json({ error: 'Adresse e-mail invalide.', code: 'email' }, 400);
+
+  if (action === 'code') {
+    if (!mailReady(env) && !send) return json({ error: 'L’envoi des codes par e-mail n’est pas encore configuré sur ce site : connecte-toi avec un mot de passe.', code: 'mail' }, 503);
+    const prev = await store.get(codeKey(email), { type: 'json' });
+    if (prev && Date.now() - prev.sentAt < CODE_COOLDOWN_MS) return json({ error: 'Un code vient d’être envoyé : patiente quelques secondes avant d’en demander un autre.', code: 'too_soon' }, 429);
+    const code = String(randomInt(0, 1000000)).padStart(6, '0');
+    // seule l'empreinte du code est conservée
+    await store.setJSON(codeKey(email), { hash: codeHash(email, code), sentAt: Date.now(), expiresAt: Date.now() + CODE_TTL_MS, attempts: 0 });
+    const m = codeEmail(code);
+    const ok = send ? await send(email, m.subject, m.html, code) : await brevoSend(env, email, m.subject, m.html);
+    if (!ok) { await store.delete(codeKey(email)); return json({ error: 'L’e-mail n’a pas pu être envoyé. Vérifie l’adresse ou réessaie dans un instant.', code: 'send' }, 502); }
+    return json({ ok: true });
+  }
+  if (action === 'verifier') {
+    const code = String((body && body.code) || '').replace(/\D/g, '');
+    if (code.length !== 6) return json({ error: 'Le code fait 6 chiffres.', code: 'format' }, 400);
+    const rec = await store.get(codeKey(email), { type: 'json' });
+    if (!rec) return json({ error: 'Aucun code en cours pour cette adresse : demande un nouveau code.', code: 'no_code' }, 400);
+    if (Date.now() > rec.expiresAt) { await store.delete(codeKey(email)); return json({ error: 'Ce code a expiré : demande un nouveau code.', code: 'expired' }, 400); }
+    if (rec.attempts >= CODE_TRIES) { await store.delete(codeKey(email)); return json({ error: 'Trop d’essais : demande un nouveau code.', code: 'too_many' }, 429); }
+    const good = codeHash(email, code);
+    if (!timingSafeEqual(Buffer.from(rec.hash), Buffer.from(good))) {
+      rec.attempts += 1;
+      if (rec.attempts >= CODE_TRIES) await store.delete(codeKey(email)); else await store.setJSON(codeKey(email), rec);
+      const left = CODE_TRIES - rec.attempts;
+      return json({ error: left > 0 ? 'Code incorrect (' + left + ' essai' + (left > 1 ? 's' : '') + ' restant' + (left > 1 ? 's' : '') + ').' : 'Code incorrect. Trop d’essais : demande un nouveau code.', code: 'wrong_code', remaining: left }, 400);
+    }
+    await store.delete(codeKey(email));
+    const key = userKey(email), now = new Date().toISOString();
+    let user = await store.get(key, { type: 'json' });
+    const isNew = !user;
+    if (!user) {
+      // compte créé à la première connexion, sans mot de passe
+      user = { id: randomUUID(), email, salt: randomBytes(16).toString('hex'), hash: '', createdAt: now, lastLogin: now, fails: 0, lockedUntil: 0, via: 'code' };
+      recordDevice(user, req, geo, 'inscription');
+    } else {
+      user.lastLogin = now; user.fails = 0; user.lockedUntil = 0;
+      recordDevice(user, req, geo, 'connexion');
+    }
+    await store.setJSON(key, user);
+    return json({ email, isNew }, isNew ? 201 : 200, { 'Set-Cookie': sessionCookie(req, await makeToken(user, store), SESSION_DAYS * 86400) });
+  }
   if (password.length > 200) return json({ error: 'Mot de passe trop long.', code: 'password' }, 400);
   const key = userKey(email);
 
@@ -137,6 +215,7 @@ export async function handleCompte(req, action, { store, geo }) {
   const user = await store.get(key, { type: 'json' });
   const bad = () => json({ error: 'Adresse e-mail ou mot de passe incorrect.', code: 'credentials' }, 401);
   if (!user) { hashPw(password, 'x'.repeat(32)); return bad(); }
+  if (!user.hash) return json({ error: 'Ce compte se connecte avec un code reçu par e-mail : choisis « Recevoir mon code ».', code: 'use_code' }, 400);
   if (user.lockedUntil && user.lockedUntil > Date.now()) return json({ error: 'Trop d’essais : réessaie dans ' + Math.ceil((user.lockedUntil - Date.now()) / 60000) + ' minute(s).', code: 'locked' }, 429);
   const ok = timingSafeEqual(Buffer.from(hashPw(password, user.salt), 'hex'), Buffer.from(user.hash, 'hex'));
   if (!ok) {
