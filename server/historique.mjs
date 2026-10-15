@@ -70,7 +70,7 @@ export async function handleHistorique(req, { getUser, store }) {
   let stored = null;
   try { stored = await store.get(key, { type: 'json' }); } catch (e) { stored = null; }
   stored = stored && typeof stored === 'object' ? stored : { history: [], deleted: [] };
-  if (req.method === 'GET') return json({ history: stored.history || [], deleted: stored.deleted || [], banks: stored.banks || {}, banksDeleted: stored.banksDeleted || {}, updatedAt: stored.updatedAt || null, email: user.email || null });
+  if (req.method === 'GET') return json({ history: stored.history || [], deleted: stored.deleted || [], banks: stored.banks || {}, banksDeleted: stored.banksDeleted || {}, style: stored.style || null, updatedAt: stored.updatedAt || null, email: user.email || null });
 
   // Écriture : même origine uniquement (protection CSRF, l'authentification passe par cookie)
   const origin = req.headers.get('origin');
@@ -82,7 +82,10 @@ export async function handleHistorique(req, { getUser, store }) {
   if (!body || !Array.isArray(body.history) || (body.deleted !== undefined && !Array.isArray(body.deleted)) || (body.banks !== undefined && (typeof body.banks !== 'object' || Array.isArray(body.banks)))) return json({ error: 'Format attendu : { history: [], deleted: [], banks: {}, banksDeleted: {} }' }, 400);
   const merged = mergeHistory(stored, { history: body.history, deleted: body.deleted || [] });
   const mb = mergeBanks(stored, { banks: body.banks || {}, banksDeleted: body.banksDeleted || {} });
-  const doc = { ...merged, ...mb, updatedAt: new Date().toISOString(), email: user.email || null };
+  // style d'écriture personnel : la version modifiée le plus récemment l'emporte
+  const okStyle = st => st && typeof st === 'object' && !Array.isArray(st) && Number.isFinite(+st.mod) && JSON.stringify(st).length <= 12000;
+  const style = okStyle(body.style) && (!okStyle(stored.style) || +body.style.mod > +stored.style.mod) ? body.style : okStyle(stored.style) ? stored.style : null;
+  const doc = { ...merged, ...mb, ...(style ? { style } : {}), updatedAt: new Date().toISOString(), email: user.email || null };
   await store.setJSON(key, doc);
   return json(doc);
 }

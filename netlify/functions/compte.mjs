@@ -6,6 +6,7 @@ export default async (req, context) => handleCompte(req, context.params.action, 
   store: getStore({ name: 'comptes', consistency: 'strong' }),
   geo: context.geo,
   env: k => Netlify.env.get(k),
+  adminEmails: Netlify.env.get('ADMIN_EMAILS'),
   // entrée de l'app réservée aux personnes connectées par e-mail (ACCES_LIBRE=1 pour la désactiver)
   gate: Netlify.env.get('ACCES_LIBRE') !== '1'
 });

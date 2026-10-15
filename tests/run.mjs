@@ -802,7 +802,7 @@ else {
   await page.click('#rGo');
   ok(/deux banques/.test(await page.innerText('#rStatus')), 'rapport : comparaison avec une seule banque signalée');
   await page.click('label[for="rt-synthese"]');
-  ok(/professionnel/.test(await page.$eval('#rWrite option[value="auto"]', o => o.textContent)) && await page.$$eval('#rWrite option', o => o.length) === 5, 'rapport : choix du style de rédaction (automatique selon le modèle)');
+  ok(/professionnel/.test(await page.$eval('#rWrite option[value="auto"]', o => o.textContent)) && await page.$$eval('#rWrite option', o => o.length) === 6, 'rapport : choix du style de rédaction (automatique selon le modèle, ou mon style)');
   await page.selectOption('#rWrite', 'pedagogique');
   await page.selectOption('#rTheme', 'marine');
   const [dl2] = await Promise.all([page.waitForEvent('download', { timeout: 60000 }), page.click('#rGo')]);
@@ -1098,9 +1098,16 @@ else {
     await Ad.page.fill('#accEmail', 'admin@test.sn'); await Ad.page.fill('#accPw', 'motdepasseadmin'); await Ad.page.click('#accGo');
     await Ad.page.waitForSelector('[data-tab="admin"]', { timeout: 15000 });
     await Ad.page.click('[data-tab="admin"]');
+    await Ad.page.waitForFunction(() => /En ligne maintenant/.test(document.querySelector('#adminBox')?.innerText || ''), null, { timeout: 15000 });
+    ok(await Ad.page.evaluate(() => document.body.classList.contains('admin-mode') && !document.querySelector('[data-tab="structure"]') && !!document.querySelector('[data-atab="comptes"]') && !!document.querySelector('.tab-back') && getComputedStyle(document.querySelector('.ctrls')).display === 'none'), 'admin : console à part (ses propres onglets, sans les onglets d’analyse)');
+    await Ad.page.click('[data-atab="tableau"]');
+    await Ad.page.waitForFunction(() => /Activité des 30 derniers jours/.test(document.querySelector('#adminBox')?.innerText || ''), null, { timeout: 15000 });
+    const tb = await Ad.page.innerText('#adminBox');
+    ok(/Banques les plus analysées/.test(tb) && /Heures d’affluence/.test(tb) && /Actions dans l’app par jour/.test(tb), 'admin : tableau de bord affiché', tb.slice(0, 300));
+    await Ad.page.click('[data-atab="comptes"]');
     await Ad.page.waitForFunction(() => /Comptes \(\d+\)/.test(document.querySelector('#adminBox')?.innerText || ''), null, { timeout: 15000 });
     const txt = await Ad.page.innerText('#adminBox');
-    ok(/eleve2@test\.ci/.test(txt) && /Activité des 30 derniers jours/.test(txt) && /Banques les plus analysées/.test(txt), 'admin : tableau de bord affiché', txt.slice(0, 300));
+    ok(/eleve2@test\.ci/.test(txt), 'admin : liste des comptes', txt.slice(0, 300));
     const uid = await Ad.page.evaluate(() => adm.comptes.find(c => c.email === 'eleve2@test.ci').id);
     await Ad.page.click('[data-av="' + uid + '"]');
     await Ad.page.waitForFunction(() => /Compte eleve2/.test(document.querySelector('#admDetail').innerText));
@@ -1124,7 +1131,7 @@ else {
     await Ad.page.waitForFunction(() => adm.comptes && !adm.comptes.some(c => c.email === 'eleve2@test.ci'), null, { timeout: 15000 });
     ok(true, 'admin : compte supprimé depuis le tableau de bord');
     ok(await Ad.page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), 'admin : pas de débordement sur téléphone');
-    await Ad.page.click('[data-tab="historique"]'); await Ad.page.click('#accLogout');
+    await Ad.page.click('.tab-back'); await Ad.page.click('[data-tab="historique"]'); await Ad.page.click('#accLogout');
     await Ad.page.waitForFunction(() => !document.querySelector('[data-tab="admin"]'), null, { timeout: 15000 });
     ok(true, 'admin : onglet retiré à la déconnexion');
     ok(Ad.errors.length === 0 && Us.errors.length === 0, 'admin : aucune erreur JavaScript', [...Ad.errors, ...Us.errors].slice(0, 3));
@@ -1136,10 +1143,10 @@ else {
     await D.page.goto(BASE + 'admin'); await D.page.waitForSelector('#view .section-head');
     ok(/Connexion administrateur/.test(await D.page.innerText('#view')) && await D.page.$('#accEmail'), 'lien /admin : écran de connexion administrateur');
     await D.page.fill('#accEmail', 'admin@test.sn'); await D.page.fill('#accPw', 'motdepasseadmin'); await D.page.click('#accGo');
-    await D.page.waitForFunction(() => /Comptes \(\d+\)/.test(document.querySelector('#adminBox')?.innerText || ''), null, { timeout: 15000 });
+    await D.page.waitForFunction(() => /En ligne maintenant/.test(document.querySelector('#adminBox')?.innerText || ''), null, { timeout: 15000 });
     ok(true, 'lien /admin : tableau de bord après connexion, sans changer d’onglet');
     await D.page.reload(); await D.page.waitForSelector('#view .section-head');
-    await D.page.waitForFunction(() => /Comptes \(\d+\)/.test(document.querySelector('#adminBox')?.innerText || ''), null, { timeout: 15000 });
+    await D.page.waitForFunction(() => /En ligne maintenant/.test(document.querySelector('#adminBox')?.innerText || ''), null, { timeout: 15000 });
     ok(true, 'lien /admin : session retrouvée au rechargement');
     ok(D.errors.length === 0, 'lien /admin : aucune erreur JavaScript', D.errors);
     await D.ctx.close();
@@ -1252,6 +1259,111 @@ else {
     ok(true, 'entrée sans Brevo : création de compte avec mot de passe et accès à l’app');
     ok(P.errors.length === 0, 'entrée sans Brevo : aucune erreur JavaScript', P.errors);
     await P.ctx.close();
+  }
+  // ---------- Journal d'activité : serveur ----------
+  {
+    const { handleActivite, liveFeed, userActivity, activityStats, parseKey } = await import('../server/activite.mjs');
+    const as = kv(), cs2 = kv();
+    const alice = { id: 'aaaaaaaa-1111-2222-3333-444444444444', email: 'alice@test.sn' };
+    const post = (body, user = alice, origin = 'https://app.test', now) => handleActivite(new Request('https://app.test/api/activite', { method: 'POST', headers: { origin, 'user-agent': 'Mozilla/5.0 (Linux; Android 13; SM-A515F) AppleWebKit/537.36 Chrome/120.0 Mobile Safari/537.36' }, body: typeof body === 'string' ? body : JSON.stringify(body) }), { getUser: async () => user, store: as, geo: { city: 'Dakar', country: { name: 'Senegal' } }, now });
+    ok((await post({ events: [] }, null)).status === 401 && (await post({ events: [] }, alice, 'https://pirate.test')).status === 403 && (await post('{cassé')).status === 400 && (await post('x'.repeat(30000))).status === 413, 'activité : refus sans compte, d’un autre site, JSON invalide ou trop gros');
+    let r = await post({ tab: 'Synthèse', bank: 'BAB', events: [{ type: 'onglet', d: 'Synthèse', at: new Date().toISOString() }, { type: 'pirate', d: 'x' }, { type: 'import', d: 'BAB · 50 poste(s)' }] });
+    ok(r.status === 200 && (await r.json()).enregistres === 2, 'activité : actions enregistrées, types inconnus ignorés');
+    const k = [...as.m.keys()].find(x => x.startsWith('e/'));
+    ok(parseKey(k) && parseKey(k).n === 2, 'activité : la clé du lot porte la date et le nombre d’actions', k);
+    await post({ tab: 'Rapport Word', bank: 'BAB', events: [] });
+    const live = await liveFeed(as);
+    ok(live.enLigne.length === 1 && live.enLigne[0].email === 'alice@test.sn' && live.enLigne[0].tab === 'Rapport Word' && /SM-A515F/.test(live.enLigne[0].appareil) && live.enLigne[0].lieu === 'Dakar, Senegal', 'activité : présence en ligne (onglet, appareil, lieu)', live.enLigne);
+    ok(live.events.length === 2 && live.events.some(e => e.type === 'import' && e.email === 'alice@test.sn' && e.bank === 'BAB'), 'activité : fil des actions', live.events);
+    const later = await liveFeed(as, { now: Date.now() + 4 * 60000 });
+    ok(later.enLigne.length === 0 && later.recents.length === 1, 'activité : hors ligne après 3 minutes sans signal');
+    const sinceNow = await liveFeed(as, { since: new Date().toISOString() });
+    ok(sinceNow.events.length === 0, 'activité : « depuis » ne renvoie que les nouvelles actions');
+    ok((await userActivity(as, alice.id)).length === 2 && (await userActivity(as, 'bbbb')).length === 0, 'activité : actions d’un compte');
+    const st2 = await activityStats(as);
+    ok(st2.actions7 === 2 && st2.heures.reduce((a, b) => a + b, 0) === 2, 'activité : statistiques par heure');
+    // alertes e-mail à l'admin
+    const { handleCompte: hc } = await import('../server/compte.mjs');
+    const mailsA = [];
+    const send = async (to, subject, html, code) => { mailsA.push({ to, subject, code }); return true; };
+    const po = (action, body) => hc(new Request('https://app.test/api/compte/' + action, { method: 'POST', headers: { origin: 'https://app.test', 'user-agent': 'Mozilla/5.0 (Windows NT 10.0) Chrome/120.0 Safari/537.36' }, body: JSON.stringify(body) }), action, { store: cs2, send, adminEmails: 'chef@test.sn' });
+    await po('inscription', { email: 'nouveau@test.sn', password: 'motdepasse1' });
+    ok(mailsA.some(m => m.to === 'chef@test.sn' && /Nouvelle inscription : nouveau@test\.sn/.test(m.subject)), 'alertes : e-mail à l’admin à chaque inscription', mailsA);
+    const n0 = mailsA.length; await po('connexion', { email: 'nouveau@test.sn', password: 'motdepasse1' });
+    ok(mailsA.length === n0, 'alertes : pas d’e-mail de connexion par défaut');
+    await cs2.setJSON('reglages-admin', { alertes: { inscription: true, appareil: true, connexion: true } });
+    await po('connexion', { email: 'nouveau@test.sn', password: 'motdepasse1' });
+    ok(mailsA.slice(n0).some(m => /^Connexion : nouveau/.test(m.subject)), 'alertes : e-mail à chaque connexion si activé');
+  }
+  // ---------- Console admin en direct et style personnel : navigateur ----------
+  {
+    const { handleActivite } = await import('../server/activite.mjs');
+    const cs3 = kv(), hs3 = memStore(), as3 = kv(), codes = [];
+    const D3 = async (ua, width = 390) => {
+      const ctx = await browser.newContext({ viewport: { width, height: 844 }, userAgent: ua });
+      await routeCdn(ctx);
+      await ctx.route(/\/api\/(compte\/[a-z]+|historique|activite|admin\/[a-z]+(\?.*)?)$/, async route => {
+        const rq = route.request(), h = await rq.allHeaders();
+        const req = new Request(rq.url(), { method: rq.method(), headers: { origin: h.origin || '', cookie: h.cookie || '', 'content-type': 'application/json', 'user-agent': h['user-agent'] || '' }, body: ['POST', 'PUT'].includes(rq.method()) ? rq.postData() || '' : undefined });
+        const u = rq.url(), m = u.match(/compte\/([a-z]+)$/), ma = u.match(/admin\/([a-z]+)(\?|$)/);
+        const res = m ? await handleCompte(req, m[1], { store: cs3, gate: true, adminEmails: 'chef@test.sn', send: async (to, s2, html, code) => { codes.push({ to, code }); return true; } })
+          : ma ? await handleAdmin(req, ma[1], { comptes: cs3, historiques: hs3, activite: as3, adminEmails: 'chef@test.sn' })
+          : /activite$/.test(u) ? await handleActivite(req, { getUser: () => userFromRequest(req, cs3), store: as3 })
+          : await handleHistorique(req, { getUser: () => userFromRequest(req, cs3), store: hs3 });
+        const headers = { 'content-type': 'application/json' }; if (res.headers.get('set-cookie')) headers['set-cookie'] = res.headers.get('set-cookie');
+        route.fulfill({ status: res.status, headers, body: await res.text() });
+      });
+      const page = await ctx.newPage(); const errors = []; page.on('pageerror', e => errors.push(e.message));
+      await page.route(/fonts\.(googleapis|gstatic)\.com/, r2 => r2.abort());
+      await page.goto(BASE); await page.waitForSelector('#gMailForm', { timeout: 15000 });
+      return { ctx, page, errors };
+    };
+    const enter = async (D, email) => { await D.page.fill('#gEmail', email); await D.page.click('#gSend'); await D.page.waitForSelector('#gCode'); await D.page.fill('#gCode', codes.filter(c => c.to === email && c.code).pop().code); await D.page.waitForFunction(() => !document.querySelector('#gate'), null, { timeout: 15000 }); };
+    const Us3 = await D3('Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 Version/17.5 Mobile/15E148 Safari/604.1');
+    await enter(Us3, 'awa@test.sn');
+    ok(codes.some(c => c.to === 'chef@test.sn' && !c.code), 'alertes : l’admin est prévenu de la nouvelle inscription');
+    await Us3.page.click('[data-tab="structure"]'); await Us3.page.click('[data-tab="rapport"]');
+    // style personnel : appris d'un texte
+    await Us3.page.click('#myStyleCard summary');
+    await Us3.page.fill('#msSample', 'Dans le cadre de mon stage, j’ai étudié la banque. En effet, je constate que les crédits augmentent fortement. Par ailleurs, les dépôts progressent moins vite, ce qui tend la liquidité. Toutefois, je note que les fonds propres restent solides. De ce fait, j’estime que la banque doit renforcer sa collecte. En effet, sans dépôts, elle dépendra de la BCEAO.');
+    await Us3.page.click('#msLearn');
+    ok(await Us3.page.inputValue('#msPerson') === 'je' && /En effet/.test(await Us3.page.inputValue('#msConn')) && /Toutefois/.test(await Us3.page.inputValue('#msConn')), 'style personnel : appris d’un texte (« je », connecteurs)', [await Us3.page.inputValue('#msPerson'), await Us3.page.inputValue('#msConn')]);
+    ok(/J’observe|je constate|Je relève/i.test(await Us3.page.innerText('#msPreview')), 'style personnel : aperçu rédigé à la première personne');
+    await Us3.page.selectOption('#msLen', 'developpee');
+    await Us3.page.fill('#msOpen', 'À la lecture des chiffres, {ratio} {verbe} de {v1} à {v2} entre {a1} et {a2}.');
+    await Us3.page.fill('#msRepl', 'la banque = l’établissement');
+    await Us3.page.fill('#msSign', 'Fait à Dakar — Awa N.');
+    await Us3.page.click('#msSave');
+    ok(await Us3.page.evaluate(() => hasMyStyle() && state.myStyle.person === 'je' && state.report.writing === 'perso' && document.querySelector('#rWrite').value === 'perso'), 'style personnel : enregistré et choisi pour les rapports');
+    const b64 = await Us3.page.evaluate(async () => { const blob = await buildReport({ type: 'complet', writing: 'perso', sections: ['structure', 'conclusion'], charts: false }); const u = new Uint8Array(await blob.arrayBuffer()); let s = ''; u.forEach(c => s += String.fromCharCode(c)); return btoa(s); });
+    const zx = await require('jszip').loadAsync(Buffer.from(b64, 'base64')); const px = (await zx.file('word/document.xml').async('string')).replace(/<[^>]+>/g, '');
+    ok(/À la lecture des chiffres, le ratio de transformation/.test(px) && /Au terme de mon analyse, j’estime/.test(px) && /Fait à Dakar — Awa N\./.test(px) && /l’établissement/.test(px) && !/\{ratio\}|\{v1\}/.test(px), 'style personnel : rapport écrit avec ses formules, son « je », ses remplacements et sa signature');
+    for (let i = 0; i < 50 && !JSON.stringify([...hs3.m.values()]).includes('Fait à Dakar'); i++) await Us3.page.waitForTimeout(100);
+    ok(JSON.stringify([...hs3.m.values()]).includes('Fait à Dakar'), 'style personnel : enregistré sur le compte (retrouvé sur les autres appareils)');
+    // l'admin suit en direct
+    const Ad3 = await D3('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0 Safari/537.36', 1200);
+    await enter(Ad3, 'chef@test.sn');
+    await Ad3.page.waitForSelector('.tab-admin', { timeout: 15000 }); await Ad3.page.click('.tab-admin');
+    await Ad3.page.waitForFunction(() => /awa@test\.sn/.test(document.querySelector('.online')?.innerText || ''), null, { timeout: 15000 });
+    const on = await Ad3.page.innerText('.online');
+    ok(/iPhone/.test(on) && /Rapport Word/.test(on), 'en direct : l’admin voit qui est en ligne, sur quel appareil et quel onglet', on);
+    const fd = await Ad3.page.innerText('#admFeed');
+    ok(/se connecte/.test(fd) && /consulte « Ratios de structure »/.test(fd) && /règle son style/.test(fd), 'en direct : fil des actions de l’utilisateur', fd.slice(0, 300));
+    await Us3.page.click('[data-tab="r"]'); await Us3.page.click('#rCopy'); await Us3.page.evaluate(() => flushTrack());
+    await Ad3.page.waitForFunction(() => /code R : copie/.test(document.querySelector('#admFeed').innerText), null, { timeout: 25000 });
+    ok(true, 'en direct : une nouvelle action apparaît chez l’admin en quelques secondes, sans recharger');
+    ok(await Ad3.page.evaluate(() => !!document.querySelector('.ev.new')), 'en direct : les nouvelles actions sont mises en évidence');
+    await Ad3.page.selectOption('#admFeedLevel', 'imp');
+    ok(!/consulte «/.test(await Ad3.page.innerText('#admFeed')), 'en direct : filtre « actions importantes » (sans la navigation)');
+    await Ad3.page.click('[data-atab="reglages"]');
+    await Ad3.page.waitForSelector('[data-alert="connexion"]:not([disabled])', { timeout: 15000 });
+    await Ad3.page.check('[data-alert="connexion"]');
+    await Ad3.page.waitForFunction(() => /enregistré/.test(document.querySelector('#admAlertMsg').innerText), null, { timeout: 15000 });
+    ok(JSON.parse(cs3.m.get('reglages-admin')).alertes.connexion === true, 'réglages : alerte à chaque connexion activée');
+    await Ad3.page.click('.tab-back');
+    ok(await Ad3.page.evaluate(() => !document.body.classList.contains('admin-mode') && !!document.querySelector('[data-tab="structure"]')), 'console : « Retour à l’app » ramène aux onglets d’analyse');
+    ok(Us3.errors.length === 0 && Ad3.errors.length === 0, 'console et style : aucune erreur JavaScript', [...Us3.errors, ...Ad3.errors]);
+    await Us3.ctx.close(); await Ad3.ctx.close();
   }
   // service de connexion injoignable : message clair
   {

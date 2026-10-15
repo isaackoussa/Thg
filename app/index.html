@@ -84,6 +84,40 @@ main { max-width: 1180px; margin: 0 auto; padding: 18px 16px 60px; display: grid
 .tags { display: flex; gap: 6px; flex-wrap: wrap; }
 .tag { font-size: 0.68rem; letter-spacing: 0.06em; text-transform: uppercase; font-weight: 600; color: var(--ink-3); border: 1px solid var(--line); border-radius: 4px; padding: 1px 6px; }
 .tag.reg { color: var(--accent); border-color: var(--accent); }
+#myStyleCard summary { cursor: pointer; list-style: none; }
+#myStyleCard summary::-webkit-details-marker { display: none; }
+#myStyleCard summary::before { content: '▸ '; color: var(--accent); }
+#myStyleCard[open] summary::before { content: '▾ '; }
+.ms-preview:not(:empty) { background: var(--surface-2); border-radius: 8px; padding: 10px 12px; font-size: .9rem; }
+.ms-preview p { margin: 0 0 8px; }
+/* Console d'administration */
+body.admin-mode .ctrls { display: none; }
+body.admin-mode .top { background: var(--ink); }
+body.admin-mode .top .bank-name, body.admin-mode .top .sub { color: #fff; }
+body.admin-mode .top .sub { opacity: .75; }
+body.admin-mode .top .tab { color: rgba(255,255,255,.75); }
+body.admin-mode .top .tab[aria-selected="true"] { color: #fff; border-bottom-color: #58c2a2; }
+.tab-back { margin-left: auto; }
+.tab-admin { color: var(--accent); font-weight: 700; }
+.badge { display: inline-block; min-width: 18px; padding: 0 5px; border-radius: 999px; background: var(--bad); color: #fff; font-size: .7rem; line-height: 18px; text-align: center; }
+.live-head { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; }
+.live-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: #1fbf6a; box-shadow: 0 0 0 0 rgba(31,191,106,.6); animation: pulse 2s infinite; vertical-align: middle; }
+.live-dot.sm { width: 8px; height: 8px; }
+.live-dot.off, .live-dot.idle { background: var(--ink-3); animation: none; }
+@keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(31,191,106,.55); } 70% { box-shadow: 0 0 0 8px rgba(31,191,106,0); } 100% { box-shadow: 0 0 0 0 rgba(31,191,106,0); } }
+@media (prefers-reduced-motion: reduce) { .live-dot { animation: none; } }
+.online { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 8px; }
+.who { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; display: grid; gap: 3px; font-size: .88rem; min-width: 0; overflow-wrap: anywhere; }
+.who-h { display: flex; gap: 6px; align-items: center; }
+.feed { display: grid; max-height: 60vh; overflow-y: auto; border: 1px solid var(--line); border-radius: 10px; }
+#adminBox { display: grid; gap: 12px; min-width: 0; }
+.ev { display: grid; grid-template-columns: 84px 26px 1fr; gap: 8px; padding: 8px 10px; border-bottom: 1px solid var(--line); font-size: .88rem; align-items: start; }
+.ev:last-child { border-bottom: 0; }
+.ev time { font-variant-numeric: tabular-nums; font-weight: 600; display: grid; }
+.ev time small { font-weight: 400; color: var(--ink-3); font-size: .72rem; }
+.ev-b { min-width: 0; overflow-wrap: anywhere; }
+.ev.new { animation: flash 2.5s ease-out; }
+@keyframes flash { from { background: var(--accent-soft); } to { background: transparent; } }
 /* Entrée de l'app par e-mail */
 body.gated { overflow: hidden; }
 #gate { position: fixed; inset: 0; z-index: 100; overflow-y: auto; background: radial-gradient(ellipse at top, var(--accent-soft), var(--bg) 60%); display: flex; justify-content: center; padding: 28px 16px; }
@@ -447,6 +481,8 @@ function loadState() {
   s.histDeleted = Array.isArray(s.histDeleted) ? s.histDeleted.filter(x => typeof x === 'string').slice(-1000) : [];
   s.base = s.base === 'moy' ? 'moy' : 'fin';
   s.tab = typeof s.tab === 'string' ? s.tab : 'synthese';
+  s.myStyle = s.myStyle && typeof s.myStyle === 'object' ? s.myStyle : null;
+  s.report = s.report && typeof s.report === 'object' && !Array.isArray(s.report) ? s.report : undefined;
   if (!s.banks[s.cur]) s.cur = Object.keys(s.banks)[0];
   return s;
 }
@@ -468,7 +504,7 @@ function trackBanks(silent) {
 }
 function save(opts) {
   const changed = trackBanks(opts && opts.silent);
-  try { localStorage.setItem(LS_KEY, JSON.stringify({ banks:state.banks, cur:state.cur, params:state.params, base:state.base, tab:state.tab, history:state.history, histDeleted:state.histDeleted, banksDeletedSaved:state.banksDeleted })); } catch (e) {}
+  try { localStorage.setItem(LS_KEY, JSON.stringify({ banks:state.banks, cur:state.cur, params:state.params, base:state.base, tab:state.tab, history:state.history, histDeleted:state.histDeleted, banksDeletedSaved:state.banksDeleted, myStyle:state.myStyle || null, report:state.report || null })); } catch (e) {}
   if (changed && typeof scheduleSync === 'function') scheduleSync();
 }
 trackBanks(true);
@@ -1774,6 +1810,7 @@ function previewImport(res) {
     });
     delete target.range;
     target.example = false; save();
+    track('import', target.name + ' · ' + keys.length + ' poste(s)' + (importSource ? ' depuis ' + importSource : '') + (isNew ? ' (nouvelle analyse)' : ''));
     const yy = target.years;
     addHistory('import', target.name + ' · ' + yy[0] + (yy.length > 1 ? '–' + yy[yy.length - 1] : ''), 'Import de ' + keys.length + ' poste(s)' + (importSource ? ' depuis ' + importSource : ''), target.id);
     toast(keys.length + ' poste(s) importé(s) dans « ' + target.name + ' », analyse ajoutée à l’historique'); state.tab = isNew ? 'synthese' : 'saisie'; state.yi = 99; renderAll(); window.scrollTo(0, 0);
@@ -2174,14 +2211,15 @@ const WRITING_STYLES = [
   ['academique', 'Académique : mémoire, rapport de stage'],
   ['professionnel', 'Professionnel : note d’analyste bancaire'],
   ['pedagogique', 'Pédagogique : explique le raisonnement'],
-  ['synthetique', 'Synthétique : l’essentiel en puces']
+  ['synthetique', 'Synthétique : l’essentiel en puces'],
+  ['perso', 'Mon style personnel']
 ];
 const STYLE_BY_TYPE = { complet:'academique', synthese:'professionnel', prudentiel:'professionnel', corrige:'pedagogique', comparaison:'professionnel' };
 /* Nom de chaque indicateur dans une phrase (avec son article) */
 const IND_PHRASE = { transfo:'le ratio de transformation', couv_mlt:'la couverture des emplois à moyen et long terme', liq:'le ratio de liquidité', coefliq:'le coefficient de liquidité', lcr:'le LCR', levier:'le ratio de levier (bilan)', levier_b:'le ratio de levier Bâle III', mult:'le multiplicateur de fonds propres', solva_s:'la solvabilité bilan', cet1:'le ratio CET1', t1:'le ratio Tier 1', solva:'le ratio de solvabilité global', souv:'le poids des titres publics', roa:'le ROA', roe:'le ROE', coef:'le coefficient d’exploitation', cdr:'le coût du risque rapporté aux crédits', mi_pnb:'la part de la marge d’intérêts dans le PNB', com_pnb:'la part des commissions dans le PNB', marge:'la marge nette', pnb_ta:'le rendement brut des actifs', perte:'la perte critique', pnbc:'le PNB critique', chute:'la baisse de PNB tolérable avant faillite', cdrc:'le coût du risque critique', cdr_mult:'le multiple du coût du risque menant à la faillite', abs_a:'la part de l’actif pouvant être perdue', abs_c:'la part des crédits pouvant faire défaut', lmax:'la perte absorbable avant le seuil de solvabilité' };
 const capFirst = s => s ? s[0].toUpperCase() + s.slice(1) : s;
 const lowFirst = s => s && !/^[A-Z]{2}/.test(s) ? s[0].toLowerCase() + s.slice(1) : s;
-function makeWriter(style) {
+function makeWriter(style, persoStyle) {
   const seen = {};
   const pick = (key, arr) => { seen[key] = (seen[key] ?? -1) + 1; return arr[seen[key] % arr.length]; };
   const yrs = Y();
@@ -2277,6 +2315,7 @@ function makeWriter(style) {
     return '<ul>' + li.join('') + '</ul>';
   };
   const writers = { academique, professionnel, pedagogique, synthetique };
+  const P = style === 'perso' ? persoWriter(persoStyle || state.myStyle, pick, facts, story) : null;
 
   const INTRO = {
     synthese: { academique:'Cette première partie présente une vue d’ensemble de la situation financière de la banque avant l’analyse détaillée des parties suivantes.', professionnel:'Vue d’ensemble : chiffres clés, note globale et ratios suivis.', pedagogique:'Avant d’entrer dans le détail, on commence par une photo d’ensemble : la taille de la banque, ses résultats et les ratios qui comptent le plus.' },
@@ -2289,9 +2328,9 @@ function makeWriter(style) {
   };
   return {
     style,
-    interp(ind, vals) { const x = facts(ind, vals); return x ? fr(writers[style](ind, vals, x)) : ''; },
-    intro(key) { const t = INTRO[key] && INTRO[key][style]; return t || ''; },
-    conclusion(n) { return fr(this.conclusionRaw(n)); },
+    interp(ind, vals) { const x = facts(ind, vals); return x ? fr(P ? P.interp(ind, vals, x) : writers[style](ind, vals, x)) : ''; },
+    intro(key) { if (P) return P.intro(key); const t = INTRO[key] && INTRO[key][style]; return t || ''; },
+    conclusion(n) { return fr(P ? P.conclusion(n) : this.conclusionRaw(n)); },
     conclusionRaw(n) {
       const sc = scoreCard(n), b = bank(), y = Y();
       const bad = sc.rows.filter(r => r.st === 'bad').map(r => lowFirst(I[r.id].n)), warn = sc.rows.filter(r => r.st === 'warn').map(r => lowFirst(I[r.id].n));
@@ -2313,6 +2352,140 @@ function makeWriter(style) {
     }
   };
 }
+/* ---- Style d'écriture personnel : la façon d'écrire de chaque utilisateur ----
+   Réglé à la main (personne, registre, longueur, connecteurs, formules d'ouverture, mots à remplacer, signature)
+   ou appris d'un texte que la personne a déjà écrit. Enregistré sur l'appareil et sur le compte. */
+const STYLE_PERSONS = [['nous', '« Nous » (nous observons…)'], ['je', '« Je » (j’observe…)'], ['on', '« On » (on observe…)'], ['imp', 'Impersonnel (il apparaît que…)']];
+const STYLE_REG = [['soutenu', 'Soutenu (s’inscrit en hausse, se contracte…)'], ['courant', 'Courant (progresse, recule…)'], ['direct', 'Direct (monte, baisse…)']];
+const STYLE_LEN = [['developpee', 'Développée : trajectoire, explication, seuil'], ['concise', 'Concise : l’essentiel en deux phrases']];
+const CONNECTEURS = ['en effet', 'par ailleurs', 'de plus', 'en outre', 'ainsi', 'de ce fait', 'par conséquent', 'en conséquence', 'toutefois', 'cependant', 'néanmoins', 'pourtant', 'en revanche', 'en somme', 'en définitive', 'finalement', 'autrement dit', 'notamment', 'dès lors', 'à cet égard', 'dans ce contexte', 'en clair', 'du coup', 'bref', 'au final', 'globalement', 'concrètement', 'en résumé', 'il en résulte que', 'il ressort que', 'force est de constater que', 'il convient de noter que', 'à noter que', 'aussi', 'donc', 'enfin', 'd’ailleurs', 'en fait', 'au total', 'de surcroît'];
+const hasMyStyle = () => !!(state.myStyle && state.myStyle.mod && !state.myStyle.vide);
+const STYLE_DEFAULT = { person:'nous', registre:'courant', longueur:'developpee', connecteurs:[], ouvertures:[], remplacements:[], signature:'', mod:0 };
+function cleanStyle(st) {
+  if (!st || typeof st !== 'object') return null;
+  const str = (x, n) => String(x ?? '').replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '').slice(0, n);
+  const o = { person:STYLE_PERSONS.some(p => p[0] === st.person) ? st.person : 'nous', registre:STYLE_REG.some(p => p[0] === st.registre) ? st.registre : 'courant', longueur:st.longueur === 'concise' ? 'concise' : 'developpee',
+    connecteurs:(Array.isArray(st.connecteurs) ? st.connecteurs : []).map(x => str(x, 60).trim()).filter(Boolean).slice(0, 12),
+    ouvertures:(Array.isArray(st.ouvertures) ? st.ouvertures : []).map(x => str(x, 300).trim()).filter(Boolean).slice(0, 10),
+    remplacements:(Array.isArray(st.remplacements) ? st.remplacements : []).filter(r => Array.isArray(r) && r[0]).map(r => [str(r[0], 60), str(r[1], 60)]).slice(0, 30),
+    signature:str(st.signature, 300), mod:Number.isFinite(+st.mod) ? +st.mod : 0, vide:!!st.vide };
+  return o;
+}
+const asConnector = c => { c = String(c).trim().replace(/[,\s]+$/, ''); if (!c) return ''; return capFirst(c) + (/(que|qu’|qu')$/i.test(c) ? ' ' : ', '); };
+/* Analyse d'un texte écrit par la personne : pronom, registre, longueur des phrases, connecteurs favoris */
+function learnStyle(text) {
+  const t = ' ' + String(text || '').toLowerCase().replace(/[’']/g, '’').replace(/\s+/g, ' ') + ' ';
+  const count = re => (t.match(re) || []).length;
+  const words = t.split(/\s+/).filter(Boolean).length;
+  const persons = { je:count(/[\s(«"]j’|\sje\s|\smon\s|\sma\s|\smes\s|\sme\s/g), nous:count(/\snous\s|\snotre\s|\snos\s/g), on:count(/\son\s|\sl’on\s/g), imp:count(/il (apparaît|ressort|convient|semble|en résulte)|force est|l’analyse (montre|révèle)/g) };
+  const person = Object.entries(persons).sort((a, b) => b[1] - a[1])[0];
+  const sentences = String(text || '').split(/[.!?…]+\s/).map(x => x.trim()).filter(x => x.split(/\s+/).length >= 3);
+  const avg = sentences.length ? Math.round(sentences.reduce((a, x) => a + x.split(/\s+/).length, 0) / sentences.length) : 0;
+  const soutenu = count(/néanmoins|en outre|force est|il convient|nonobstant|à cet égard|dès lors|en définitive|de surcroît|s’inscrit|il sied/g), direct = count(/du coup|en gros|bref|au final|en clair|genre|carrément|franchement/g);
+  const found = CONNECTEURS.map(c => [c, count(new RegExp('(^|[\\s,;:(])' + c.replace(/[’]/g, '’').replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?=[\\s,])', 'g'))]).filter(x => x[1] > 0).sort((a, b) => b[1] - a[1]).map(x => x[0]);
+  const prof = { person:person && person[1] > 0 ? person[0] : 'imp', registre:soutenu > direct && soutenu > 0 ? 'soutenu' : direct > soutenu ? 'direct' : 'courant', longueur:avg >= 20 ? 'developpee' : 'concise', connecteurs:found.slice(0, 8).map(c => capFirst(c)) };
+  const summary = 'Texte de ' + words + ' mots, ' + sentences.length + ' phrase(s) d’environ ' + avg + ' mots. Personne : ' + STYLE_PERSONS.find(p => p[0] === prof.person)[1] + '. Registre : ' + prof.registre + '. ' + (found.length ? 'Connecteurs repérés : ' + found.slice(0, 8).join(', ') + '.' : 'Aucun connecteur logique repéré.');
+  return { prof, summary, words };
+}
+/* Moteur de rédaction personnel (utilisé par makeWriter quand le style vaut « perso ») */
+function persoWriter(st, pick, facts, story) {
+  st = cleanStyle(st) || STYLE_DEFAULT;
+  const VERB = { soutenu:{ up:['s’inscrit en hausse', 'se renforce', 'progresse'], dn:['se contracte', 'fléchit', 'se replie'], eq:'demeure stable' }, courant:{ up:['progresse', 'augmente', 'monte'], dn:['recule', 'diminue', 'baisse'], eq:'reste stable' }, direct:{ up:['monte', 'grimpe', 'augmente'], dn:['baisse', 'chute', 'descend'], eq:'ne bouge pas' } }[st.registre];
+  const OPEN = {
+    nous:['Nous observons que {ratio} {verbe} de {v1} à {v2} entre {a1} et {a2} ({ecart}).', 'Sur la période {a1}–{a2}, nous constatons que {ratio} {verbe} de {v1} à {v2} ({ecart}).', 'Nous relevons que {ratio} passe de {v1} en {a1} à {v2} en {a2} ({ecart}).'],
+    je:['J’observe que {ratio} {verbe} de {v1} à {v2} entre {a1} et {a2} ({ecart}).', 'Sur la période {a1}–{a2}, je constate que {ratio} {verbe} de {v1} à {v2} ({ecart}).', 'Je relève que {ratio} passe de {v1} en {a1} à {v2} en {a2} ({ecart}).'],
+    on:['On observe que {ratio} {verbe} de {v1} à {v2} entre {a1} et {a2} ({ecart}).', 'Sur la période {a1}–{a2}, on constate que {ratio} {verbe} de {v1} à {v2} ({ecart}).', 'On voit que {ratio} passe de {v1} en {a1} à {v2} en {a2} ({ecart}).'],
+    imp:['{Ratio} {verbe} de {v1} à {v2} entre {a1} et {a2} ({ecart}).', 'Il apparaît que {ratio} {verbe} de {v1} à {v2} sur la période {a1}–{a2} ({ecart}).', 'L’analyse montre que {ratio} passe de {v1} en {a1} à {v2} en {a2} ({ecart}).']
+  }[st.person];
+  const ONE = { nous:'Nous relevons {ratio} à {v2} en {a2}.', je:'Je relève {ratio} à {v2} en {a2}.', on:'On relève {ratio} à {v2} en {a2}.', imp:'{Ratio} s’établit à {v2} en {a2}.' }[st.person];
+  const NOTE = { nous:'nous notons que ', je:'je note que ', on:'on note que ', imp:'' }[st.person];
+  const CONN = st.connecteurs.length ? st.connecteurs.map(asConnector) : { soutenu:['De ce fait, ', 'Il en résulte que ', 'Ainsi, '], courant:['Cela signifie que ', 'Autrement dit, ', 'Ainsi, '], direct:['En clair, ', 'Concrètement, ', 'Bref, '] }[st.registre];
+  const fill = (tpl, x, verb) => tpl.replace(/\{ratio\}/g, x.name).replace(/\{Ratio\}/g, capFirst(x.name)).replace(/\{a1\}/g, x.A).replace(/\{a2\}/g, x.B).replace(/\{v1\}/g, '<b>' + x.v0 + '</b>').replace(/\{v2\}/g, '<b>' + x.v1 + '</b>').replace(/\{ecart\}/g, x.d).replace(/\{verbe\}/g, verb).replace(/\{tendance\}/g, x.traj || (x.dir ? (x.dir > 0 ? 'hausse ' : 'baisse ') + x.mag : 'stabilité'));
+  const replace = h => st.remplacements.reduce((acc, [a, b]) => a ? acc.split(a).join(b) : acc, h);
+  return {
+    interp(ind, vals, x) {
+      const p = [];
+      const verb = x.dir > 0 ? pick('ps-up', VERB.up) : x.dir < 0 ? pick('ps-dn', VERB.dn) : VERB.eq;
+      if (x.one) p.push(fill(ONE, x, verb));
+      else {
+        const opens = st.ouvertures.length ? st.ouvertures : OPEN;
+        p.push(fill(pick('ps-open', opens), x, verb));
+        if (st.longueur === 'developpee' && x.traj) p.push(capFirst(x.traj) + ' sur la période.');
+        if (st.longueur === 'developpee' && x.mean) p.push(pick('ps-conn', CONN) + lowFirst(x.mean));
+      }
+      if (x.t) {
+        const s = fmtP(x.t.s, 1), sn = x.t.reg ? (x.t.min ? 'le minimum réglementaire' : 'le plafond réglementaire') : (x.t.min ? 'le repère minimum' : 'le repère maximum');
+        const nonAdv = st.connecteurs.filter(c => !/toutefois|cependant|néanmoins|pourtant|en revanche/i.test(c)).map(asConnector);
+        const con = nonAdv.length && x.t.st !== 'bad' ? pick('ps-thr', nonAdv) : '';
+        const lead = con ? con + (NOTE || '') : NOTE ? capFirst(NOTE) : '';
+        p.push(x.t.st === 'ok' ? lead + (lead ? 'le ratio respecte ' : 'Le ratio respecte ') + sn + ' de ' + s + ' (marge de ' + x.t.m + ').'
+          : x.t.st === 'warn' ? lead + (lead ? 'le ratio ' : 'Le ratio ') + 'reste conforme à ' + sn + ' de ' + s + ', mais de peu (' + x.t.m + ').'
+          : (st.connecteurs.find(c => /toutefois|cependant|néanmoins|pourtant|en revanche/i.test(c)) ? asConnector(st.connecteurs.find(c => /toutefois|cependant|néanmoins|pourtant|en revanche/i.test(c))) + 'le ratio ' : 'Le ratio ') + (x.t.min ? 'se situe sous ' : 'dépasse ') + sn + ' de ' + s + ' (écart de ' + x.t.m + ') : c’est <b>un point de faiblesse</b>.');
+      }
+      if (st.longueur === 'developpee') { const s2 = story(ind, vals); if (s2) p.push(s2); }
+      return replace('<p>' + p.join(' ') + '</p>');
+    },
+    conclusion(n) {
+      const sc = scoreCard(n), b = bank();
+      const bad = sc.rows.filter(r => r.st === 'bad').map(r => lowFirst(I[r.id].n)), warn = sc.rows.filter(r => r.st === 'warn').map(r => lowFirst(I[r.id].n));
+      const lead = { nous:'Au terme de notre analyse, nous estimons que ', je:'Au terme de mon analyse, j’estime que ', on:'Au terme de l’analyse, on peut dire que ', imp:'Au terme de l’analyse, il apparaît que ' }[st.person];
+      const p = [fin(sc.score) ? lead + 'la situation financière de ' + b.name + ' est <b>' + sc.label.toLowerCase() + '</b> (note ' + sc.grade + ', ' + sc.score + '/100).' : lead + 'les données ne suffisent pas pour noter ' + b.name + '.'];
+      const adv = st.connecteurs.find(c => /toutefois|cependant|néanmoins|pourtant|en revanche/i.test(c));
+      if (bad.length) p.push((adv ? asConnector(adv) : 'Toutefois, ') + 'des faiblesses apparaissent : ' + bad.join(', ') + '.');
+      if (warn.length) p.push(capFirst({ nous:'nous recommandons de surveiller ', je:'je recommande de surveiller ', on:'il faut surveiller ', imp:'une surveillance s’impose pour ' }[st.person]) + warn.join(', ') + '.');
+      const ch = val(nodeOf(I.chute), n);
+      if (fin(ch)) p.push(ch >= 1 ? 'Le test de faillite est rassurant : même un PNB nul n’effacerait pas les fonds propres en un exercice.' : 'Le test de faillite montre qu’une baisse du PNB de ' + fmtP(ch, 1) + ' suffirait à effacer les fonds propres.');
+      return replace('<p>' + p.join(' ') + '</p>' + (st.signature ? '<p><i>' + esc(st.signature) + '</i></p>' : ''));
+    },
+    intro(key) {
+      return { synthese:'Cette partie donne une vue d’ensemble de la situation financière de la banque.', dynamique:'Chaque poste est comparé d’un exercice à l’autre (analyse horizontale) et rapporté au total (analyse verticale).', structure:'L’équilibre financier est examiné sous quatre angles : transformation, liquidité, levier et solvabilité.', renta:'La rentabilité est appréciée par le ROA, le ROE et leur décomposition (Du Pont), puis par les indicateurs d’exploitation.', faillite:'Le test de faillite mesure la perte qui effacerait les capitaux propres et le PNB qui la provoquerait.', bale:'Les fonds propres prudentiels et les actifs pondérés sont estimés pour calculer les ratios Bâle III.', conclusion:'Voici les enseignements de l’analyse et les recommandations qui en découlent.' }[key] || '';
+    }
+  };
+}
+/* Carte « Mon style d'écriture » de l'onglet Rapport Word */
+function myStyleCard() {
+  const st = cleanStyle(state.myStyle) || STYLE_DEFAULT, open = state.styleOpen;
+  const sel = (id, list, v) => '<select id="' + id + '">' + list.map(([k, l]) => '<option value="' + k + '"' + (k === v ? ' selected' : '') + '>' + l + '</option>').join('') + '</select>';
+  return '<details class="card" id="myStyleCard"' + (open ? ' open' : '') + '><summary><h3 style="display:inline">3. Mon style d’écriture</h3> <span class="note">' + (hasMyStyle() ? 'enregistré · choisis « Mon style personnel » dans Style de rédaction' : 'pour que le rapport s’écrive comme toi') + '</span></summary>'
+    + '<p class="note">Le rapport peut reprendre ta façon d’écrire : la personne que tu utilises, ton registre, la longueur de tes phrases, tes connecteurs, tes formules d’ouverture et ta signature. Le plus simple : colle un texte que tu as écrit (un devoir, un rapport de stage…) et clique sur « Apprendre mon style ».</p>'
+    + '<label class="note" for="msSample" style="display:grid;gap:4px">Un texte écrit par toi (facultatif, il n’est pas enregistré)<textarea id="msSample" maxlength="20000" style="min-height:90px;font-family:inherit;font-size:.9rem" placeholder="Colle ici quelques paragraphes que tu as rédigés…"></textarea></label>'
+    + '<div class="row"><button class="btn" id="msLearn">Apprendre mon style</button><span class="note" id="msLearnOut"></span></div>'
+    + '<div class="meta-grid"><label>Personne' + sel('msPerson', STYLE_PERSONS, st.person) + '</label><label>Registre' + sel('msReg', STYLE_REG, st.registre) + '</label><label>Longueur' + sel('msLen', STYLE_LEN, st.longueur) + '</label></div>'
+    + '<label class="note" for="msConn" style="display:grid;gap:4px">Mes connecteurs (séparés par des virgules)<input type="text" id="msConn" maxlength="500" value="' + esc(st.connecteurs.join(', ')) + '" placeholder="ex. En effet, Par ailleurs, De ce fait, Toutefois"></label>'
+    + '<label class="note" for="msOpen" style="display:grid;gap:4px">Mes formules d’ouverture (une par ligne ; elles alternent d’un ratio à l’autre)<textarea id="msOpen" maxlength="3000" style="min-height:70px;font-family:inherit;font-size:.9rem" placeholder="ex. À la lecture des chiffres, {ratio} {verbe} de {v1} à {v2} entre {a1} et {a2}.">' + esc(st.ouvertures.join('\n')) + '</textarea><span>Repères utilisables : {ratio} {Ratio} {verbe} {v1} {v2} {a1} {a2} {ecart} {tendance}</span></label>'
+    + '<label class="note" for="msRepl" style="display:grid;gap:4px">Mots à remplacer (un par ligne : ancien = nouveau)<textarea id="msRepl" maxlength="2000" style="min-height:50px;font-family:inherit;font-size:.9rem" placeholder="ex. la banque = l’établissement">' + esc(st.remplacements.map(r => r[0] + ' = ' + r[1]).join('\n')) + '</textarea></label>'
+    + '<label class="note" for="msSign" style="display:grid;gap:4px">Phrase de fin ou signature (facultatif)<input type="text" id="msSign" maxlength="300" value="' + esc(st.signature) + '" placeholder="ex. Fait à Cotonou, le 15 octobre 2026 — Isaac K."></label>'
+    + '<div class="row"><button class="btn pri" id="msSave">Enregistrer mon style</button><button class="btn" id="msPreviewBtn">Aperçu</button>' + (hasMyStyle() ? '<button class="btn danger" id="msReset">Effacer mon style</button>' : '') + '</div>'
+    + '<div id="msPreview" class="ms-preview"></div></details>';
+}
+function readMyStyle() {
+  const lines = id => ($(id).value || '').split(/\n+/).map(x => x.trim()).filter(Boolean);
+  return cleanStyle({ person:$('#msPerson').value, registre:$('#msReg').value, longueur:$('#msLen').value, connecteurs:($('#msConn').value || '').split(/[,;\n]+/).map(x => x.trim()).filter(Boolean),
+    ouvertures:lines('#msOpen'), remplacements:lines('#msRepl').map(l => { const i = l.indexOf('='); return i > 0 ? [l.slice(0, i).trim(), l.slice(i + 1).trim()] : null; }).filter(Boolean), signature:($('#msSign').value || '').trim(), mod:Date.now() });
+}
+function bindMyStyle() {
+  if (!$('#myStyleCard')) return;
+  $('#myStyleCard').addEventListener('toggle', e => { state.styleOpen = e.target.open; });
+  const preview = () => {
+    const st = readMyStyle(), wr = makeWriter('perso', st), ids = ['roe', 'transfo'];
+    $('#msPreview').innerHTML = '<p class="eyebrow">Aperçu sur ' + esc(bank().name) + '</p>' + ids.map(id => wr.interp(I[id], series(I[id]))).join('') + wr.conclusion(Y().length - 1);
+  };
+  $('#msLearn').onclick = () => {
+    const txt = $('#msSample').value;
+    if ((txt || '').trim().split(/\s+/).length < 30) { $('#msLearnOut').textContent = 'Colle au moins quelques phrases (30 mots ou plus).'; return; }
+    const r = learnStyle(txt);
+    $('#msPerson').value = r.prof.person; $('#msReg').value = r.prof.registre; $('#msLen').value = r.prof.longueur;
+    if (r.prof.connecteurs.length) $('#msConn').value = r.prof.connecteurs.join(', ');
+    $('#msLearnOut').textContent = r.summary + ' Vérifie les réglages ci-dessous puis enregistre.';
+    preview();
+  };
+  $('#msPreviewBtn').onclick = preview;
+  $('#msSave').onclick = () => {
+    state.myStyle = readMyStyle(); state.report = Object.assign({}, state.report || {}, { writing:'perso' }); save(); scheduleSync();
+    track('style', ''); toast('Ton style est enregistré : il sera utilisé pour tes rapports'); state.styleOpen = false; renderAll(true);
+  };
+  if ($('#msReset')) $('#msReset').onclick = () => { state.myStyle = Object.assign({}, STYLE_DEFAULT, { mod:Date.now(), vide:true }); scheduleSync(); if (state.report && state.report.writing === 'perso') state.report.writing = 'auto'; save(); renderAll(true); toast('Style personnel effacé'); };
+}
 async function buildReport(opt) {
   await lib('jszip');
   const type = REPORT_TYPES.some(t => t[0] === opt.type) ? opt.type : 'complet';
@@ -2327,7 +2500,7 @@ async function buildReportDoc(opt, type) {
   const body = [];
   const typeLabel = REPORT_TYPES.find(t => t[0] === type)[1];
   const title = opt.title || reportTitle(type, b);
-  const Wr = makeWriter(opt.writing && opt.writing !== 'auto' && WRITING_STYLES.some(w => w[0] === opt.writing) ? opt.writing : STYLE_BY_TYPE[type]);
+  const Wr = makeWriter(opt.writing && opt.writing !== 'auto' && WRITING_STYLES.some(w => w[0] === opt.writing) && (opt.writing !== 'perso' || hasMyStyle()) ? opt.writing : STYLE_BY_TYPE[type]);
   const introP = k => { const t = Wr.intro(k); if (t) body.push(W.p(W.run(t, { color:DOC_COLORS.ink2 }))); };
   let fig = 0;
   const addChart = async (svg, caption) => {
@@ -2699,7 +2872,7 @@ function vRapport() {
   h += '<div class="card"><h3>2. Contenu</h3><div class="meta-grid">'
     + '<label>Titre<input type="text" id="rTitle" maxlength="150" value="' + esc(o.title || '') + '" placeholder="' + esc(reportTitle(type, b)) + '"></label>'
     + '<label>Auteur (facultatif)<input type="text" id="rAuthor" maxlength="80" value="' + esc(o.author || '') + '"></label>'
-    + '<label>Style de rédaction<select id="rWrite">' + WRITING_STYLES.map(([k, l]) => '<option value="' + k + '"' + ((o.writing || 'auto') === k ? ' selected' : '') + '>' + (k === 'auto' ? 'Automatique (' + WRITING_STYLES.find(w => w[0] === STYLE_BY_TYPE[type])[1].split(' :')[0].toLowerCase() + ')' : l) + '</option>').join('') + '</select></label>'
+    + '<label>Style de rédaction<select id="rWrite">' + WRITING_STYLES.map(([k, l]) => '<option value="' + k + '"' + ((o.writing || 'auto') === k ? ' selected' : '') + '>' + (k === 'auto' ? 'Automatique (' + WRITING_STYLES.find(w => w[0] === STYLE_BY_TYPE[type])[1].split(' :')[0].toLowerCase() + ')' : k === 'perso' && !hasMyStyle() ? l + ' (à régler plus bas)' : l) + '</option>').join('') + '</select></label>'
     + '<label>Couleurs<select id="rTheme">' + Object.entries(DOC_THEMES).map(([k, t]) => '<option value="' + k + '"' + ((o.theme || 'classique') === k ? ' selected' : '') + '>' + t.n + '</option>').join('') + '</select></label></div>';
   if (type === 'complet') h += '<p class="eyebrow" style="margin:6px 0 0">Parties</p><div class="checks">' + REPORT_SECTIONS.map(([k, l]) => '<label class="check" for="rs-' + k + '"><input type="checkbox" id="rs-' + k + '" data-rsec="' + k + '"' + (secs.includes(k) ? ' checked' : '') + '> ' + l + '</label>').join('') + '</div>';
   if (type === 'comparaison') h += '<p class="eyebrow" style="margin:6px 0 0">Banques à comparer (2 au moins)</p><div class="checks">' + allBanks.map(x => '<label class="check" for="rb-' + esc(x.id) + '"><input type="checkbox" id="rb-' + esc(x.id) + '" data-rbank="' + esc(x.id) + '"' + (chosen.includes(x.id) ? ' checked' : '') + '> ' + esc(x.name) + ' <span class="note">(' + esc(x.years[0] + (x.years.length > 1 ? '–' + x.years[x.years.length - 1] : '')) + ')</span></label>').join('') + '</div>'
@@ -2708,9 +2881,11 @@ function vRapport() {
     + (type === 'complet' ? '<label class="check" for="rAll"><input type="checkbox" id="rAll"' + (o.allYears ? ' checked' : '') + '> Application numérique pour chaque exercice (sinon seulement ' + Y()[state.yi] + ', l’année détaillée)</label>' : '') + '</div>'
     + '<label class="note" for="rComment" style="display:grid;gap:4px;margin-top:6px">Commentaire de l’analyste, ajouté au rapport (facultatif)<textarea id="rComment" maxlength="4000" style="min-height:80px;font-family:inherit;font-size:.9rem">' + esc(o.comment || '') + '</textarea></label>'
     + '<div class="row" style="margin-top:8px"><button class="btn pri" id="rGo">Générer : ' + REPORT_TYPES.find(t => t[0] === type)[1] + '</button><span class="note">' + (type === 'comparaison' ? 'Dernier exercice de chaque banque' : 'Période ' + Y()[0] + '–' + Y()[Y().length - 1] + ' · ' + esc(b.name)) + '</span></div><div id="rStatus" class="file-status" hidden></div></div>';
+  h += myStyleCard();
   return h;
 }
 function bindRapport() {
+  bindMyStyle();
   const prev = () => state.report || {};
   const read = () => {
     const p = prev(), type = (view.querySelector('[name="rtype"]:checked') || {}).value || 'complet';
@@ -2719,6 +2894,7 @@ function bindRapport() {
       banks:$('[data-rbank]') ? [...view.querySelectorAll('[data-rbank]')].filter(c => c.checked).map(c => c.dataset.rbank) : p.banks,
       charts:$('#rCharts').checked, allYears:$('#rAll') ? $('#rAll').checked : !!p.allYears, comment:$('#rComment').value.trim() };
   };
+  $('#rWrite').addEventListener('change', e => { if (e.target.value === 'perso' && !hasMyStyle()) { state.styleOpen = true; $('#myStyleCard').open = true; $('#myStyleCard').scrollIntoView({ behavior:'smooth', block:'start' }); toast('Règle d’abord ton style d’écriture ci-dessous'); } });
   view.querySelectorAll('#rTitle,#rAuthor,#rComment,#rTheme,#rWrite,[data-rsec],[data-rbank],#rCharts,#rAll').forEach(el => el.addEventListener('change', () => { state.report = read(); }));
   view.querySelectorAll('[name="rtype"]').forEach(r => r.addEventListener('change', () => { const o = read(); if (o.title === reportTitle(prev().type || 'complet', bank())) o.title = ''; state.report = o; renderAll(); }));
   $('#rGo').onclick = async () => {
@@ -2730,6 +2906,7 @@ function bindRapport() {
     $('#rGo').disabled = true; st.hidden = false; st.className = 'file-status'; st.textContent = 'Préparation du rapport…';
     try {
       const blob = await buildReport(o);
+      track('rapport', REPORT_TYPES.find(t => t[0] === (o.type || 'complet'))[1] + ' · style ' + (o.writing === 'perso' ? 'personnel' : o.writing && o.writing !== 'auto' ? o.writing : STYLE_BY_TYPE[o.type || 'complet']) + ' · ' + (o.type === 'comparaison' ? (o.banks || []).length + ' banques' : bank().name));
       st.textContent = 'Rapport prêt (' + Math.max(1, Math.round(blob.size / 1024)) + ' Ko).';
       const name = o.type === 'comparaison' ? 'Comparaison_banques_' + new Date().toISOString().slice(0, 10) + '.docx' : (REPORT_FILE[o.type] || 'Analyse') + '_' + fileBase() + '_' + Y()[0] + '-' + Y()[Y().length - 1] + '.docx';
       await saveFile(name, blob, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
@@ -2851,7 +3028,7 @@ async function accountBoot() {
   // hors ligne : on garde l'accès si l'appareil était connecté ; sinon la première connexion demande internet
   if (offline && !accRemembered() && gateSeen()) { gate.on = true; gate.err = 'Pas de connexion internet : la première connexion demande internet.'; }
   gate.loading = false; renderGate();
-  if (acct.user) { await syncHistory(true); checkAdmin(); }
+  if (acct.user) { track('ouverture', (bank() || {}).name || ''); await syncHistory(true); checkAdmin(); }
   renderAccount();
 }
 function renderGate() {
@@ -2888,7 +3065,7 @@ function renderGate() {
       + '<ul class="g-list"><li>Tes banques et analyses sauvegardées en ligne, sur ordinateur et téléphone</li><li>Rapports Word, code R et formules, prêts à rendre</li><li>Tu restes connecté sur cet appareil pendant un an</li></ul>'
       + '<button type="button" class="btn sm g-alt" id="gUsePw">Se connecter avec un mot de passe</button></form>';
   }
-  el.innerHTML = '<div class="g-wrap">' + brand + '<div class="g-card">' + card + '</div><p class="g-foot">En continuant, tu acceptes de recevoir l’e-mail contenant ton code de connexion.</p></div>';
+  el.innerHTML = '<div class="g-wrap">' + brand + '<div class="g-card">' + card + '</div><p class="g-foot">En continuant, tu acceptes de recevoir l’e-mail contenant ton code de connexion. Ton activité dans l’app (connexions, onglets, imports, rapports) est enregistrée pour le suivi du service.</p></div>';
   if ($('#gEmail')) $('#gEmail').value = keep || '';
   bindGate();
 }
@@ -2896,6 +3073,7 @@ function bindGate() {
   const fail = e => { gate.busy = false; gate.info = ''; gate.err = e && e.message && !/fetch|network|load failed/i.test(e.message) ? e.message : 'Le serveur ne répond pas. Vérifie ta connexion internet.'; renderGate(); };
   const entered = async (me, msg) => {
     acct.user = { email:me.email }; accRemember(true); gate.busy = false; gate.err = gate.info = ''; gate.step = 'email';
+    track('connexion', me.isNew ? 'première connexion (nouveau compte)' : '');
     renderGate(); renderAll(true);
     await syncHistory(true); checkAdmin(); renderAccount();
     toast(msg || 'Bienvenue ' + me.email);
@@ -2942,7 +3120,7 @@ async function syncHistory(quiet) {
   if (!acct.user || acct.syncing) { if (acct.user) acct.pending = true; return; }
   acct.syncing = true; renderAccount();
   try {
-    const res = await fetch('/api/historique', { method:'PUT', credentials:'same-origin', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify({ history:state.history, deleted:state.histDeleted, banks:state.banks, banksDeleted:state.banksDeleted }) });
+    const res = await fetch('/api/historique', { method:'PUT', credentials:'same-origin', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify({ history:state.history, deleted:state.histDeleted, banks:state.banks, banksDeleted:state.banksDeleted, style:state.myStyle && state.myStyle.mod ? state.myStyle : undefined }) });
     if (res.status === 401) { acct.user = null; accRemember(false); renderGate(); throw new Error('Session expirée : reconnecte-toi.'); }
     if (!res.ok) { let m = ''; try { m = (await res.json()).error; } catch (e) {} throw new Error(m || 'Synchronisation refusée (' + res.status + ').'); }
     const doc = await res.json();
@@ -2951,6 +3129,7 @@ async function syncHistory(quiet) {
     const before = JSON.stringify(Object.keys(state.banks).sort().map(id => [id, state.banks[id].mod || 0]));
     const banks = cleanBanks(doc.banks);
     if (Object.keys(banks).length) state.banks = banks;
+    if (doc.style && typeof doc.style === 'object' && (+doc.style.mod || 0) > (+(state.myStyle && state.myStyle.mod) || 0)) state.myStyle = cleanStyle(doc.style);
     if (doc.banksDeleted && typeof doc.banksDeleted === 'object') { state.banksDeleted = {}; Object.entries(doc.banksDeleted).forEach(([k, t]) => { if (Number.isFinite(+t)) state.banksDeleted[k] = +t; }); }
     if (!state.banks[state.cur]) { state.cur = Object.keys(state.banks)[0]; state.yi = 99; }
     const banksChanged = before !== JSON.stringify(Object.keys(state.banks).sort().map(id => [id, state.banks[id].mod || 0]));
@@ -2965,6 +3144,28 @@ async function syncHistory(quiet) {
     if (acct.pending) { acct.pending = false; setTimeout(() => syncHistory(true), 300); }
   }
 }
+/* ---- Journal d'activité (console admin, « en direct ») : actions envoyées par lots + signal de présence chaque minute ---- */
+const trk = { q:[], timer:null, lastSaisie:0 };
+const tabLabel = k => k === 'admin' ? 'Console admin' : (TABS.find(t => t[0] === k) || [, k])[1];
+function track(type, d) {
+  if (!acct.user || !accountsPossible()) return;
+  trk.q.push({ at:new Date().toISOString(), type, d:String(d || '').slice(0, 160) });
+  clearTimeout(trk.timer);
+  if (trk.q.length >= 10 || type !== 'onglet' && type !== 'saisie' && type !== 'banque') flushTrack();
+  else trk.timer = setTimeout(flushTrack, 4000);
+}
+async function flushTrack() {
+  clearTimeout(trk.timer);
+  if (!acct.user || !accountsPossible()) { trk.q = []; return; }
+  const events = trk.q.splice(0, 40);
+  try {
+    const hint = await deviceHint();
+    const r = await fetch('/api/activite', { method:'POST', credentials:'same-origin', keepalive:true, headers:Object.assign({ 'Content-Type':'application/json' }, hint ? { 'X-Appareil':hint } : {}), body:JSON.stringify({ events, tab:tabLabel(state.tab), bank:(bank() || {}).name || '', visible:document.visibilityState !== 'hidden' }) });
+    if (r.status >= 500) trk.q.unshift(...events.slice(-20));
+  } catch (e) { trk.q.unshift(...events.slice(-20)); }
+}
+setInterval(() => { if (acct.user && document.visibilityState === 'visible') flushTrack(); }, 60000);
+document.addEventListener('visibilitychange', () => { if (acct.user) flushTrack(); });
 let syncTimer = null;
 function scheduleSync() { if (!acct.user) return; clearTimeout(syncTimer); syncTimer = setTimeout(() => syncHistory(true), 1500); }
 function accountCard() {
@@ -3003,6 +3204,7 @@ function bindAccount() {
     run(async () => {
       const me = await api(signup ? 'inscription' : 'connexion', { email, password:pw });
       acct.user = { email:me.email }; accRemember(true); acct.mode = 'login';
+      track('connexion', signup ? 'première connexion (nouveau compte)' : '');
       await syncHistory(true);
       checkAdmin();
       const nb = Object.keys(state.banks).length;
@@ -3012,6 +3214,7 @@ function bindAccount() {
   if ($('#accSwitch')) $('#accSwitch').onclick = () => { acct.mode = acct.mode === 'signup' ? 'login' : 'signup'; acct.status = ''; renderAccount(); };
   if ($('#accSync')) $('#accSync').onclick = () => syncHistory(false);
   const logout = wipe => run(async () => {
+    track('deconnexion', wipe ? 'avec effacement des données de l’appareil' : ''); await flushTrack();
     try { await api('deconnexion', {}); } catch (e) {}
     acct.user = null; accRemember(false); acct.lastSync = null; acct.isAdmin = false; adm.stats = null; adm.comptes = null; adm.detail = null;
     if (wipe) { state.history = []; state.histDeleted = []; state.banks = { bab:clone(SAMPLE) }; state.banksDeleted = {}; state.cur = 'bab'; state.yi = 99; save({ silent:true }); }
@@ -3051,7 +3254,7 @@ function bindHistorique() {
   if (accountsPossible() && $('#accountCard')) bindAccount();
   const find = id => state.history.find(e => e.id === id);
   const box = id => view.querySelector('[data-hbox="' + id + '"]');
-  if ($('#hSave')) $('#hSave').onclick = () => { addHistory('manuel', $('#hLabel').value.trim() || bank().name, $('#hNote').value.trim()); toast('Analyse enregistrée'); renderAll(true); };
+  if ($('#hSave')) $('#hSave').onclick = () => { addHistory('manuel', $('#hLabel').value.trim() || bank().name, $('#hNote').value.trim()); track('analyse', $('#hLabel').value.trim() || bank().name); toast('Analyse enregistrée'); renderAll(true); };
   if ($('#hFilter')) $('#hFilter').onchange = e => { state.histFilter = e.target.value; renderAll(true); };
   if ($('#hCmp')) $('#hCmp').onclick = () => {
     const pick = v => v === 'current' ? currentEntry(state.cur) : find(v);
@@ -3073,7 +3276,7 @@ function bindHistorique() {
     x.querySelector('[data-hresok]').onclick = () => {
       if (exists) addHistory('auto', 'Avant restauration de « ' + e.label + ' »', '', e.bankId);
       state.banks[e.bankId] = Object.assign(clone(e.bank), { id:e.bankId });
-      state.cur = e.bankId; state.yi = 99; save(); toast('Données restaurées'); state.tab = 'synthese'; renderAll(); window.scrollTo(0, 0);
+      state.cur = e.bankId; state.yi = 99; save(); track('restauration', e.label); toast('Données restaurées'); state.tab = 'synthese'; renderAll(); window.scrollTo(0, 0);
     };
   });
   view.querySelectorAll('[data-hdel]').forEach(b => b.onclick = () => {
@@ -3092,7 +3295,7 @@ function bindHistorique() {
 /* =====================================================================
    12 quinquies. ADMIN — réservé aux comptes administrateurs (vérifié par le serveur)
    ===================================================================== */
-const adm = { stats:null, comptes:null, err:'', loading:false, open:null, detail:null, msg:'' };
+const adm = { stats:null, comptes:null, err:'', loading:false, open:null, detail:null, msg:'', view:'direct', live:null, liveSince:'', unread:0 };
 async function adminApi(path, body) {
   let res;
   try { res = await fetch('/api/admin/' + path, body === undefined ? { credentials:'same-origin' } : { method:'POST', credentials:'same-origin', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify(body) }); }
@@ -3115,23 +3318,86 @@ async function loadAdmin() {
 }
 const fmtD = iso => { if (!iso) return '—'; const d = new Date(iso); return isNaN(d) ? '—' : d.toLocaleDateString('fr-FR', { day:'2-digit', month:'2-digit', year:'numeric' }); };
 const fmtDT = iso => { if (!iso) return '—'; const d = new Date(iso); return isNaN(d) ? '—' : fmtD(iso) + ' ' + d.toLocaleTimeString('fr-FR', { hour:'2-digit', minute:'2-digit' }); };
+/* ---- Console d'administration : un espace à part (En direct, Tableau de bord, Comptes, Réglages) ---- */
+const ADM_VIEWS = [['direct', 'En direct'], ['tableau', 'Tableau de bord'], ['comptes', 'Comptes'], ['reglages', 'Réglages']];
+const EV_INFO = {
+  ouverture:['🚪', 'ouvre l’app'], connexion:['🔑', 'se connecte'], deconnexion:['👋', 'se déconnecte'], onglet:['👁', 'consulte'], banque:['🏦', 'passe sur la banque'],
+  nouvelle_banque:['➕', 'crée la banque'], saisie:['✏️', 'modifie les données de'], import:['📥', 'importe'], rapport:['📄', 'génère un rapport Word :'], code_r:['📊', 'code R :'],
+  analyse:['💾', 'enregistre l’analyse'], restauration:['↩️', 'restaure'], export:['📤', 'exporte'], parametres:['⚙️', 'modifie un paramètre :'], style:['✍️', 'règle son style de rédaction'], admin:['🛡', 'console admin']
+};
+const EV_IMPORTANT = new Set(['connexion', 'ouverture', 'nouvelle_banque', 'import', 'rapport', 'code_r', 'analyse', 'restauration', 'export']);
+const ADM_NOTIF_KEY = 'umoa-admin-notif';
+function admPrefs() { try { return JSON.parse(localStorage.getItem(ADM_NOTIF_KEY) || '{}') || {}; } catch (e) { return {}; } }
+function admSavePrefs(p) { try { localStorage.setItem(ADM_NOTIF_KEY, JSON.stringify(p)); } catch (e) {} }
+const ago = iso => { const s = Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 1000)); return !isFinite(s) ? '—' : s < 10 ? 'à l’instant' : s < 60 ? 'il y a ' + s + ' s' : s < 3600 ? 'il y a ' + Math.floor(s / 60) + ' min' : s < 86400 ? 'il y a ' + Math.floor(s / 3600) + ' h' : 'le ' + fmtD(iso); };
+const hms = iso => { const d = new Date(iso); return isNaN(d) ? '' : d.toLocaleTimeString('fr-FR', { hour:'2-digit', minute:'2-digit', second:'2-digit' }); };
+const evText = e => { const i = EV_INFO[e.type] || ['•', e.type]; return i[1] + (e.d ? (e.type === 'connexion' || e.type === 'deconnexion' ? ' (' + e.d + ')' : ' ' + (e.type === 'onglet' ? '« ' + e.d + ' »' : e.d)) : ''); };
+const evKey = e => e.at + '|' + e.uid + '|' + e.type + '|' + e.d;
 function vAdmin() {
   if (!acct.isAdmin) {
-    if (acct.user) return head('Administration', 'Admin', '') + '<div class="banner warn"><b>Accès réservé</b><span class="note">Le compte ' + esc(acct.user.email) + ' n’est pas administrateur. Déconnecte-toi puis connecte-toi avec le compte administrateur.</span></div>' + accountCard();
-    return head('Administration', 'Connexion administrateur', 'Connecte-toi avec le compte administrateur pour accéder aux statistiques et aux comptes.') + accountCard();
+    if (acct.user) return head('Administration', 'Console d’administration', '') + '<div class="banner warn"><b>Accès réservé</b><span class="note">Le compte ' + esc(acct.user.email) + ' n’est pas administrateur. Déconnecte-toi puis connecte-toi avec le compte administrateur.</span></div>' + accountCard();
+    return head('Administration', 'Connexion administrateur', 'Connecte-toi avec le compte administrateur pour accéder à la console.') + accountCard();
   }
-  setTimeout(() => { if (!adm.stats && !adm.loading) loadAdmin(); }, 0);
-  return head('Administration', 'Admin', 'Comptes des utilisateurs, statistiques d’utilisation et analyses enregistrées. Visible uniquement par le compte administrateur.') + '<div id="adminBox"></div>';
+  setTimeout(() => { if (!adm.stats && !adm.loading) loadAdmin(); if (!adm.live) adminPoll(true); }, 0);
+  const v = ADM_VIEWS.find(x => x[0] === (adm.view || 'direct'));
+  const sub = { direct:'Qui est connecté et ce qu’il fait, mis à jour toutes les 10 secondes.', tableau:'Statistiques d’utilisation : comptes, activité, heures d’affluence, banques les plus analysées.', comptes:'Tous les comptes, leurs appareils, leurs connexions, leurs actions et leurs analyses.', reglages:'Alertes par e-mail et notifications du navigateur.' }[v[0]];
+  return head('Console d’administration', v[1], sub) + '<div id="adminBox"></div>';
 }
 function renderAdmin() {
   const box = document.getElementById('adminBox'); if (!box) return;
-  if (adm.loading && !adm.stats) { box.innerHTML = '<div class="card"><p class="note">Chargement…</p></div>'; return; }
-  if (adm.err && !adm.stats) { box.innerHTML = '<div class="banner warn"><b>Impossible de charger l’administration</b><span class="note">' + esc(adm.err) + '</span><div class="row"><button class="btn sm" id="admReload">Réessayer</button></div></div>'; bindAdmin(); return; }
-  const s = adm.stats || {}, cps = adm.comptes || [];
+  const v = adm.view || 'direct';
+  if (v !== 'direct' && v !== 'reglages') {
+    if (adm.loading && !adm.stats) { box.innerHTML = '<div class="card"><p class="note">Chargement…</p></div>'; return; }
+    if (adm.err && !adm.stats) { box.innerHTML = '<div class="banner warn"><b>Impossible de charger l’administration</b><span class="note">' + esc(adm.err) + '</span><div class="row"><button class="btn sm" id="admReload">Réessayer</button></div></div>'; bindAdmin(); return; }
+  }
+  const keepFeed = $('#admFeed') ? $('#admFeed').scrollTop : 0;
+  let h = '';
+  if (adm.msg) h += '<div class="row"><span class="note" id="admMsg">' + esc(adm.msg) + '</span></div>';
+  h += v === 'direct' ? adminLive() : v === 'tableau' ? adminBoard() : v === 'comptes' ? adminAccounts() : adminSettings();
+  box.innerHTML = h;
+  if ($('#admFeed')) $('#admFeed').scrollTop = keepFeed;
+  bindAdmin();
+}
+/* En direct */
+function adminLive() {
+  const L = adm.live, pr = admPrefs();
+  if (!L) return '<div class="card"><p class="note">' + (adm.liveErr ? esc(adm.liveErr) : 'Chargement de l’activité…') + '</p></div>';
+  const me = acct.user && acct.user.email, hideMe = pr.hideMe !== false;
+  const keep = p => !hideMe || p.email !== me;
+  const notif = typeof Notification !== 'undefined' ? Notification.permission : 'unsupported';
+  let h = '<div class="live-head"><span class="live-dot' + (adm.pause ? ' off' : '') + '" aria-hidden="true"></span><b>' + (adm.pause ? 'En pause' : 'En direct') + '</b><span class="note" id="admLiveAt">mis à jour ' + ago(adm.liveAt || L.now) + '</span>'
+    + '<button class="btn sm" id="admPause">' + (adm.pause ? 'Reprendre' : 'Mettre en pause') + '</button>'
+    + (notif === 'unsupported' ? '' : '<button class="btn sm' + (pr.notif && notif === 'granted' ? ' pri' : '') + '" id="admNotif">' + (pr.notif && notif === 'granted' ? '🔔 Notifications activées' : notif === 'denied' ? '🔕 Notifications bloquées par le navigateur' : '🔔 Me notifier') + '</button>')
+    + '<label class="check" for="admHideMe"><input type="checkbox" id="admHideMe"' + (hideMe ? ' checked' : '') + '> Masquer mes actions</label></div>';
+  const online = L.enLigne.filter(keep), recents = (L.recents || []).filter(keep);
+  h += '<div class="card"><h3>En ligne maintenant (' + online.length + ')</h3>' + (online.length ? '<div class="online">' + online.map(p => '<div class="who"><div class="who-h"><span class="live-dot sm' + (p.visible === false ? ' idle' : '') + '"></span><b>' + esc(p.email) + '</b></div>'
+      + '<div class="note">' + devIcon(p.type) + ' ' + esc(p.appareil || '—') + (p.lieu ? ' · ' + esc(p.lieu) : '') + '</div>'
+      + '<div>' + (p.visible === false ? '<span class="note">App en arrière-plan</span>' : 'Sur l’onglet <b>' + esc(p.tab || '—') + '</b>') + (p.bank ? ' · ' + esc(p.bank) : '') + '</div>'
+      + '<div class="note">Connecté depuis ' + ago(p.since).replace('il y a ', '') + ' · dernier signal ' + ago(p.at) + '</div></div>').join('') + '</div>' : '<p class="note">Personne n’est connecté en ce moment.</p>')
+    + (recents.length ? '<p class="eyebrow" style="margin-top:6px">Vus dans les dernières 24 h</p><div class="tbl-wrap"><table><thead><tr><th>Compte</th><th>Dernier signal</th><th>Appareil</th><th>Dernier onglet</th></tr></thead><tbody>' + recents.map(p => '<tr><td>' + esc(p.email) + '</td><td>' + ago(p.at) + '</td><td>' + devIcon(p.type) + ' ' + esc(p.appareil || '—') + (p.lieu ? '<br><span class="note">' + esc(p.lieu) + '</span>' : '') + '</td><td>' + esc(p.tab || '—') + (p.bank ? '<br><span class="note">' + esc(p.bank) + '</span>' : '') + '</td></tr>').join('') + '</tbody></table></div>' : '') + '</div>';
+  const emails = [...new Set(L.events.map(e => e.email))].sort();
+  const fu = adm.feedUser || '', fl = adm.feedLevel || 'tout';
+  const ev = L.events.filter(e => keep(e) && (!fu || e.email === fu) && (fl === 'tout' || EV_IMPORTANT.has(e.type)));
+  h += '<div class="card"><h3>Fil d’activité</h3><div class="row"><label class="note" for="admFeedUser">Compte <select id="admFeedUser"><option value="">Tous</option>' + emails.map(m => '<option' + (m === fu ? ' selected' : '') + '>' + esc(m) + '</option>').join('') + '</select></label>'
+    + '<label class="note" for="admFeedLevel">Actions <select id="admFeedLevel"><option value="tout"' + (fl === 'tout' ? ' selected' : '') + '>Toutes</option><option value="imp"' + (fl === 'imp' ? ' selected' : '') + '>Importantes (sans la navigation)</option></select></label><span class="note">' + ev.length + ' action(s) sur 48 h</span></div>'
+    + (ev.length ? '<div class="feed" id="admFeed">' + ev.map(e => { const i = EV_INFO[e.type] || ['•']; return '<div class="ev' + (adm.fresh && adm.fresh.has(evKey(e)) ? ' new' : '') + '"><time>' + hms(e.at) + '<small>' + ago(e.at) + '</small></time><span class="ev-ico" aria-hidden="true">' + i[0] + '</span><div class="ev-b"><b>' + esc(e.email) + '</b> ' + esc(evText(e)) + '<div class="note">' + devIcon(e.appType) + ' ' + esc(e.appareil || '') + (e.lieu ? ' · ' + esc(e.lieu) : '') + (e.bank && e.type !== 'banque' ? ' · ' + esc(e.bank) : '') + '</div></div></div>'; }).join('') + '</div>' : '<p class="note">Aucune action pour l’instant. Les actions des utilisateurs connectés (onglets ouverts, imports, rapports, code R…) apparaissent ici en quelques secondes.</p>') + '</div>';
+  return h;
+}
+/* Tableau de bord */
+function miniBars(vals, labels, color, tip, W = 360, H = 120) {
+  const max = Math.max(1, ...vals), bw = W / Math.max(1, vals.length);
+  let svg = '';
+  vals.forEach((v, i) => {
+    const hh = v / max * (H - 24);
+    svg += '<rect x="' + (i * bw + 1).toFixed(1) + '" y="' + (H - 18 - hh).toFixed(1) + '" width="' + Math.max(1, bw - 2).toFixed(1) + '" height="' + Math.max(0, hh).toFixed(1) + '" rx="1.5" style="fill:' + color + '" data-tip="' + esc(tip(i, v)) + '"/>';
+    if (labels[i]) svg += '<text x="' + Math.min(W - 10, Math.max(10, i * bw + bw / 2)).toFixed(1) + '" y="' + (H - 4) + '" font-size="10" text-anchor="middle" style="fill:var(--ink-3)">' + labels[i] + '</text>';
+  });
+  return '<svg class="chart" viewBox="0 0 ' + W + ' ' + H + '" role="img">' + svg + '<line x1="0" x2="' + W + '" y1="' + (H - 18) + '" y2="' + (H - 18) + '" style="stroke:var(--line)"/></svg>';
+}
+function adminBoard() {
+  const s = adm.stats || {};
   const tile = (k, v, d) => '<div class="tile" style="cursor:default"><span class="k">' + k + '</span><span class="v">' + nfI.format(v || 0) + '</span><span class="d">' + (d || '&nbsp;') + '</span></div>';
-  let h = '<div class="row"><button class="btn sm" id="admReload">Actualiser</button>' + (adm.msg ? '<span class="note" id="admMsg">' + esc(adm.msg) + '</span>' : '') + '</div>';
-  h += '<div class="tiles">' + tile('Comptes', s.comptes, 'inscrits') + tile('Actifs 7 jours', s.actifs7, 'connectés') + tile('Actifs 30 jours', s.actifs30, 'connectés') + tile('Banques', s.banques, 'enregistrées') + tile('Analyses', s.analyses, 'dans les historiques') + '</div>';
-  // activité sur 30 jours
+  let h = '<div class="row"><button class="btn sm" id="admReload">Actualiser</button></div><div class="tiles">' + tile('Comptes', s.comptes, 'inscrits') + tile('En ligne', adm.live ? adm.live.enLigne.length : 0, 'en ce moment') + tile('Actifs 7 jours', s.actifs7, 'connectés') + tile('Actifs 30 jours', s.actifs30, 'connectés') + tile('Actions 7 jours', s.actions7, 'dans l’app') + tile('Banques', s.banques, 'enregistrées') + tile('Analyses', s.analyses, 'dans les historiques') + '</div>';
   const pd = s.parJour || [], max = Math.max(1, ...pd.map(d => Math.max(d.inscriptions, d.analyses)));
   const W = 360, H = 120, bw = W / Math.max(1, pd.length);
   let svg = '';
@@ -3141,19 +3407,84 @@ function renderAdmin() {
     svg += '<rect x="' + (x + bw / 2).toFixed(1) + '" y="' + (H - 18 - hi).toFixed(1) + '" width="' + (bw / 2 - 1.5).toFixed(1) + '" height="' + Math.max(0, hi).toFixed(1) + '" rx="1.5" style="fill:var(--s2)" data-tip="' + fmtD(d.jour) + ' : ' + d.inscriptions + ' inscription(s)"/>';
     if (i % 7 === 0 && pd.length - i > 3 || i === pd.length - 1) svg += '<text x="' + Math.min(W - 14, Math.max(14, x + bw / 2)).toFixed(1) + '" y="' + (H - 4) + '" font-size="10" text-anchor="middle" style="fill:var(--ink-3)">' + d.jour.slice(8, 10) + '/' + d.jour.slice(5, 7) + '</text>';
   });
+  // heures d'affluence en heure locale (le serveur compte en heure UTC)
+  const off = new Date().getTimezoneOffset() / 60, hu = s.heuresUTC || Array(24).fill(0), hl = Array(24).fill(0);
+  hu.forEach((v, u) => { hl[((u - off) % 24 + 24) % 24] += v; });
   h += '<div class="grid2"><div class="card"><h3>Activité des 30 derniers jours</h3><div class="legend"><span><i style="background:var(--s1)"></i>Analyses enregistrées</span><span><i style="background:var(--s2)"></i>Inscriptions</span></div><svg class="chart" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Activité par jour">' + svg + '<line x1="0" x2="' + W + '" y1="' + (H - 18) + '" y2="' + (H - 18) + '" style="stroke:var(--line)"/></svg></div>'
+    + '<div class="card"><h3>Actions dans l’app par jour</h3>' + miniBars(pd.map(d => d.actions || 0), pd.map((d, i) => i % 7 === 0 && pd.length - i > 3 || i === pd.length - 1 ? d.jour.slice(8, 10) + '/' + d.jour.slice(5, 7) : ''), 'var(--s3)', (i, v) => fmtD(pd[i].jour) + ' : ' + v + ' action(s)') + '</div>'
+    + '<div class="card"><h3>Heures d’affluence (7 jours)</h3>' + miniBars(hl, hl.map((_, i) => i % 3 === 0 ? i + 'h' : ''), 'var(--s4)', (i, v) => i + 'h–' + (i + 1) + 'h : ' + v + ' action(s)') + '<p class="note">Heure de ton appareil.</p></div>'
     + '<div class="card"><h3>Banques les plus analysées</h3>' + ((s.topBanques || []).length ? '<div class="tbl-wrap"><table><thead><tr><th>Banque</th><th>Comptes</th></tr></thead><tbody>' + s.topBanques.map(b => '<tr><td>' + esc(b.nom) + '</td><td>' + b.comptes + '</td></tr>').join('') + '</tbody></table></div>' : '<p class="note">Aucune banque enregistrée pour l’instant.</p>') + '</div></div>';
-  // comptes
-  h += '<div class="card"><h3>Comptes (' + cps.length + ')</h3><label class="note" for="admFilter">Rechercher <input type="text" id="admFilter" placeholder="adresse e-mail" value="' + esc(adm.filter || '') + '" style="min-width:200px"></label>';
+  return h;
+}
+/* Comptes */
+function adminAccounts() {
+  const cps = adm.comptes || [], online = new Set(adm.live ? adm.live.enLigne.map(p => p.email) : []);
+  let h = '<div class="row"><button class="btn sm" id="admReload">Actualiser</button></div><div class="card"><h3>Comptes (' + cps.length + ')</h3><label class="note" for="admFilter">Rechercher <input type="text" id="admFilter" placeholder="adresse e-mail" value="' + esc(adm.filter || '') + '" style="min-width:200px"></label>';
   const f = (adm.filter || '').toLowerCase(), list = cps.filter(c => !f || c.email.includes(f));
   h += '<div class="tbl-wrap"><table><thead><tr><th>Adresse e-mail</th><th>Inscription</th><th>Dernière connexion</th><th>Dernier appareil</th><th>Banques</th><th>Analyses</th><th>État</th><th>Actions</th></tr></thead><tbody>'
-    + list.map(c => '<tr><td>' + esc(c.email) + (c.email === (acct.user && acct.user.email) ? ' <span class="tag">toi</span>' : '') + '</td><td>' + fmtD(c.createdAt) + '</td><td>' + fmtDT(c.lastLogin) + '</td><td>' + (c.device ? devIcon(c.device.type) + ' ' + esc(c.device.label) + (c.device.lieu ? '<br><span class="note">' + esc(c.device.lieu) + '</span>' : '') + (c.nDevices > 1 ? '<br><span class="note">' + c.nDevices + ' appareils</span>' : '') : '<span class="note">—</span>') + '</td><td>' + c.banks + '</td><td>' + c.analyses + '</td><td>' + (c.locked ? '<span class="chip st-warn"><i>!</i>Bloqué</span>' : '<span class="chip st-ok"><i>✓</i>Actif</span>') + '</td>'
+    + list.map(c => '<tr><td>' + (online.has(c.email) ? '<span class="live-dot sm" title="En ligne"></span> ' : '') + esc(c.email) + (c.email === (acct.user && acct.user.email) ? ' <span class="tag">toi</span>' : '') + '</td><td>' + fmtD(c.createdAt) + '</td><td>' + fmtDT(c.lastLogin) + '</td><td>' + (c.device ? devIcon(c.device.type) + ' ' + esc(c.device.label) + (c.device.lieu ? '<br><span class="note">' + esc(c.device.lieu) + '</span>' : '') + (c.nDevices > 1 ? '<br><span class="note">' + c.nDevices + ' appareils</span>' : '') : '<span class="note">—</span>') + '</td><td>' + c.banks + '</td><td>' + c.analyses + '</td><td>' + (c.locked ? '<span class="chip st-warn"><i>!</i>Bloqué</span>' : '<span class="chip st-ok"><i>✓</i>Actif</span>') + '</td>'
       + '<td style="white-space:nowrap"><button class="btn sm" data-av="' + esc(c.id) + '">Voir</button> <button class="btn sm" data-apw="' + esc(c.email) + '">Mot de passe</button>' + (c.locked ? ' <button class="btn sm" data-aun="' + esc(c.email) + '">Débloquer</button>' : '') + (c.email !== (acct.user && acct.user.email) ? ' <button class="btn sm danger" data-adel="' + esc(c.email) + '">Supprimer</button>' : '') + '</td></tr>').join('')
-    + '</tbody></table></div><p class="note">Sur téléphone, fais défiler le tableau vers la droite pour voir les actions.</p><div id="admAction"></div></div>';
+    + '</tbody></table></div><p class="note">Sur téléphone, fais défiler le tableau vers la droite pour voir les actions. Le point vert indique un compte en ligne.</p><div id="admAction"></div></div>';
   h += '<div id="admDetail">' + (adm.detail ? adminDetail(adm.detail) : '') + '</div>';
-  box.innerHTML = h;
-  bindAdmin();
+  return h;
 }
+/* Réglages */
+function adminSettings() {
+  const r = adm.reglages, pr = admPrefs(), notif = typeof Notification !== 'undefined' ? Notification.permission : 'unsupported';
+  const al = r ? r.alertes : null;
+  const box = (k, l, d) => '<label class="check" for="al-' + k + '"><input type="checkbox" id="al-' + k + '" data-alert="' + k + '"' + (al && al[k] ? ' checked' : '') + (al ? '' : ' disabled') + '> <span><b>' + l + '</b><br><span class="note">' + d + '</span></span></label>';
+  return '<div class="card"><h3>Alertes par e-mail</h3><p class="note">Envoyées à l’adresse administrateur par Brevo (variables BREVO_API_KEY et MAIL_FROM dans Netlify), même quand la console est fermée.</p><div class="checks" style="display:grid;gap:8px">'
+    + box('inscription', 'Nouvelle inscription', 'Un e-mail dès qu’un nouveau compte est créé.')
+    + box('appareil', 'Connexion depuis un nouvel appareil', 'Un e-mail quand un compte se connecte depuis un appareil jamais vu.')
+    + box('connexion', 'Chaque connexion', 'Un e-mail à chaque connexion (peut être fréquent).')
+    + '</div>' + (r ? '' : '<p class="note">Chargement des réglages…</p>') + '<div id="admAlertMsg" class="note"></div></div>'
+    + '<div class="card"><h3>Notifications du navigateur</h3><p class="note">Tant que l’app est ouverte sur cet appareil (même dans un autre onglet), une notification s’affiche pour chaque action. ' + (notif === 'denied' ? '<b>Les notifications sont bloquées : autorise-les dans les réglages du navigateur pour ce site.</b>' : '') + '</p>'
+    + '<div class="checks" style="display:grid;gap:8px"><label class="check" for="nfOn"><input type="checkbox" id="nfOn"' + (pr.notif && notif === 'granted' ? ' checked' : '') + (notif === 'unsupported' || notif === 'denied' ? ' disabled' : '') + '> Activer les notifications</label>'
+    + '<label class="note" for="nfLevel">Me notifier pour <select id="nfLevel"><option value="imp"' + ((pr.level || 'imp') === 'imp' ? ' selected' : '') + '>les actions importantes (connexion, import, rapport, code R, analyse)</option><option value="tout"' + (pr.level === 'tout' ? ' selected' : '') + '>toutes les actions, y compris la navigation</option></select></label>'
+    + '<label class="check" for="nfSound"><input type="checkbox" id="nfSound"' + (pr.sound ? ' checked' : '') + '> Petit son à chaque nouvelle action</label></div></div>';
+}
+/* Interrogation régulière : toutes les 10 s dans la console, toutes les 30 s ailleurs (pour les notifications) */
+let admTick = 0;
+async function adminPoll(full) {
+  if (!acct.isAdmin || adm.polling) return;
+  adm.polling = true;
+  try {
+    const first = full || !adm.live;
+    const d = await adminApi('direct' + (!first && adm.liveSince ? '?depuis=' + encodeURIComponent(adm.liveSince) : ''));
+    adm.liveErr = '';
+    if (first) { adm.live = d; adm.fresh = new Set(); }
+    else {
+      const known = new Set(adm.live.events.map(evKey));
+      const nouveaux = d.events.filter(e => !known.has(evKey(e)));
+      adm.fresh = new Set(nouveaux.map(evKey));
+      adm.live = { now:d.now, enLigne:d.enLigne, recents:d.recents, events:nouveaux.concat(adm.live.events).sort((a, b) => String(b.at).localeCompare(String(a.at))).slice(0, 400) };
+      notifyAdmin(nouveaux);
+    }
+    adm.liveSince = d.now; adm.liveAt = new Date().toISOString();
+  } catch (e) { adm.liveErr = e.message; }
+  finally { adm.polling = false; }
+  const typing = document.activeElement && document.activeElement.closest && document.activeElement.closest('#adminBox') && /^(INPUT|SELECT|TEXTAREA)$/.test(document.activeElement.tagName);
+  if (state.tab === 'admin' && (adm.view || 'direct') === 'direct' && !typing) renderAdmin();
+  if (state.tab !== 'admin') renderHeader();
+}
+function notifyAdmin(list) {
+  const pr = admPrefs(), me = acct.user && acct.user.email;
+  const ev = list.filter(e => e.email !== me && (pr.level === 'tout' || EV_IMPORTANT.has(e.type)));
+  if (!ev.length) return;
+  if (state.tab !== 'admin' || (adm.view || 'direct') !== 'direct') adm.unread = (adm.unread || 0) + ev.length;
+  if (pr.sound) { try { const ctx = new (window.AudioContext || window.webkitAudioContext)(), o = ctx.createOscillator(), g = ctx.createGain(); o.frequency.value = 880; g.gain.value = 0.05; o.connect(g); g.connect(ctx.destination); o.start(); o.stop(ctx.currentTime + 0.12); } catch (e) {} }
+  if (pr.notif && typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+    ev.slice(0, 3).forEach(e => { try { new Notification(e.email, { body:evText(e) + (e.lieu ? ' (' + e.lieu + ')' : ''), tag:'umoa-' + evKey(e), icon:'icon-192.png' }); } catch (x) {} });
+    if (ev.length > 3) try { new Notification('Analyste Bancaire', { body:'+ ' + (ev.length - 3) + ' autre(s) action(s)', tag:'umoa-plus' }); } catch (x) {}
+  }
+}
+setInterval(() => {
+  admTick++;
+  if (!acct.isAdmin || adm.pause) return;
+  const inLive = state.tab === 'admin' && (adm.view || 'direct') === 'direct' && document.visibilityState === 'visible';
+  if (inLive || admTick % 3 === 0) adminPoll(false);
+  else if (state.tab === 'admin' && $('#admLiveAt') && adm.liveAt) $('#admLiveAt').textContent = 'mis à jour ' + ago(adm.liveAt);
+}, 10000);
 const devIcon = t => t === 'Téléphone' ? '📱' : t === 'Tablette' ? '📲' : '💻';
 const JOURNAL_LBL = { connexion:'Connexion', inscription:'Inscription', visite:'Ouverture de l’app', echec:'Mot de passe incorrect' };
 function adminDevices(d) {
@@ -3167,13 +3498,31 @@ function adminDevices(d) {
 }
 function adminDetail(d) {
   const banks = Object.values(d.banks || {}), hist = d.history || [];
-  return '<div class="card"><h3>Compte ' + esc(d.email) + '</h3>' + adminDevices(d) + '<h3 style="margin-top:14px">Analyses</h3><p class="note">Lecture seule. « Ouvrir une copie » ajoute la banque à tes propres banques pour la consulter dans tous les onglets ; l’original de l’utilisateur n’est pas modifié.</p>'
+  const acts = d.actions || [];
+  return '<div class="card"><h3>Compte ' + esc(d.email) + '</h3><p class="note">Inscrit le ' + fmtD(d.createdAt) + ' · connexion par ' + esc(d.via === 'code' ? 'code reçu par e-mail' : d.via || '—') + '</p>' + adminDevices(d)
+    + '<p class="eyebrow" style="margin-top:10px">Actions récentes (' + acts.length + ', 30 jours)</p>' + (acts.length ? '<div class="feed" style="max-height:340px">' + acts.map(e => { const i = EV_INFO[e.type] || ['•']; return '<div class="ev"><time>' + fmtD(e.at) + '<small>' + hms(e.at) + '</small></time><span class="ev-ico" aria-hidden="true">' + i[0] + '</span><div class="ev-b">' + esc(capFirst(evText(e))) + '<div class="note">' + devIcon(e.appType) + ' ' + esc(e.appareil || '') + (e.lieu ? ' · ' + esc(e.lieu) : '') + '</div></div></div>'; }).join('') + '</div>' : '<p class="note">Aucune action enregistrée.</p>')
+    + '<h3 style="margin-top:14px">Analyses</h3><p class="note">Lecture seule. « Ouvrir une copie » ajoute la banque à tes propres banques pour la consulter dans tous les onglets ; l’original de l’utilisateur n’est pas modifié.</p>'
     + '<p class="eyebrow">Banques (' + banks.length + ')</p>' + (banks.length ? '<div class="tbl-wrap"><table><thead><tr><th>Banque</th><th>Exercices</th><th>Modifiée le</th><th></th></tr></thead><tbody>' + banks.map(b => '<tr><td>' + esc(b.name) + '</td><td>' + esc((b.years || []).join(', ')) + '</td><td>' + (b.mod ? fmtDT(new Date(b.mod).toISOString()) : '—') + '</td><td><button class="btn sm" data-acopy="' + esc(b.id) + '">Ouvrir une copie</button></td></tr>').join('') + '</tbody></table></div>' : '<p class="note">Aucune banque.</p>')
     + '<p class="eyebrow" style="margin-top:10px">Historique (' + hist.length + ')</p>' + (hist.length ? '<div class="tbl-wrap"><table><thead><tr><th>Analyse</th><th>Date</th><th>Type</th><th>ROE</th><th>Solvabilité</th></tr></thead><tbody>' + hist.map(e => { const y = (e.res && e.res.years || []).length - 1, v = id => e.res && e.res.vals && e.res.vals[id] ? e.res.vals[id][y] : null; return '<tr><td>' + esc(e.label) + '</td><td>' + fmtDT(e.at) + '</td><td>' + esc(KIND_LBL[e.kind] || e.kind || '') + '</td><td>' + fmtP(fin(v('roe')) ? v('roe') : NaN, 1) + '</td><td>' + fmtP(fin(v('solva')) ? v('solva') : NaN, 1) + '</td></tr>'; }).join('') + '</tbody></table></div>' : '<p class="note">Aucune analyse enregistrée.</p>')
     + '<div class="row" style="margin-top:8px"><button class="btn sm" id="admCloseDetail">Fermer</button></div></div>';
 }
 function bindAdmin() {
   const act = $('#admAction');
+  const pr = admPrefs(), setPr = p => { admSavePrefs(Object.assign(admPrefs(), p)); renderAdmin(); };
+  if ($('#admPause')) $('#admPause').onclick = () => { adm.pause = !adm.pause; if (!adm.pause) adminPoll(false); renderAdmin(); };
+  const askNotif = async () => { if (typeof Notification === 'undefined') return false; let p = Notification.permission; if (p === 'default') { try { p = await Notification.requestPermission(); } catch (e) {} } return p === 'granted'; };
+  if ($('#admNotif')) $('#admNotif').onclick = async () => { if (pr.notif && Notification.permission === 'granted') { setPr({ notif:false }); toast('Notifications désactivées'); return; } const ok = await askNotif(); setPr({ notif:ok }); toast(ok ? 'Tu seras notifié de chaque action importante' : 'Le navigateur a refusé les notifications'); };
+  if ($('#admHideMe')) $('#admHideMe').onchange = e => setPr({ hideMe:e.target.checked });
+  if ($('#admFeedUser')) $('#admFeedUser').onchange = e => { adm.feedUser = e.target.value; renderAdmin(); };
+  if ($('#admFeedLevel')) $('#admFeedLevel').onchange = e => { adm.feedLevel = e.target.value; renderAdmin(); };
+  if ($('#nfOn')) $('#nfOn').onchange = async e => { const ok = e.target.checked ? await askNotif() : false; setPr({ notif:ok }); };
+  if ($('#nfLevel')) $('#nfLevel').onchange = e => setPr({ level:e.target.value });
+  if ($('#nfSound')) $('#nfSound').onchange = e => setPr({ sound:e.target.checked });
+  if ((adm.view || 'direct') === 'reglages' && !adm.reglages && !adm.regLoading) { adm.regLoading = true; adminApi('reglages').then(r => { adm.reglages = r; }).catch(e => { adm.msg = e.message; }).finally(() => { adm.regLoading = false; renderAdmin(); }); }
+  view.querySelectorAll('[data-alert]').forEach(c => c.onchange = async () => {
+    const alertes = {}; view.querySelectorAll('[data-alert]').forEach(x => { alertes[x.dataset.alert] = x.checked; });
+    try { adm.reglages = await adminApi('reglages', { alertes }); $('#admAlertMsg').textContent = 'Réglage enregistré.'; } catch (e) { $('#admAlertMsg').textContent = e.message; }
+  });
   if ($('#admReload')) $('#admReload').onclick = () => { adm.msg = ''; loadAdmin(); };
   if ($('#admFilter')) $('#admFilter').oninput = e => { adm.filter = e.target.value; const pos = e.target.selectionStart; renderAdmin(); const el = $('#admFilter'); el.focus(); el.setSelectionRange(pos, pos); };
   if ($('#admCloseDetail')) $('#admCloseDetail').onclick = () => { adm.detail = null; renderAdmin(); };
@@ -3807,7 +4156,18 @@ function renderHeader() {
   $('#toSel').innerHTML = all.map((y, i) => '<option value="' + y + '"' + (i === rz ? ' selected' : '') + (i < ra ? ' disabled' : '') + '>' + y + '</option>').join('');
   $('#fromSel').disabled = $('#toSel').disabled = locked;
   $('#yearSel').innerHTML = Y().map((y, i) => '<option value="' + i + '"' + (i === state.yi ? ' selected' : '') + '>' + y + '</option>').join('');
-  $('#tabs').innerHTML = (typeof acct !== 'undefined' && acct.isAdmin ? TABS.concat([['admin', 'Admin']]) : TABS).map(([k, l]) => '<button class="tab" role="tab" data-tab="' + k + '" aria-selected="' + (state.tab === k) + '">' + l + '</button>').join('');
+  const inAdmin = state.tab === 'admin';
+  document.body.classList.toggle('admin-mode', inAdmin);
+  if (inAdmin) {
+    $('#hdrBank').textContent = 'Console d’administration';
+    $('#hdrSub').textContent = acct.user ? acct.user.email + (acct.isAdmin ? ' · administrateur' : '') : 'Connexion requise';
+    if (acct.isAdmin && (adm.view || 'direct') === 'direct') adm.unread = 0;
+    $('#tabs').innerHTML = (acct.isAdmin ? ADM_VIEWS.map(([k, l]) => '<button class="tab" role="tab" data-atab="' + k + '" aria-selected="' + ((adm.view || 'direct') === k) + '">' + (k === 'direct' ? '<span class="live-dot sm"></span> ' : '') + l + '</button>').join('') : '')
+      + '<button class="tab tab-back" data-tab="synthese">← Retour à l’app</button>';
+    return;
+  }
+  $('#tabs').innerHTML = TABS.map(([k, l]) => '<button class="tab" role="tab" data-tab="' + k + '" aria-selected="' + (state.tab === k) + '">' + l + '</button>').join('')
+    + (typeof acct !== 'undefined' && acct.isAdmin ? '<button class="tab tab-admin" data-tab="admin">🛡 Console admin' + (adm.unread ? ' <span class="badge">' + (adm.unread > 99 ? '99+' : adm.unread) + '</span>' : '') + '</button>' : '');
 }
 function renderAll(keepScroll) {
   if (!VIEWS[state.tab]) state.tab = 'synthese';
@@ -3850,6 +4210,7 @@ function bindView() {
         if (b.example) b.example = false;
         inp.value = v === null ? '' : fmtM(v);
         save(); refreshCalcs();
+        if (Date.now() - trk.lastSaisie > 180000) { trk.lastSaisie = Date.now(); track('saisie', b.name); }
       });
     });
     const meta = (id, fn) => { const el = $('#' + id); if (el) el.addEventListener('change', () => { fn(el.value); save(); renderHeader(); }); };
@@ -3876,8 +4237,8 @@ function bindView() {
       FIELDS.filter(f => f.s === btn.dataset.zero).forEach(f => { b.v[f.k] = b.years.map((_, y) => raw(f.k, y) ?? 0); });
       save(); renderAll(true); toast('Cases vides complétées par 0');
     }));
-    $('#bNew').onclick = () => { const id = 'b' + Date.now(); state.banks[id] = { id, name:'Nouvelle banque', country:'', unit:'millions FCFA', years:Y().slice(), v:{} }; state.cur = id; save(); renderAll(); };
-    $('#bDup').onclick = () => { const id = 'b' + Date.now(); state.banks[id] = Object.assign(clone(bank()), { id, name:bank().name + ' (copie)', example:false }); state.cur = id; save(); renderAll(); };
+    $('#bNew').onclick = () => { const id = 'b' + Date.now(); state.banks[id] = { id, name:'Nouvelle banque', country:'', unit:'millions FCFA', years:Y().slice(), v:{} }; state.cur = id; save(); renderAll(); track('nouvelle_banque', 'Nouvelle banque (saisie manuelle)'); };
+    $('#bDup').onclick = () => { const id = 'b' + Date.now(); state.banks[id] = Object.assign(clone(bank()), { id, name:bank().name + ' (copie)', example:false }); state.cur = id; save(); renderAll(); track('nouvelle_banque', bank().name); };
     $('#bSample').onclick = () => { state.banks.bab = clone(SAMPLE); state.cur = 'bab'; save(); renderAll(); toast('Exemple BAB rechargé'); };
     $('#bDel').onclick = () => {
       $('#confirmBox').innerHTML = '<div class="confirm">Supprimer définitivement « ' + esc(bank().name) + ' » de cet appareil ?<button class="btn sm danger" id="bDelYes">Supprimer</button><button class="btn sm" id="bDelNo">Annuler</button></div>';
@@ -3895,17 +4256,17 @@ function bindView() {
     bindSim();
   }
   if (state.tab === 'params') {
-    view.querySelectorAll('input[data-p]').forEach(inp => inp.addEventListener('change', () => { const v = parseNum(inp.value); if (v === null || v < 0 || v > 1000) { toast('Valeur invalide : saisis un pourcentage entre 0 et 1000'); inp.value = state.params[inp.dataset.p]; return; } state.params[inp.dataset.p] = v; save(); toast('Paramètre appliqué'); }));
+    view.querySelectorAll('input[data-p]').forEach(inp => inp.addEventListener('change', () => { const v = parseNum(inp.value); if (v === null || v < 0 || v > 1000) { toast('Valeur invalide : saisis un pourcentage entre 0 et 1000'); inp.value = state.params[inp.dataset.p]; return; } state.params[inp.dataset.p] = v; save(); track('parametres', ((PARAMS.find(p => p.k === inp.dataset.p) || {}).l || inp.dataset.p) + ' = ' + v + ' %'); toast('Paramètre appliqué'); }));
     $('#pReset').onclick = () => { state.params = Object.assign({}, DEFAULT_PARAMS); save(); renderAll(true); toast('Valeurs par défaut rétablies'); };
   }
   if (state.tab === 'historique') bindHistorique();
   if (state.tab === 'rapport') bindRapport();
   if (state.tab === 'admin') { renderAdmin(); if (!acct.isAdmin && $('#accountCard') && accountsPossible()) bindAccount(); }
-  view.querySelectorAll('[data-hsave]').forEach(b => b.onclick = () => { addHistory('manuel', bank().name + ' · ' + Y()[0] + '–' + Y()[Y().length - 1], ''); toast('Analyse enregistrée dans l’historique'); renderAll(true); });
+  view.querySelectorAll('[data-hsave]').forEach(b => b.onclick = () => { addHistory('manuel', bank().name + ' · ' + Y()[0] + '–' + Y()[Y().length - 1], ''); track('analyse', bank().name + ' · ' + Y()[0] + '–' + Y()[Y().length - 1]); toast('Analyse enregistrée dans l’historique'); renderAll(true); });
   if (state.tab === 'r') {
     const st = () => R_STYLES.some(s => s[0] === state.rStyle) ? state.rStyle : 'complet';
-    $('#rCopy').onclick = () => copyText(rCode(st()));
-    if ($('#rDl')) $('#rDl').onclick = () => download(rFileName(st()), rCode(st()));
+    $('#rCopy').onclick = () => { copyText(rCode(st())); track('code_r', 'copie du code ' + st() + ' · ' + bank().name); };
+    if ($('#rDl')) $('#rDl').onclick = () => { download(rFileName(st()), rCode(st())); track('code_r', 'téléchargement de ' + rFileName(st())); };
     view.querySelectorAll('[name="rstyle"]').forEach(r => r.addEventListener('change', () => { state.rStyle = r.value; save(); renderAll(); }));
   }
   if (state.tab === 'import') {
@@ -3919,12 +4280,21 @@ function bindView() {
     $('#expCsv').onclick = () => copyText(toCsv(false), $('#expOut'));
     $('#expTpl').onclick = () => copyText(toCsv(true), $('#expOut'));
     $('#expJson').onclick = () => copyText(JSON.stringify({ banks:state.banks, cur:state.cur, params:state.params, history:state.history }, null, 1), $('#expOut'));
-    if ($('#dlCsv')) $('#dlCsv').onclick = () => saveFile(fileBase() + '.csv', '\ufeff' + toCsv(false), 'text/csv');
-    if ($('#dlJson')) $('#dlJson').onclick = () => saveFile('sauvegarde_analyste_umoa.json', JSON.stringify({ banks:state.banks, cur:state.cur, params:state.params, history:state.history }, null, 1), 'application/json');
+    if ($('#dlCsv')) $('#dlCsv').onclick = () => track('export', 'CSV · ' + bank().name) || saveFile(fileBase() + '.csv', '\ufeff' + toCsv(false), 'text/csv');
+    if ($('#dlJson')) $('#dlJson').onclick = () => track('export', 'sauvegarde JSON complète') || saveFile('sauvegarde_analyste_umoa.json', JSON.stringify({ banks:state.banks, cur:state.cur, params:state.params, history:state.history }, null, 1), 'application/json');
   }
 }
-$('#tabs').addEventListener('click', e => { const b = e.target.closest('[data-tab]'); if (!b) return; state.tab = b.dataset.tab; state.yi = 99; save(); renderAll(); window.scrollTo(0, 0); });
-$('#bankSel').addEventListener('change', e => { state.cur = e.target.value; state.yi = 99; save(); renderAll(); });
+$('#tabs').addEventListener('click', e => {
+  const a = e.target.closest('[data-atab]');
+  if (a) { adm.view = a.dataset.atab; adm.msg = ''; if (adm.view === 'direct') adminPoll(false); renderAll(); window.scrollTo(0, 0); return; }
+  const b = e.target.closest('[data-tab]'); if (!b) return;
+  const from = state.tab;
+  state.tab = b.dataset.tab; state.yi = 99; save(); renderAll(); window.scrollTo(0, 0);
+  if (state.tab !== from && state.tab !== 'admin') track('onglet', (TABS.find(t => t[0] === state.tab) || [, state.tab])[1]);
+  if (state.tab === 'admin' && history.replaceState) try { history.replaceState(null, '', '#admin'); } catch (x) {}
+  if (from === 'admin' && state.tab !== 'admin' && location.hash === '#admin') try { history.replaceState(null, '', location.pathname === '/admin' ? '/' : location.pathname); } catch (x) {}
+});
+$('#bankSel').addEventListener('change', e => { state.cur = e.target.value; state.yi = 99; save(); renderAll(); track('banque', bank().name); });
 $('#yearSel').addEventListener('change', e => { state.yi = +e.target.value; renderAll(true); });
 function setRange() {
   const b = bank(), a = +$('#fromSel').value, z = +$('#toSel').value;

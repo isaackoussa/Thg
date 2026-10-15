@@ -97,6 +97,27 @@ export function codeEmail(code) {
       + '</table></td></tr></table></body></html>'
   };
 }
+/* ---- Administrateurs et alertes par e-mail (nouvelle inscription, nouvel appareil, chaque connexion) ---- */
+export const DEFAULT_ADMINS = 'koussaisaac199@gmail.com';
+export const adminList = env => String(env || DEFAULT_ADMINS).split(',').map(normEmail).filter(Boolean);
+export const ALERT_DEFAULTS = { inscription: true, appareil: false, connexion: false };
+const escH = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+async function alertAdmins(kind, user, req, geo, deps) {
+  try {
+    const { store, env = () => undefined, send, adminEmails } = deps;
+    if (!send && !mailReady(env)) return;
+    const reg = { ...ALERT_DEFAULTS, ...(((await store.get('reglages-admin', { type: 'json' })) || {}).alertes || {}) };
+    if (!reg[kind]) return;
+    const admins = adminList(adminEmails).filter(a => a !== user.email);
+    if (!admins.length) return;
+    const d = (user.devices || [])[0] || {}, title = { inscription: 'Nouvelle inscription', appareil: 'Connexion depuis un nouvel appareil', connexion: 'Connexion' }[kind];
+    const subject = title + ' : ' + user.email;
+    const html = '<div style="font-family:Segoe UI,Helvetica,Arial,sans-serif;color:#13201a;max-width:520px"><h2 style="color:#0c5a48;margin:0 0 10px">' + escH(title) + '</h2>'
+      + '<p style="margin:0 0 6px"><b>' + escH(user.email) + '</b></p><p style="margin:0 0 6px">Appareil : ' + escH(d.label || '—') + (d.lieu ? ' · ' + escH(d.lieu) : '') + '</p>'
+      + '<p style="margin:0 0 6px">Le ' + new Date().toLocaleString('fr-FR', { timeZone: 'Africa/Abidjan' }) + ' (GMT)</p><p style="color:#6b7770;font-size:13px">Alerte envoyée par Analyste Bancaire UMOA. Réglages : console admin → Réglages.</p></div>';
+    for (const a of admins) send ? await send(a, subject, html, null) : await brevoSend(env, a, subject, html);
+  } catch (e) { console.warn('alerte admin :', e); }
+}
 const codeKey = email => 'c/' + createHash('sha256').update(email).digest('hex');
 const codeHash = (email, code) => createHash('sha256').update(email + ':' + code).digest('hex');
 
@@ -135,7 +156,8 @@ export async function userFromRequest(req, store) {
   } catch (e) { return null; }
 }
 
-export async function handleCompte(req, action, { store, geo, env = () => undefined, gate = false, send }) {
+export async function handleCompte(req, action, deps) {
+  const { store, geo, env = () => undefined, gate = false, send } = deps;
   // l'app demande si l'entrée exige un e-mail et si l'envoi de codes est possible
   if (action === 'config' && req.method === 'GET') return json({ gate: !!gate, mail: mailReady(env) || !!send });
   if (action === 'moi' && req.method === 'GET') {
@@ -185,7 +207,7 @@ export async function handleCompte(req, action, { store, geo, env = () => undefi
     await store.delete(codeKey(email));
     const key = userKey(email), now = new Date().toISOString();
     let user = await store.get(key, { type: 'json' });
-    const isNew = !user;
+    const isNew = !user, devBefore = user ? (user.devices || []).length : 0;
     if (!user) {
       // compte créé à la première connexion, sans mot de passe
       user = { id: randomUUID(), email, salt: randomBytes(16).toString('hex'), hash: '', createdAt: now, lastLogin: now, fails: 0, lockedUntil: 0, via: 'code' };
@@ -195,6 +217,8 @@ export async function handleCompte(req, action, { store, geo, env = () => undefi
       recordDevice(user, req, geo, 'connexion');
     }
     await store.setJSON(key, user);
+    if (isNew) await alertAdmins('inscription', user, req, geo, deps);
+    else { if (devBefore && (user.devices || []).length > devBefore) await alertAdmins('appareil', user, req, geo, deps); await alertAdmins('connexion', user, req, geo, deps); }
     return json({ email, isNew }, isNew ? 201 : 200, { 'Set-Cookie': sessionCookie(req, await makeToken(user, store), SESSION_DAYS * 86400) });
   }
   if (password.length > 200) return json({ error: 'Mot de passe trop long.', code: 'password' }, 400);
@@ -208,6 +232,7 @@ export async function handleCompte(req, action, { store, geo, env = () => undefi
     recordDevice(user, req, geo, 'inscription');
     const { modified } = await store.setJSON(key, user, { onlyIfNew: true });
     if (modified === false) return json({ error: 'Un compte existe déjà avec cette adresse : connecte-toi.', code: 'exists' }, 409);
+    await alertAdmins('inscription', user, req, geo, deps);
     return json({ email }, 201, { 'Set-Cookie': sessionCookie(req, await makeToken(user, store), SESSION_DAYS * 86400) });
   }
 
@@ -226,7 +251,10 @@ export async function handleCompte(req, action, { store, geo, env = () => undefi
     return bad();
   }
   user.fails = 0; user.lockedUntil = 0; user.lastLogin = new Date().toISOString();
+  const nDev = (user.devices || []).length;
   recordDevice(user, req, geo, 'connexion');
   await store.setJSON(key, user);
+  if (nDev && (user.devices || []).length > nDev) await alertAdmins('appareil', user, req, geo, deps);
+  await alertAdmins('connexion', user, req, geo, deps);
   return json({ email: user.email }, 200, { 'Set-Cookie': sessionCookie(req, await makeToken(user, store), SESSION_DAYS * 86400) });
 }
