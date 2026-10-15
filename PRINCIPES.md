@@ -159,6 +159,13 @@ L'onglet « Rapport Word » génère un .docx selon **cinq modèles**, au choix 
 4. **Corrigé de TD** : énoncé puis les neuf questions du cours (dynamique du bilan et du compte de résultat, transformation, liquidité, levier, solvabilité, ROA/ROE, pertes et PNB de faillite), chacune avec formule, application numérique pour chaque année, réponse et encadré « À retenir ».
 5. **Comparaison de banques** : plusieurs banques sur leur dernier exercice, classement par note globale, chiffres clés, ratios avec statut, graphiques, lecture ratio par ratio.
 
+**Style de rédaction**, au choix ou automatique selon le modèle :
+- *Académique* (mémoire, rapport de stage) : phrases rédigées, « nous observons », introduction de chaque partie et conclusion argumentée ;
+- *Professionnel* (note d'analyste bancaire) : niveau, écart et verdict d'abord, lecture ensuite ; conclusion en « Verdict » ;
+- *Pédagogique* (TD) : « Ce que l'on observe / Comment l'interpréter / Par rapport au seuil », conclusion « Que retenir ? » ;
+- *Synthétique* : les points clés en puces (niveau, évolution, seuil, lecture).
+Dans chaque style, les tournures changent d'un ratio à l'autre (plusieurs formulations en rotation) et décrivent la trajectoire (hausse continue, recul puis redressement…), l'ampleur (légère, nette, forte) et la marge par rapport au seuil.
+
 Communs à tous : quatre jeux de couleurs, bandeau de couverture, en-tête et pied de page « page X sur Y », **note globale indicative** (A à E, sur 100, pondérée sur solvabilité, CET1, levier, liquidité, transformation, ROE, ROA, coefficient d'exploitation, coût du risque ; ce n'est pas une notation officielle) et recommandations générées à partir des ratios hors seuil.
 
 ## 6 ter. Historique d'analyse

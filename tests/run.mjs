@@ -757,6 +757,26 @@ else {
     if (type === 'synthese') ok(!/<m:oMathPara>/.test(res.doc), 'note de synthèse : sans formules');
     if (type === 'corrige') ok((res.doc.match(/Application numérique 202[123]/g) || []).length >= 3 * 9, 'corrigé : application numérique pour chaque année', (res.doc.match(/Application numérique 202[123]/g) || []).length);
   }
+  // styles de rédaction : quatre manières d'écrire, des tournures qui varient
+  {
+    const docText = async b64 => { const z = await JSZip.loadAsync(Buffer.from(b64, 'base64')); return (await z.file('word/document.xml').async('string')).replace(/<w:p[ >]/g, '\n$&').replace(/<[^>]+>/g, '').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>'); };
+    const txt = {};
+    for (const w of ['academique', 'professionnel', 'pedagogique', 'synthetique']) {
+      const r = await gen({ type: 'complet', writing: w, sections: ['structure', 'renta', 'faillite', 'conclusion'], charts: false });
+      ok(!r.startsWith('ERR'), 'rédaction ' + w + ' : rapport généré', r.slice(0, 200));
+      if (!r.startsWith('ERR')) txt[w] = await docText(r);
+    }
+    const clean = t => !/undefined|NaN|\[object|\bde le (?!vier)|\bà le |\bde les /.test(t);
+    ok(Object.values(txt).every(clean), 'rédaction : pas de « undefined », « NaN » ni de contraction oubliée', Object.entries(txt).filter(([, t]) => !clean(t)).map(([w, t]) => w + ' : ' + (t.match(/.{0,40}(undefined|NaN|\bde le (?!vier)|\bà le |\bde les ).{0,30}/) || [])[0]));
+    const ac = txt.academique || '';
+    const opens = ['Sur la période', 'Entre 20', 'L’examen de la période', 'Nous observons que'].filter(x => ac.includes(x));
+    ok(opens.length === 4 && /Cette partie examine/.test(ac) && /Au terme de l’analyse/.test(ac), 'rédaction académique : quatre tournures d’ouverture qui alternent, introduction et conclusion rédigées', opens);
+    ok(/s’établit à|ressort à|atteint/.test(txt.professionnel) && /Verdict : note [A-E]/.test(txt.professionnel) && !/Nous observons/.test(txt.professionnel), 'rédaction professionnelle : style note bancaire, verdict en conclusion');
+    ok(/Ce que l’on observe\./.test(txt.pedagogique) && /Comment l’interpréter\./.test(txt.pedagogique) && /Par rapport au seuil\./.test(txt.pedagogique) && /Que retenir \?/.test(txt.pedagogique), 'rédaction pédagogique : observer, interpréter, comparer au seuil');
+    ok(/Niveau 2023/.test(txt.synthetique) && /Évolution/.test(txt.synthetique) && /Seuil : ≤ 100,0 % → ✓ respecté \(\+23,32 pt\)/.test(txt.synthetique) && /Note globale : [A-E]/.test(txt.synthetique), 'rédaction synthétique : points clés en liste, marge positive sous un plafond');
+    const auto = await docText(await gen({ type: 'corrige', writing: 'auto', charts: false }));
+    ok(/Ce que l’on observe\./.test(auto), 'rédaction automatique : le corrigé de TD est pédagogique');
+  }
   ok((await gen({ type: 'comparaison', banks: ['a-inconnue', Object.keys(await page.evaluate(() => state.banks))[0]], charts: false })).startsWith('ERR Choisis au moins deux banques'), 'comparaison : deux banques au moins');
   ok(await page.evaluate(() => { const b = bank(); const st = stressTests(Y().length - 1); return st.length === 7 && Math.abs(st[0].solva - val(nodeOf(I.solva), Y().length - 1)) < 1e-12 && st[2].solva < st[1].solva && st[6].solva < st[5].solva; }), 'stress tests : situation actuelle = ratio de solvabilité, chocs croissants');
   ok(await page.evaluate(() => { const s = scoreCard(Y().length - 1); return s.score >= 0 && s.score <= 100 && 'ABCDE'.includes(s.grade) && s.rows.length === SCORE_W.length; }), 'note globale : score entre 0 et 100 et lettre A à E');
@@ -782,10 +802,12 @@ else {
   await page.click('#rGo');
   ok(/deux banques/.test(await page.innerText('#rStatus')), 'rapport : comparaison avec une seule banque signalée');
   await page.click('label[for="rt-synthese"]');
+  ok(/professionnel/.test(await page.$eval('#rWrite option[value="auto"]', o => o.textContent)) && await page.$$eval('#rWrite option', o => o.length) === 5, 'rapport : choix du style de rédaction (automatique selon le modèle)');
+  await page.selectOption('#rWrite', 'pedagogique');
   await page.selectOption('#rTheme', 'marine');
   const [dl2] = await Promise.all([page.waitForEvent('download', { timeout: 60000 }), page.click('#rGo')]);
   ok(/^Note_synthese_Banque_Atlantique_Benin_BAB_2021-2023\.docx$/.test(dl2.suggestedFilename()), 'rapport : note de synthèse téléchargée', dl2.suggestedFilename());
-  ok(await page.evaluate(() => state.report.type === 'synthese' && state.report.theme === 'marine'), 'rapport : modèle et couleurs mémorisés');
+  ok(await page.evaluate(() => state.report.type === 'synthese' && state.report.theme === 'marine' && state.report.writing === 'pedagogique'), 'rapport : modèle, style et couleurs mémorisés');
   ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), 'rapport : choix des modèles sans débordement sur téléphone');
   await page.click('label[for="rt-complet"]');
   await page.uncheck('#rCharts');

@@ -2093,7 +2093,7 @@ function recommendations(n) {
   if (fin(rn) && rn < 0) out.push('<b>Résultat net négatif</b> (' + fmtM(rn) + ' M) : bâtir un plan de retour à l’équilibre (revenus, charges, coût du risque) et le suivre trimestre par trimestre.');
   SCORE_W.forEach(([id]) => {
     const v = series(I[id])[n], st = status(I[id], v);
-    if ((st === 'bad' || st === 'warn') && RECO[id]) out.push('<b>' + I[id].n + '</b> (' + fmtP(v, 1) + ', ' + stLabel(I[id], st).toLowerCase() + ') : ' + RECO[id][st === 'bad' ? 0 : 1]);
+    if ((st === 'bad' || st === 'warn') && RECO[id]) out.push('<b>' + I[id].n + '</b> (' + fmtP(v, 1) + ', ' + stLabel(I[id], st).toLowerCase() + ') : ' + lowFirst(RECO[id][st === 'bad' ? 0 : 1]));
   });
   const ran = raw('P9f', n);
   if (ran !== null && ran < 0) out.push('<b>Report à nouveau négatif</b> : apurer les pertes antérieures (affectation des résultats futurs, ou réduction de capital suivie d’une augmentation).');
@@ -2104,7 +2104,7 @@ function conclusionText(n) {
   const yrs = Y(), sc = scoreCard(n), b = bank(), parts = [];
   if (fin(sc.score)) parts.push('Au terme de l’analyse ' + (n > 0 ? 'de la période ' + yrs[0] + '–' + yrs[n] : 'de l’exercice ' + yrs[n]) + ', la situation financière de ' + b.name + ' apparaît <b>' + sc.label.toLowerCase() + '</b> (note indicative ' + sc.grade + ', ' + sc.score + '/100).');
   else parts.push('Les données saisies ne suffisent pas pour une appréciation globale de ' + b.name + '.');
-  const bad = sc.rows.filter(r => r.st === 'bad').map(r => I[r.id].n), warn = sc.rows.filter(r => r.st === 'warn').map(r => I[r.id].n);
+  const bad = sc.rows.filter(r => r.st === 'bad').map(r => lowFirst(I[r.id].n)), warn = sc.rows.filter(r => r.st === 'warn').map(r => lowFirst(I[r.id].n));
   if (bad.length) parts.push('Les faiblesses portent sur : ' + bad.join(', ') + '.');
   if (warn.length) parts.push('À surveiller : ' + warn.join(', ') + '.');
   if (!bad.length && !warn.length && fin(sc.score)) parts.push('Tous les ratios suivis respectent leur seuil.');
@@ -2166,6 +2166,153 @@ const GLOSSARY = [['PNB', 'Produit net bancaire : marge d’intérêts + commiss
   ['ROA / ROE', 'Résultat net rapporté au total actif / aux capitaux propres. ROE = ROA × multiplicateur de fonds propres (identité de Du Pont).'],
   ['PNB critique', 'Niveau de PNB qui produirait une perte égale aux capitaux propres, toutes charges égales par ailleurs.']];
 
+/* =====================================================================
+   Rédaction du rapport : quatre styles d'écriture, des tournures qui varient d'un ratio à l'autre
+   ===================================================================== */
+const WRITING_STYLES = [
+  ['auto', 'Automatique (selon le modèle)'],
+  ['academique', 'Académique : mémoire, rapport de stage'],
+  ['professionnel', 'Professionnel : note d’analyste bancaire'],
+  ['pedagogique', 'Pédagogique : explique le raisonnement'],
+  ['synthetique', 'Synthétique : l’essentiel en puces']
+];
+const STYLE_BY_TYPE = { complet:'academique', synthese:'professionnel', prudentiel:'professionnel', corrige:'pedagogique', comparaison:'professionnel' };
+/* Nom de chaque indicateur dans une phrase (avec son article) */
+const IND_PHRASE = { transfo:'le ratio de transformation', couv_mlt:'la couverture des emplois à moyen et long terme', liq:'le ratio de liquidité', coefliq:'le coefficient de liquidité', lcr:'le LCR', levier:'le ratio de levier (bilan)', levier_b:'le ratio de levier Bâle III', mult:'le multiplicateur de fonds propres', solva_s:'la solvabilité bilan', cet1:'le ratio CET1', t1:'le ratio Tier 1', solva:'le ratio de solvabilité global', souv:'le poids des titres publics', roa:'le ROA', roe:'le ROE', coef:'le coefficient d’exploitation', cdr:'le coût du risque rapporté aux crédits', mi_pnb:'la part de la marge d’intérêts dans le PNB', com_pnb:'la part des commissions dans le PNB', marge:'la marge nette', pnb_ta:'le rendement brut des actifs', perte:'la perte critique', pnbc:'le PNB critique', chute:'la baisse de PNB tolérable avant faillite', cdrc:'le coût du risque critique', cdr_mult:'le multiple du coût du risque menant à la faillite', abs_a:'la part de l’actif pouvant être perdue', abs_c:'la part des crédits pouvant faire défaut', lmax:'la perte absorbable avant le seuil de solvabilité' };
+const capFirst = s => s ? s[0].toUpperCase() + s.slice(1) : s;
+const lowFirst = s => s && !/^[A-Z]{2}/.test(s) ? s[0].toLowerCase() + s.slice(1) : s;
+function makeWriter(style) {
+  const seen = {};
+  const pick = (key, arr) => { seen[key] = (seen[key] ?? -1) + 1; return arr[seen[key] % arr.length]; };
+  const yrs = Y();
+  /* Tout ce qu'il faut savoir d'une série pour en parler */
+  const facts = (ind, vals) => {
+    const f = ind.fmt || 'pct', idx = vals.map((v, i) => fin(v) ? i : -1).filter(i => i >= 0);
+    if (!idx.length) return null;
+    const a = idx[0], z = idx[idx.length - 1], v0 = vals[a], v1 = vals[z];
+    const d = f === 'pct' ? fmtPts(v1 - v0) : f === 'x' ? (v1 - v0 >= 0 ? '+' : '−') + nf(2).format(Math.abs(v1 - v0)) : fmtSigned(v1 - v0) + ' M';
+    const rel = Math.abs(v1 - v0) / (Math.abs(v0) || 1);
+    const dir = a === z || rel < 0.02 ? 0 : v1 > v0 ? 1 : -1;
+    const steps = idx.slice(1).map((i, j) => [Math.sign(vals[i] - vals[idx[j]]), yrs[i]]).filter(s => s[0] !== 0);
+    const mag = rel < 0.02 ? 'quasi stable' : rel < 0.1 ? 'légère' : rel < 0.3 ? 'nette' : 'forte';
+    let traj = '';
+    if (steps.length >= 2) {
+      if (steps.every(s => s[0] === steps[0][0])) traj = steps[0][0] > 0 ? 'hausse continue' : 'baisse continue';
+      else if (steps.length === 2) traj = steps[0][0] > 0 ? 'progression en ' + steps[0][1] + ' puis repli en ' + steps[1][1] : 'recul en ' + steps[0][1] + ' puis redressement en ' + steps[1][1];
+      else traj = 'évolution irrégulière';
+    }
+    const t = ind.thr ? { s:thrVal(ind), st:status(ind, v1), reg:ind.thr.reg, min:ind.thr.dir === 'min' } : null;
+    if (t) t.m = fmtPts(t.min ? v1 - t.s : t.s - v1);   // marge : positive si le seuil est respecté
+    const mean = dir > 0 ? ind.up : dir < 0 ? ind.down : '';
+    return { f, A:yrs[a], B:yrs[z], one:a === z, v0:fmtBy(f, v0), v1:fmtBy(f, v1), d, dir, mag, traj, t, mean, raw1:v1, name:IND_PHRASE[ind.id] || 'l’indicateur « ' + ind.n + ' »' };
+  };
+  const seuilNom = t => t.reg ? (t.min ? 'le minimum réglementaire' : 'le plafond réglementaire') : (t.min ? 'le repère minimum' : 'le repère maximum');
+  const story = (ind, vals) => ind.story ? ind.story(vals) : '';
+  // contractions : « de le » → « du », « à le » → « au »…
+  const fr = h => h.replace(/\b([Dd])e le /g, '$1u ').replace(/\b([Àà]) le /g, (m, a) => (a === 'À' ? 'Au ' : 'au ')).replace(/\b([Dd])e les /g, '$1es ').replace(/\b([Àà]) les /g, (m, a) => (a === 'À' ? 'Aux ' : 'aux '));
+  const names = ids => ids.map(lowFirst).join(', ');
+
+  const academique = (ind, vals, x) => {
+    const p = [];
+    if (x.one) p.push(pick('a-one', ['En ' + x.B + ', ' + x.name + ' s’établit à <b>' + x.v1 + '</b>.', 'Pour l’exercice ' + x.B + ', nous relevons ' + x.name + ' à <b>' + x.v1 + '</b>.', capFirst(x.name) + ' ressort à <b>' + x.v1 + '</b> en ' + x.B + '.']));
+    else {
+      const verb = x.dir > 0 ? pick('a-up', ['progresse', 'augmente', 's’accroît', 'se renforce']) : x.dir < 0 ? pick('a-dn', ['recule', 'diminue', 'se replie', 'fléchit']) : 'demeure stable';
+      const tr = x.traj ? ', avec une ' + x.traj : '';
+      p.push(pick('a-open', [
+        'Sur la période ' + x.A + '–' + x.B + ', ' + x.name + ' ' + verb + ' de <b>' + x.v0 + '</b> à <b>' + x.v1 + '</b> (' + x.d + ')' + tr + '.',
+        'Entre ' + x.A + ' et ' + x.B + ', ' + x.name + ' passe de <b>' + x.v0 + '</b> à <b>' + x.v1 + '</b>, soit une évolution ' + (x.dir ? x.mag : 'quasi nulle') + ' de ' + x.d + (x.traj ? ' (' + x.traj + ')' : '') + '.',
+        'L’examen de la période ' + x.A + '–' + x.B + ' montre que ' + x.name + ' ' + verb + ' de <b>' + x.v0 + '</b> à <b>' + x.v1 + '</b> (' + x.d + ')' + tr + '.',
+        'Nous observons que ' + x.name + ' ' + verb + ' de <b>' + x.v0 + '</b> en ' + x.A + ' à <b>' + x.v1 + '</b> en ' + x.B + ' (' + x.d + ')' + tr + '.'
+      ]));
+      if (x.mean) p.push(pick('a-conn', ['Cette évolution traduit le fait que ', 'Il en ressort que ', 'Autrement dit, ', 'Ce mouvement signifie que ']) + lowFirst(x.mean));
+    }
+    if (x.t) {
+      const sn = seuilNom(x.t), s = fmtP(x.t.s, 1);
+      if (x.t.st === 'ok') p.push(pick('a-ok', ['Au regard de ' + sn + ' (' + s + '), la situation est confortable : la marge atteint ' + x.t.m + '.', 'Le ratio respecte ' + sn + ' de ' + s + ' avec une marge de ' + x.t.m + '.', 'Rapporté à ' + sn + ' de ' + s + ', ce niveau ne soulève pas d’inquiétude (marge de ' + x.t.m + ').']));
+      else if (x.t.st === 'warn') p.push(pick('a-warn', [capFirst(sn) + ' de ' + s + ' est respecté, mais la marge reste étroite (' + x.t.m + ') : une vigilance s’impose.', 'Si ' + sn + ' de ' + s + ' est respecté, l’écart de ' + x.t.m + ' laisse peu de marge de manœuvre.']));
+      else p.push(pick('a-bad', ['En ' + x.B + ', le ratio ' + (x.t.min ? 'se situe sous ' : 'dépasse ') + sn + ' de ' + s + ' (écart de ' + x.t.m + '), ce qui constitue <b>un point de faiblesse majeur</b>.', 'Nous relevons <b>un non-respect</b> de ' + sn + ' de ' + s + ' en ' + x.B + ' (écart de ' + x.t.m + ').']));
+    }
+    const st = story(ind, vals); if (st) p.push(st);
+    return '<p>' + p.join(' ') + '</p>';
+  };
+  const professionnel = (ind, vals, x) => {
+    const p = [];
+    p.push(x.one ? capFirst(x.name) + ' : <b>' + x.v1 + '</b> en ' + x.B + '.' : pick('p-open', [
+      capFirst(x.name) + ' s’établit à <b>' + x.v1 + '</b> en ' + x.B + ' (' + x.d + ' depuis ' + x.A + ').',
+      capFirst(x.name) + ' ressort à <b>' + x.v1 + '</b> fin ' + x.B + ', contre ' + x.v0 + ' en ' + x.A + '.',
+      'Fin ' + x.B + ', ' + x.name + ' atteint <b>' + x.v1 + '</b> (' + x.A + ' : ' + x.v0 + ', soit ' + x.d + ').',
+      '<b>' + x.v1 + '</b> en ' + x.B + ' pour ' + x.name + ', en ' + (x.dir > 0 ? 'hausse' : x.dir < 0 ? 'baisse' : 'stabilité') + ' sur la période (' + x.d + ').'
+    ]));
+    if (x.t) {
+      const s = fmtP(x.t.s, 1), w = x.t.reg ? 'la norme' : 'le repère';
+      p.push(x.t.st === 'ok' ? pick('p-ok', ['Conforme à ' + w + ' (' + s + '), marge de ' + x.t.m + '.', 'Au-dessus des exigences (' + s + ') : marge de ' + x.t.m + '.', 'Pas de tension sur ce poste : marge de ' + x.t.m + ' par rapport à ' + w + ' de ' + s + '.'].map(t => x.t.min ? t : t.replace('Au-dessus des exigences', 'Sous le plafond')))
+        : x.t.st === 'warn' ? pick('p-warn', ['Marge faible par rapport à ' + w + ' (' + s + ') : à surveiller.', 'Proche de ' + w + ' de ' + s + ' (' + x.t.m + ') : point de vigilance.'])
+        : pick('p-bad', ['<b>Hors ' + w + '</b> (' + s + ', écart ' + x.t.m + ') : action corrective requise.', '<b>Non conforme</b> à ' + w + ' de ' + s + ' (' + x.t.m + ') : à traiter en priorité.']));
+    }
+    if (x.mean && !x.one) p.push(pick('p-conn', ['Lecture : ', 'Analyse : ', 'Interprétation : ']) + lowFirst(x.mean));
+    const st = story(ind, vals); if (st) p.push(st);
+    return '<p>' + p.join(' ') + '</p>';
+  };
+  const pedagogique = (ind, vals, x) => {
+    const out = [];
+    const obs = x.one ? 'On calcule ' + x.name + ' = <b>' + x.v1 + '</b> en ' + x.B + '. Avec un seul exercice, on ne peut pas encore parler de tendance.'
+      : pick('e-obs', ['On constate que ' + x.name + ' passe de <b>' + x.v0 + '</b> en ' + x.A + ' à <b>' + x.v1 + '</b> en ' + x.B + ' (' + x.d + ').', 'Quand on compare ' + x.A + ' et ' + x.B + ', on voit que ' + x.name + ' ' + (x.dir > 0 ? 'monte' : x.dir < 0 ? 'baisse' : 'bouge peu') + ' : de <b>' + x.v0 + '</b> à <b>' + x.v1 + '</b> (' + x.d + ').', 'Regardons les chiffres : ' + x.name + ' vaut <b>' + x.v0 + '</b> en ' + x.A + ' et <b>' + x.v1 + '</b> en ' + x.B + ', soit ' + x.d + '.'])
+        + (x.traj ? ' Le chemin suivi : ' + x.traj + '.' : '');
+    out.push('<p><b>Ce que l’on observe.</b> ' + obs + '</p>');
+    if (x.mean && !x.one) out.push('<p><b>Comment l’interpréter.</b> ' + pick('e-why', ['Une telle évolution veut dire que ', 'Pourquoi c’est important ? Parce que ', 'En clair : ']) + lowFirst(x.mean) + '</p>');
+    if (x.t) {
+      const s = fmtP(x.t.s, 1), sn = seuilNom(x.t);
+      out.push('<p><b>Par rapport au seuil.</b> ' + (x.t.min ? 'Ce ratio doit rester au-dessus de ' : 'Ce ratio doit rester sous ') + s + ' (' + sn + '). '
+        + (x.t.st === 'ok' ? 'C’est le cas, avec une marge de ' + x.t.m + ' : la banque est à l’aise.' : x.t.st === 'warn' ? 'C’est le cas, mais de justesse (' + x.t.m + ') : il faut surveiller.' : 'Ce n’est pas le cas (' + x.t.m + ') : c’est un signal d’alerte.') + '</p>');
+    }
+    const st = story(ind, vals); if (st) out.push('<p><b>Pour aller plus loin.</b> ' + st + '</p>');
+    return out.join('');
+  };
+  const synthetique = (ind, vals, x) => {
+    const li = ['<li><b>Niveau ' + x.B + '</b> : ' + x.v1 + '</li>'];
+    if (!x.one) li.push('<li><b>Évolution</b> : ' + x.d + ' depuis ' + x.A + (x.traj ? ' (' + x.traj + ')' : x.dir ? ' (' + (x.dir > 0 ? 'hausse ' : 'baisse ') + x.mag + ')' : ' (stable)') + '</li>');
+    if (x.t) li.push('<li><b>Seuil</b> : ' + (x.t.min ? '≥ ' : '≤ ') + fmtP(x.t.s, 1) + ' → ' + (x.t.st === 'ok' ? '✓ respecté' : x.t.st === 'warn' ? '! marge faible' : '✕ non respecté') + ' (' + x.t.m + ')</li>');
+    if (x.mean && !x.one) li.push('<li><b>Lecture</b> : ' + lowFirst(x.mean) + '</li>');
+    const st = story(ind, vals); if (st) li.push('<li><b>À noter</b> : ' + lowFirst(st) + '</li>');
+    return '<ul>' + li.join('') + '</ul>';
+  };
+  const writers = { academique, professionnel, pedagogique, synthetique };
+
+  const INTRO = {
+    synthese: { academique:'Cette première partie présente une vue d’ensemble de la situation financière de la banque avant l’analyse détaillée des parties suivantes.', professionnel:'Vue d’ensemble : chiffres clés, note globale et ratios suivis.', pedagogique:'Avant d’entrer dans le détail, on commence par une photo d’ensemble : la taille de la banque, ses résultats et les ratios qui comptent le plus.' },
+    dynamique: { academique:'L’analyse horizontale compare chaque poste d’un exercice à l’autre ; l’analyse verticale mesure son poids dans le total. Nous en tirons les principaux mouvements du bilan et du compte de résultat.', professionnel:'Variations poste par poste et principaux mouvements de l’exercice.', pedagogique:'On regarde ici comment chaque poste évolue d’une année à l’autre (en montant et en %) pour comprendre d’où vient la croissance… ou le recul.' },
+    structure: { academique:'Cette partie examine l’équilibre financier de la banque sous quatre angles : transformation, liquidité, levier et solvabilité. Pour chaque ratio, nous présentons la formule, l’application numérique puis l’interprétation.', professionnel:'Quatre angles : transformation, liquidité, levier, solvabilité. Chaque ratio est rapproché de sa norme ou de son repère.', pedagogique:'On vérifie ici si la banque est bien équilibrée : finance-t-elle ses crédits avec des ressources adaptées (transformation) ? Peut-elle faire face aux retraits (liquidité) ? Est-elle trop endettée (levier) ? Ses fonds propres couvrent-ils ses risques (solvabilité) ?' },
+    renta: { academique:'La rentabilité est appréciée à travers le ROA, le ROE et leur décomposition selon l’identité de Du Pont, complétée par les indicateurs d’exploitation.', professionnel:'Rentabilité des actifs et des fonds propres, effet de levier et efficacité d’exploitation.', pedagogique:'Une banque doit gagner de l’argent : on mesure ce que rapportent ses actifs (ROA) et ses fonds propres (ROE), puis on cherche ce qui explique leur évolution.' },
+    faillite: { academique:'Le test de faillite détermine le niveau de pertes qui effacerait les capitaux propres, puis le niveau de PNB qui provoquerait ces pertes.', professionnel:'Seuils de rupture : perte critique, PNB critique et capacité d’absorption des pertes.', pedagogique:'Question simple : jusqu’où la banque peut-elle encaisser des pertes avant de faire faillite ? On remonte le compte de résultat pour le savoir.' },
+    bale: { academique:'Nous estimons enfin les fonds propres prudentiels et les actifs pondérés afin d’apprécier les ratios du dispositif Bâle III appliqué dans l’UMOA.', professionnel:'Fonds propres prudentiels, actifs pondérés et ratios Bâle III.', pedagogique:'Bâle III demande aux banques d’avoir assez de fonds propres par rapport à leurs risques. On reconstitue ici ces fonds propres et ces risques à partir du bilan.' },
+    conclusion: { academique:'Nous synthétisons ici les enseignements de l’analyse et formulons des recommandations.', professionnel:'Verdict et plan d’action.', pedagogique:'Pour finir, on rassemble ce qu’il faut retenir et ce que la banque pourrait faire.' }
+  };
+  return {
+    style,
+    interp(ind, vals) { const x = facts(ind, vals); return x ? fr(writers[style](ind, vals, x)) : ''; },
+    intro(key) { const t = INTRO[key] && INTRO[key][style]; return t || ''; },
+    conclusion(n) { return fr(this.conclusionRaw(n)); },
+    conclusionRaw(n) {
+      const sc = scoreCard(n), b = bank(), y = Y();
+      const bad = sc.rows.filter(r => r.st === 'bad').map(r => lowFirst(I[r.id].n)), warn = sc.rows.filter(r => r.st === 'warn').map(r => lowFirst(I[r.id].n));
+      const rn = qv('RN', n), rn0 = n > 0 ? qv('RN', n - 1) : NaN, ch = val(nodeOf(I.chute), n);
+      const per = n > 0 ? y[0] + '–' + y[n] : String(y[n]);
+      const okNote = fin(sc.score);
+      const rnTxt = fin(rn) && fin(rn0) ? (rn >= rn0 ? 'progresse' : 'recule') + ' de ' + fmtM(rn0) + ' à ' + fmtM(rn) + ' M' : '';
+      const chTxt = fin(ch) ? (ch >= 1 ? 'même la disparition totale du PNB n’effacerait pas les fonds propres en un exercice' : 'une baisse du PNB de ' + fmtP(ch, 1) + ' suffirait à effacer les fonds propres') : '';
+      if (style === 'professionnel') return '<p>' + [okNote ? '<b>Verdict : note ' + sc.grade + ' (' + sc.score + '/100), situation ' + sc.label.toLowerCase() + '.</b>' : '<b>Verdict : données insuffisantes pour noter la banque.</b>',
+        bad.length ? 'Hors seuil : ' + bad.join(', ') + '.' : '', warn.length ? 'Sous surveillance : ' + warn.join(', ') + '.' : '', !bad.length && !warn.length && okNote ? 'Aucun ratio suivi hors seuil.' : '',
+        rnTxt ? 'Résultat net ' + y[n] + ' : ' + rnTxt + '.' : '', chTxt ? 'Stress : ' + chTxt + '.' : ''].filter(Boolean).join(' ') + '</p>';
+      if (style === 'pedagogique') return '<p><b>Que retenir ?</b> ' + (okNote ? 'Sur ' + per + ', ' + b.name + ' obtient la note ' + sc.grade + ' (' + sc.score + '/100) : sa situation est ' + sc.label.toLowerCase() + '.' : 'Il manque des données pour donner une note globale.') + '</p>'
+        + '<p><b>Ce qui va bien, ce qui coince.</b> ' + (bad.length ? 'Les ratios hors seuil sont : ' + bad.join(', ') + '. ' : 'Aucun ratio n’est hors seuil. ') + (warn.length ? 'Il faut surveiller : ' + warn.join(', ') + '.' : '') + '</p>'
+        + (rnTxt || chTxt ? '<p><b>Et le risque de faillite ?</b> ' + [rnTxt ? 'Le résultat net ' + rnTxt + ' en ' + y[n] + '.' : '', chTxt ? capFirst(chTxt) + '.' : ''].filter(Boolean).join(' ') + '</p>' : '');
+      if (style === 'synthetique') return '<ul>' + [okNote ? '<li><b>Note globale</b> : ' + sc.grade + ' (' + sc.score + '/100), ' + sc.label.toLowerCase() + '</li>' : '<li><b>Note globale</b> : données insuffisantes</li>',
+        '<li><b>Hors seuil</b> : ' + (bad.length ? bad.join(', ') : 'aucun') + '</li>', warn.length ? '<li><b>À surveiller</b> : ' + warn.join(', ') + '</li>' : '',
+        rnTxt ? '<li><b>Résultat net ' + y[n] + '</b> : ' + rnTxt + '</li>' : '', chTxt ? '<li><b>Faillite</b> : ' + chTxt + '</li>' : ''].join('') + '</ul>';
+      return '<p>' + conclusionText(n) + '</p>';
+    }
+  };
+}
 async function buildReport(opt) {
   await lib('jszip');
   const type = REPORT_TYPES.some(t => t[0] === opt.type) ? opt.type : 'complet';
@@ -2180,6 +2327,8 @@ async function buildReportDoc(opt, type) {
   const body = [];
   const typeLabel = REPORT_TYPES.find(t => t[0] === type)[1];
   const title = opt.title || reportTitle(type, b);
+  const Wr = makeWriter(opt.writing && opt.writing !== 'auto' && WRITING_STYLES.some(w => w[0] === opt.writing) ? opt.writing : STYLE_BY_TYPE[type]);
+  const introP = k => { const t = Wr.intro(k); if (t) body.push(W.p(W.run(t, { color:DOC_COLORS.ink2 }))); };
   let fig = 0;
   const addChart = async (svg, caption) => {
     if (!opt.charts || !svg) return;
@@ -2212,7 +2361,7 @@ async function buildReportDoc(opt, type) {
     const miss = calc(node, y).c.miss;
     if (miss.size) body.push(W.note('Données manquantes pour ' + yrs[y] + ' : ' + [...miss].map(k => F[k].l).join(', ') + '.'));
     body.push(W.table([['Exercice', ...yrs.map(String)], ['Valeur', ...vals.map(v => fmtCell(ind, v))], ['Appréciation', ...vals.map(v => stCell(ind, v))]], { firstCol:22 }));
-    if (vals.some(fin)) { await addChart(printIndicator(ind, vals), ind.n + ' par exercice'); body.push(W.fromHtml(interpret(ind, vals))); }
+    if (vals.some(fin)) { await addChart(printIndicator(ind, vals), ind.n + ' par exercice'); body.push(W.fromHtml(Wr.interp(ind, vals))); }
     return vals;
   };
   const dynTables = async kinds => {
@@ -2267,7 +2416,7 @@ async function buildReportDoc(opt, type) {
   let num = 0;
   const section = (t, brk = true) => { num++; body.push(W.h(1, num + '. ' + t, { pageBreak:brk })); };
   const comment = () => { if (opt.comment) { body.push(W.h(2, 'Commentaire de l’analyste')); opt.comment.split(/\n+/).filter(Boolean).forEach(l => body.push(W.text(l))); } };
-  const recoBlock = () => { body.push(W.h(2, 'Recommandations')); body.push(W.bullets(recommendations(n))); body.push(W.h(2, 'Conclusion')); body.push(W.fromHtml(conclusionText(n))); };
+  const recoBlock = () => { body.push(W.h(2, 'Recommandations')); body.push(W.bullets(recommendations(n))); body.push(W.h(2, 'Conclusion')); body.push(W.fromHtml(Wr.conclusion(n))); };
 
   if (type === 'complet') {
     cover(bankSub);
@@ -2276,6 +2425,7 @@ async function buildReportDoc(opt, type) {
     REPORT_SECTIONS.filter(([k]) => has(k)).forEach(([, l], i) => body.push(W.p(W.run((i + 1) + '. ' + l), { after:40 })));
     if (has('synthese')) {
       section('Synthèse et points clés');
+      introP('synthese');
       body.push(kpiRow(n));
       gradeBlock(n);
       body.push(W.p(W.run('Tableau de bord de l’exercice ' + yrs[n] + '.', { b:true })));
@@ -2289,11 +2439,13 @@ async function buildReportDoc(opt, type) {
     }
     if (has('dynamique')) {
       section('Dynamique du bilan et du compte de résultat');
+      introP('dynamique');
       body.push(W.p(W.run('Pour chaque poste : montant par exercice, variation absolue (ΔX = X') + W.run('N', { sub:true }) + W.run(' − X') + W.run('N−1', { sub:true }) + W.run(') et taux de variation (ΔX / X') + W.run('N−1', { sub:true }) + W.run('). Montants en millions de FCFA.')));
       await dynTables(['actif', 'passif', 'cr']);
     }
     if (has('structure')) {
       section('Ratios de structure');
+      introP('structure');
       for (const [t, ids] of [['Transformation', ['transfo', 'couv_mlt']], ['Liquidité', ['liq', 'coefliq', 'lcr']], ['Levier', ['levier', 'levier_b', 'mult']], ['Solvabilité', ['solva_s', 'solva', 'cet1', 't1']]]) {
         body.push(W.h(2, t));
         for (const id of ids) await indicator(I[id]);
@@ -2301,15 +2453,16 @@ async function buildReportDoc(opt, type) {
     }
     if (has('renta')) {
       section('Rentabilité : ROA, ROE et effet de levier');
+      introP('renta');
       body.push(W.note('Base de calcul : ' + (state.base === 'moy' ? 'moyenne des exercices N et N−1.' : 'montants de fin d’exercice.')));
       await indicator(I.roa, 2); await indicator(I.roe, 2);
       dupontBlock();
       body.push(W.h(2, 'Exploitation'));
       for (const id of ['coef', 'cdr', 'marge', 'mi_pnb', 'com_pnb', 'pnb_ta']) await indicator(I[id]);
     }
-    if (has('faillite')) { section('Test de faillite'); await failliteBlock(); for (const id of ['pnbc', 'chute', 'cdrc', 'abs_a', 'abs_c', 'lmax']) await indicator(I[id]); }
-    if (has('bale')) { section('Bâle III : fonds propres et actifs pondérés'); baleTables(); for (const id of ['solva', 'cet1', 'levier_b']) await indicator(I[id]); }
-    if (has('conclusion')) { section('Conclusion et recommandations'); recoBlock(); }
+    if (has('faillite')) { section('Test de faillite'); introP('faillite'); await failliteBlock(); for (const id of ['pnbc', 'chute', 'cdrc', 'abs_a', 'abs_c', 'lmax']) await indicator(I[id]); }
+    if (has('bale')) { section('Bâle III : fonds propres et actifs pondérés'); introP('bale'); baleTables(); for (const id of ['solva', 'cet1', 'levier_b']) await indicator(I[id]); }
+    if (has('conclusion')) { section('Conclusion et recommandations'); introP('conclusion'); recoBlock(); }
     if (has('methode')) {
       section('Méthodologie, glossaire et données manquantes');
       body.push(W.p(W.run('Les états financiers suivent le plan comptable bancaire révisé de l’UMOA. Les seuils réglementaires reprennent le dispositif prudentiel de la BCEAO ; les repères d’analyse ne sont pas des normes. Chaque formule de ce rapport est produite par le même moteur de calcul que l’application.')));
@@ -2323,7 +2476,7 @@ async function buildReportDoc(opt, type) {
     section('L’essentiel en une page', false);
     body.push(kpiRow(n));
     gradeBlock(n);
-    body.push(W.fromHtml(conclusionText(n)));
+    body.push(W.fromHtml(Wr.conclusion(n)));
     section('Tableau de bord');
     body.push(dashboard(n));
     body.push(W.note('✓ conforme ou dans le repère · ! marge faible (moins de ' + (state.params.marge ?? 10) + ' % au-dessus du seuil) · ✕ hors seuil. Normes BCEAO et Bâle III estimées à partir du bilan lorsque les états réglementaires ne sont pas saisis.'));
@@ -2408,7 +2561,7 @@ async function buildReportDoc(opt, type) {
       body.push(W.box('À retenir', keep));
     }
     section('Conclusion générale');
-    body.push(W.fromHtml(conclusionText(n)));
+    body.push(W.fromHtml(Wr.conclusion(n)));
     comment();
   } else if (type === 'comparaison') {
     const ids = (opt.banks || []).filter(id => state.banks[id]);
@@ -2546,6 +2699,7 @@ function vRapport() {
   h += '<div class="card"><h3>2. Contenu</h3><div class="meta-grid">'
     + '<label>Titre<input type="text" id="rTitle" maxlength="150" value="' + esc(o.title || '') + '" placeholder="' + esc(reportTitle(type, b)) + '"></label>'
     + '<label>Auteur (facultatif)<input type="text" id="rAuthor" maxlength="80" value="' + esc(o.author || '') + '"></label>'
+    + '<label>Style de rédaction<select id="rWrite">' + WRITING_STYLES.map(([k, l]) => '<option value="' + k + '"' + ((o.writing || 'auto') === k ? ' selected' : '') + '>' + (k === 'auto' ? 'Automatique (' + WRITING_STYLES.find(w => w[0] === STYLE_BY_TYPE[type])[1].split(' :')[0].toLowerCase() + ')' : l) + '</option>').join('') + '</select></label>'
     + '<label>Couleurs<select id="rTheme">' + Object.entries(DOC_THEMES).map(([k, t]) => '<option value="' + k + '"' + ((o.theme || 'classique') === k ? ' selected' : '') + '>' + t.n + '</option>').join('') + '</select></label></div>';
   if (type === 'complet') h += '<p class="eyebrow" style="margin:6px 0 0">Parties</p><div class="checks">' + REPORT_SECTIONS.map(([k, l]) => '<label class="check" for="rs-' + k + '"><input type="checkbox" id="rs-' + k + '" data-rsec="' + k + '"' + (secs.includes(k) ? ' checked' : '') + '> ' + l + '</label>').join('') + '</div>';
   if (type === 'comparaison') h += '<p class="eyebrow" style="margin:6px 0 0">Banques à comparer (2 au moins)</p><div class="checks">' + allBanks.map(x => '<label class="check" for="rb-' + esc(x.id) + '"><input type="checkbox" id="rb-' + esc(x.id) + '" data-rbank="' + esc(x.id) + '"' + (chosen.includes(x.id) ? ' checked' : '') + '> ' + esc(x.name) + ' <span class="note">(' + esc(x.years[0] + (x.years.length > 1 ? '–' + x.years[x.years.length - 1] : '')) + ')</span></label>').join('') + '</div>'
@@ -2560,12 +2714,12 @@ function bindRapport() {
   const prev = () => state.report || {};
   const read = () => {
     const p = prev(), type = (view.querySelector('[name="rtype"]:checked') || {}).value || 'complet';
-    return { type, title:$('#rTitle').value.trim(), author:$('#rAuthor').value.trim(), theme:$('#rTheme').value,
+    return { type, title:$('#rTitle').value.trim(), author:$('#rAuthor').value.trim(), theme:$('#rTheme').value, writing:$('#rWrite').value,
       sections:$('[data-rsec]') ? [...view.querySelectorAll('[data-rsec]')].filter(c => c.checked).map(c => c.dataset.rsec) : (p.sections || REPORT_SECTIONS.map(([k]) => k)),
       banks:$('[data-rbank]') ? [...view.querySelectorAll('[data-rbank]')].filter(c => c.checked).map(c => c.dataset.rbank) : p.banks,
       charts:$('#rCharts').checked, allYears:$('#rAll') ? $('#rAll').checked : !!p.allYears, comment:$('#rComment').value.trim() };
   };
-  view.querySelectorAll('#rTitle,#rAuthor,#rComment,#rTheme,[data-rsec],[data-rbank],#rCharts,#rAll').forEach(el => el.addEventListener('change', () => { state.report = read(); }));
+  view.querySelectorAll('#rTitle,#rAuthor,#rComment,#rTheme,#rWrite,[data-rsec],[data-rbank],#rCharts,#rAll').forEach(el => el.addEventListener('change', () => { state.report = read(); }));
   view.querySelectorAll('[name="rtype"]').forEach(r => r.addEventListener('change', () => { const o = read(); if (o.title === reportTitle(prev().type || 'complet', bank())) o.title = ''; state.report = o; renderAll(); }));
   $('#rGo').onclick = async () => {
     const o = state.report = read();
