@@ -1136,7 +1136,7 @@ else {
     await Ad.page.waitForFunction(() => /Compte eleve2/.test(document.querySelector('#admDetail').innerText));
     const dtx = await Ad.page.innerText('#admDetail');
     ok(/Appareils \(1\)/i.test(dtx) && /Connexions récentes/i.test(dtx) && /Inscription/.test(dtx), 'admin : appareils et connexions de l’utilisateur affichés', dtx.slice(0, 400));
-    ok(/Dernier appareil/i.test(await Ad.page.innerText('#adminBox')), 'admin : colonne dernier appareil');
+    ok(/dernière connexion/.test(await Ad.page.innerText('.acc')) && /💻|📱|📲|Aucun appareil/.test(await Ad.page.innerText('.acc')), 'admin : dernier appareil et dernière connexion sur chaque compte');
     ok(/Analyse élève/.test(await Ad.page.innerText('#admDetail')), 'admin : analyses de l’utilisateur consultées');
     const nBefore = await Ad.page.evaluate(() => Object.keys(state.banks).length);
     await Ad.page.click('[data-acopy]');
@@ -1148,9 +1148,12 @@ else {
     await Ad.page.click('#admPwOk');
     await Ad.page.waitForFunction(() => /Mot de passe changé/.test(document.querySelector('#admAction').innerText));
     ok(newPw.length === 10, 'admin : mot de passe généré et enregistré');
-    await Ad.page.click('[data-adel="eleve2@test.ci"]'); await Ad.page.fill('#admDelConf', 'mauvaise@adresse'); await Ad.page.click('#admDelOk');
-    ok(await Ad.page.evaluate(() => adm.comptes.some(c => c.email === 'eleve2@test.ci')), 'admin : suppression refusée si l’adresse tapée ne correspond pas');
-    await Ad.page.fill('#admDelConf', 'eleve2@test.ci'); await Ad.page.click('#admDelOk');
+    ok(await Ad.page.evaluate(() => { const b = document.querySelector('[data-adel="eleve2@test.ci"]').getBoundingClientRect(); return b.right <= window.innerWidth && b.left >= 0; }), 'admin : bouton Supprimer visible sans faire défiler (téléphone)');
+    await Ad.page.click('[data-adel="eleve2@test.ci"]'); await Ad.page.click('#admDelNo');
+    ok(await Ad.page.evaluate(() => adm.comptes.some(c => c.email === 'eleve2@test.ci') && !document.querySelector('#admDelOk')), 'admin : suppression annulée');
+    await Ad.page.click('[data-adel="eleve2@test.ci"]');
+    ok(await Ad.page.evaluate(() => { const b = document.querySelector('#admDelOk').getBoundingClientRect(); return b.top >= 0 && b.bottom <= window.innerHeight; }), 'admin : confirmation affichée à l’écran, sous le compte');
+    await Ad.page.click('#admDelOk');
     await Ad.page.waitForFunction(() => adm.comptes && !adm.comptes.some(c => c.email === 'eleve2@test.ci'), null, { timeout: 15000 });
     ok(true, 'admin : compte supprimé depuis le tableau de bord');
     ok(await Ad.page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), 'admin : pas de débordement sur téléphone');

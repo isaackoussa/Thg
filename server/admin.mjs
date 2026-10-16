@@ -2,6 +2,7 @@
 // Sans réglage, l'administrateur est le compte du propriétaire de l'app.
 import { userFromRequest, hashPassword, userKeyOf, normEmail, DEFAULT_ADMINS, adminList, ALERT_DEFAULTS } from './compte.mjs';
 import { liveFeed, userActivity, activityStats } from './activite.mjs';
+import { createHash } from 'node:crypto';
 export { DEFAULT_ADMINS, adminList };
 const json = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' } });
 
@@ -88,10 +89,14 @@ export async function handleAdmin(req, action, { comptes, historiques, activite,
   if (action === 'debloquer') { await comptes.setJSON(key, { ...user, fails: 0, lockedUntil: 0 }); return json({ ok: true }); }
   if (action === 'supprimer') {
     if (normEmail(email) === normEmail(me.email)) return json({ error: 'Tu ne peux pas supprimer ton propre compte administrateur.' }, 400);
-    await historiques.delete('u/' + user.id);
+    // le compte d'abord (plus de connexion possible), puis ses données ; une erreur est renvoyée clairement
+    try { await comptes.delete(key); } catch (e) { return json({ error: 'Suppression impossible pour le moment (stockage indisponible). Réessaie.' }, 500); }
+    const reste = [];
+    try { await historiques.delete('u/' + user.id); } catch (e) { reste.push('historique'); }
+    try { await comptes.delete('c/' + createHash('sha256').update(normEmail(email)).digest('hex')); } catch (e) {}
     if (activite) { try { await activite.delete('p/' + String(user.id).replace(/[^a-f0-9]/gi, '').slice(0, 12)); } catch (e) {} }
-    await comptes.delete(key);
-    return json({ ok: true });
+    if (await comptes.get(key, { type: 'json' })) return json({ error: 'Le compte n’a pas pu être supprimé. Réessaie.' }, 500);
+    return json({ ok: true, email: user.email, reste });
   }
   return json({ error: 'Action inconnue' }, 404);
 }

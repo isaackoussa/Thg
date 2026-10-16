@@ -109,6 +109,11 @@ body.admin-mode .top .tab[aria-selected="true"] { color: #fff; border-bottom-col
 .online { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 8px; }
 .who { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; display: grid; gap: 3px; font-size: .88rem; min-width: 0; overflow-wrap: anywhere; }
 .who-h { display: flex; gap: 6px; align-items: center; }
+.accs { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 8px; }
+.acc { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; display: grid; gap: 4px; min-width: 0; overflow-wrap: anywhere; }
+.acc-h { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.acc-btns { margin-top: 4px; gap: 6px; }
+.acc-act:empty { display: none; }
 .feed { display: grid; max-height: 60vh; overflow-y: auto; border: 1px solid var(--line); border-radius: 10px; }
 #adminBox { display: grid; gap: 12px; min-width: 0; }
 .ev { display: grid; grid-template-columns: 84px 26px 1fr; gap: 8px; padding: 8px 10px; border-bottom: 1px solid var(--line); font-size: .88rem; align-items: start; }
@@ -3461,15 +3466,18 @@ function adminBoard() {
     + '<div class="card"><h3>Banques les plus analysées</h3>' + ((s.topBanques || []).length ? '<div class="tbl-wrap"><table><thead><tr><th>Banque</th><th>Comptes</th></tr></thead><tbody>' + s.topBanques.map(b => '<tr><td>' + esc(b.nom) + '</td><td>' + b.comptes + '</td></tr>').join('') + '</tbody></table></div>' : '<p class="note">Aucune banque enregistrée pour l’instant.</p>') + '</div></div>';
   return h;
 }
-/* Comptes */
+/* Comptes : une carte par compte, actions toujours visibles (aussi sur téléphone) */
 function adminAccounts() {
-  const cps = adm.comptes || [], online = new Set(adm.live ? adm.live.enLigne.map(p => p.email) : []);
-  let h = '<div class="row"><button class="btn sm" id="admReload">Actualiser</button></div><div class="card"><h3>Comptes (' + cps.length + ')</h3><label class="note" for="admFilter">Rechercher <input type="text" id="admFilter" placeholder="adresse e-mail" value="' + esc(adm.filter || '') + '" style="min-width:200px"></label>';
+  const cps = adm.comptes || [], online = new Set(adm.live ? adm.live.enLigne.map(p => p.email) : []), me = acct.user && acct.user.email;
   const f = (adm.filter || '').toLowerCase(), list = cps.filter(c => !f || c.email.includes(f));
-  h += '<div class="tbl-wrap"><table><thead><tr><th>Adresse e-mail</th><th>Inscription</th><th>Dernière connexion</th><th>Dernier appareil</th><th>Banques</th><th>Analyses</th><th>État</th><th>Actions</th></tr></thead><tbody>'
-    + list.map(c => '<tr><td>' + (online.has(c.email) ? '<span class="live-dot sm" title="En ligne"></span> ' : '') + esc(c.email) + (c.email === (acct.user && acct.user.email) ? ' <span class="tag">toi</span>' : '') + '</td><td>' + fmtD(c.createdAt) + '</td><td>' + fmtDT(c.lastLogin) + '</td><td>' + (c.device ? devIcon(c.device.type) + ' ' + esc(c.device.label) + (c.device.lieu ? '<br><span class="note">' + esc(c.device.lieu) + '</span>' : '') + (c.nDevices > 1 ? '<br><span class="note">' + c.nDevices + ' appareils</span>' : '') : '<span class="note">—</span>') + '</td><td>' + c.banks + '</td><td>' + c.analyses + '</td><td>' + (c.locked ? '<span class="chip st-warn"><i>!</i>Bloqué</span>' : '<span class="chip st-ok"><i>✓</i>Actif</span>') + '</td>'
-      + '<td style="white-space:nowrap"><button class="btn sm" data-av="' + esc(c.id) + '">Voir</button> <button class="btn sm" data-apw="' + esc(c.email) + '">Mot de passe</button>' + (c.locked ? ' <button class="btn sm" data-aun="' + esc(c.email) + '">Débloquer</button>' : '') + (c.email !== (acct.user && acct.user.email) ? ' <button class="btn sm danger" data-adel="' + esc(c.email) + '">Supprimer</button>' : '') + '</td></tr>').join('')
-    + '</tbody></table></div><p class="note">Sur téléphone, fais défiler le tableau vers la droite pour voir les actions. Le point vert indique un compte en ligne.</p><div id="admAction"></div></div>';
+  let h = '<div class="row"><button class="btn sm" id="admReload">Actualiser</button></div><div class="card"><h3>Comptes (' + cps.length + ')</h3><label class="note" for="admFilter">Rechercher <input type="text" id="admFilter" placeholder="adresse e-mail" value="' + esc(adm.filter || '') + '" style="min-width:200px"></label>'
+    + (list.length ? '<div class="accs">' + list.map(c => '<div class="acc" data-acc="' + esc(c.email) + '"><div class="acc-h">' + (online.has(c.email) ? '<span class="live-dot sm" title="En ligne"></span>' : '') + '<b>' + esc(c.email) + '</b>' + (c.email === me ? ' <span class="tag">toi</span>' : '') + (c.locked ? ' <span class="chip st-warn"><i>!</i>Bloqué</span>' : '') + '</div>'
+      + '<div class="note">Inscrit le ' + fmtD(c.createdAt) + ' · dernière connexion ' + fmtDT(c.lastLogin) + '</div>'
+      + '<div class="note">' + (c.device ? devIcon(c.device.type) + ' ' + esc(c.device.label) + (c.device.lieu ? ' · ' + esc(c.device.lieu) : '') + (c.nDevices > 1 ? ' · ' + c.nDevices + ' appareils' : '') : 'Aucun appareil noté') + '</div>'
+      + '<div class="note">' + c.banks + ' banque(s) · ' + c.analyses + ' analyse(s)</div>'
+      + '<div class="row acc-btns"><button class="btn sm" data-av="' + esc(c.id) + '">Voir</button><button class="btn sm" data-apw="' + esc(c.email) + '">Mot de passe</button>' + (c.locked ? '<button class="btn sm" data-aun="' + esc(c.email) + '">Débloquer</button>' : '') + (c.email !== me ? '<button class="btn sm danger" data-adel="' + esc(c.email) + '">Supprimer</button>' : '') + '</div>'
+      + '<div class="acc-act"></div></div>').join('') + '</div>' : '<p class="note">Aucun compte ne correspond.</p>')
+    + '<p class="note">Le point vert indique un compte en ligne. Ton propre compte administrateur ne peut pas être supprimé.</p></div>';
   h += '<div id="admDetail">' + (adm.detail ? adminDetail(adm.detail) : '') + '</div>';
   return h;
 }
@@ -3549,7 +3557,7 @@ function adminDetail(d) {
     + '<h3 style="margin-top:14px">Analyses</h3><p class="note">Lecture seule. « Ouvrir une copie » ajoute la banque à tes propres banques pour la consulter dans tous les onglets ; l’original de l’utilisateur n’est pas modifié.</p>'
     + '<p class="eyebrow">Banques (' + banks.length + ')</p>' + (banks.length ? '<div class="tbl-wrap"><table><thead><tr><th>Banque</th><th>Exercices</th><th>Modifiée le</th><th></th></tr></thead><tbody>' + banks.map(b => '<tr><td>' + esc(b.name) + '</td><td>' + esc((b.years || []).join(', ')) + '</td><td>' + (b.mod ? fmtDT(new Date(b.mod).toISOString()) : '—') + '</td><td><button class="btn sm" data-acopy="' + esc(b.id) + '">Ouvrir une copie</button></td></tr>').join('') + '</tbody></table></div>' : '<p class="note">Aucune banque.</p>')
     + '<p class="eyebrow" style="margin-top:10px">Historique (' + hist.length + ')</p>' + (hist.length ? '<div class="tbl-wrap"><table><thead><tr><th>Analyse</th><th>Date</th><th>Type</th><th>ROE</th><th>Solvabilité</th></tr></thead><tbody>' + hist.map(e => { const y = (e.res && e.res.years || []).length - 1, v = id => e.res && e.res.vals && e.res.vals[id] ? e.res.vals[id][y] : null; return '<tr><td>' + esc(e.label) + '</td><td>' + fmtDT(e.at) + '</td><td>' + esc(KIND_LBL[e.kind] || e.kind || '') + '</td><td>' + fmtP(fin(v('roe')) ? v('roe') : NaN, 1) + '</td><td>' + fmtP(fin(v('solva')) ? v('solva') : NaN, 1) + '</td></tr>'; }).join('') + '</tbody></table></div>' : '<p class="note">Aucune analyse enregistrée.</p>')
-    + '<div class="row" style="margin-top:8px"><button class="btn sm" id="admCloseDetail">Fermer</button></div></div>';
+    + '<div class="row" style="margin-top:8px"><button class="btn sm" id="admCloseDetail">Fermer</button>' + (d.email !== (acct.user && acct.user.email) ? '<button class="btn sm danger" data-adel="' + esc(d.email) + '">Supprimer ce compte</button>' : '') + '</div><div class="acc-act"></div></div>';
 }
 function bindAdmin() {
   const act = $('#admAction');
@@ -3573,7 +3581,7 @@ function bindAdmin() {
   if ($('#admCloseDetail')) $('#admCloseDetail').onclick = () => { adm.detail = null; renderAdmin(); };
   view.querySelectorAll('[data-av]').forEach(b => b.onclick = async () => {
     try { adm.detail = await adminApi('analyses?id=' + encodeURIComponent(b.dataset.av)); renderAdmin(); $('#admDetail').scrollIntoView({ behavior:'smooth', block:'start' }); }
-    catch (e) { act.innerHTML = '<p class="miss">' + esc(e.message) + '</p>'; }
+    catch (e) { if (act) act.innerHTML = '<p class="miss">' + esc(e.message) + '</p>'; else toast(e.message); }
   });
   view.querySelectorAll('[data-acopy]').forEach(b => b.onclick = () => {
     const src = adm.detail && adm.detail.banks[b.dataset.acopy]; if (!src) return;
@@ -3581,8 +3589,10 @@ function bindAdmin() {
     if (!bk) { toast('Banque illisible'); return; }
     state.banks[id] = Object.assign(bk, { id, example:false }); state.cur = id; state.yi = 99; save(); state.tab = 'synthese'; renderAll(); window.scrollTo(0, 0); toast('Copie ouverte : ' + bk.name);
   });
+  // zone d'action dans la carte du compte concerné (l'ancienne zone est vidée)
+  const actFor = b => { view.querySelectorAll('#admAction').forEach(x => { x.innerHTML = ''; x.removeAttribute('id'); }); const card = b.closest('.acc') || b.closest('#admDetail .card'); const z = card ? card.querySelector('.acc-act') : $('#admAction'); if (z) z.id = 'admAction'; return z; };
   view.querySelectorAll('[data-apw]').forEach(b => b.onclick = () => {
-    const email = b.dataset.apw;
+    const email = b.dataset.apw, act = actFor(b);
     act.innerHTML = '<div class="banner"><b>Nouveau mot de passe pour ' + esc(email) + '</b><span class="note">L’utilisateur sera déconnecté de ses appareils. Communique-lui ce mot de passe ; il pourra se reconnecter avec.</span><div class="row"><input type="text" id="admPw" minlength="8" placeholder="8 caractères minimum" autocomplete="off"><button class="btn sm" id="admPwGen">Générer</button><button class="btn sm pri" id="admPwOk">Enregistrer</button><button class="btn sm" id="admPwNo">Annuler</button></div></div>';
     $('#admPwGen').onclick = () => { const a = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ23456789', r = new Uint32Array(10); crypto.getRandomValues(r); $('#admPw').value = [...r].map(x => a[x % a.length]).join(''); };
     $('#admPwNo').onclick = () => { act.innerHTML = ''; };
@@ -3595,12 +3605,17 @@ function bindAdmin() {
   });
   view.querySelectorAll('[data-aun]').forEach(b => b.onclick = async () => { try { await adminApi('debloquer', { email:b.dataset.aun }); adm.msg = 'Compte débloqué : ' + b.dataset.aun; loadAdmin(); } catch (e) { toast(e.message); } });
   view.querySelectorAll('[data-adel]').forEach(b => b.onclick = () => {
-    const email = b.dataset.adel;
-    act.innerHTML = '<div class="confirm">Supprimer définitivement le compte ' + esc(email) + ', ses banques et son historique ? Tape l’adresse pour confirmer :<input type="text" id="admDelConf" autocomplete="off" style="min-width:180px"><button class="btn sm danger" id="admDelOk">Supprimer</button><button class="btn sm" id="admDelNo">Annuler</button></div>';
+    const email = b.dataset.adel, act = actFor(b);
+    act.innerHTML = '<div class="confirm" role="alert"><span>Supprimer définitivement <b>' + esc(email) + '</b>, ses banques et son historique ? Cette action est irréversible.</span><div class="row"><button class="btn sm danger" id="admDelOk">Oui, supprimer</button><button class="btn sm" id="admDelNo">Annuler</button></div></div>';
+    act.scrollIntoView({ behavior:'smooth', block:'nearest' });
     $('#admDelNo').onclick = () => { act.innerHTML = ''; };
     $('#admDelOk').onclick = async () => {
-      if ($('#admDelConf').value.trim().toLowerCase() !== email) { toast('L’adresse ne correspond pas'); return; }
-      try { await adminApi('supprimer', { email }); adm.msg = 'Compte supprimé : ' + email; if (adm.detail && adm.detail.email === email) adm.detail = null; loadAdmin(); } catch (e) { toast(e.message); }
+      $('#admDelOk').disabled = true; $('#admDelOk').textContent = 'Suppression…';
+      try {
+        await adminApi('supprimer', { email });
+        adm.msg = 'Compte supprimé : ' + email; if (adm.detail && adm.detail.email === email) adm.detail = null;
+        adm.comptes = (adm.comptes || []).filter(c => c.email !== email); renderAdmin(); toast('Compte supprimé'); loadAdmin();
+      } catch (e) { act.innerHTML = '<div class="confirm" style="background:var(--bad-bg);color:var(--bad)">Échec de la suppression : ' + esc(e.message) + '</div>'; }
     };
   });
 }
