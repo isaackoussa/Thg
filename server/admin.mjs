@@ -70,14 +70,26 @@ export async function handleAdmin(req, action, { comptes, historiques, activite,
     if (!u) return json({ error: 'Compte introuvable' }, 404);
     const doc = await historiques.get('u/' + u.id, { type: 'json' }) || {};
     const actions = activite ? await userActivity(activite, u.id) : [];
-    return json({ email: u.email, createdAt: u.createdAt || null, via: u.via || (u.hash ? 'mot de passe' : 'code'), actions, devices: u.devices || [], journal: u.journal || [], banks: doc.banks || {}, history: doc.history || [], updatedAt: doc.updatedAt || null });
+    return json({ id: u.id, email: u.email, createdAt: u.createdAt || null, via: u.via || (u.hash ? 'mot de passe' : 'code'), actions, devices: u.devices || [], journal: u.journal || [], banks: doc.banks || {}, history: doc.history || [], updatedAt: doc.updatedAt || null });
   }
 
   if (req.method !== 'POST') return json({ error: 'Action inconnue' }, 404);
   let body; try { body = JSON.parse((await req.text()).slice(0, 10000)); } catch (e) { return json({ error: 'Requête invalide' }, 400); }
-  const email = normEmail(body && body.email);
-  const key = userKeyOf(email), user = email ? await comptes.get(key, { type: 'json' }) : null;
-  if (!user) return json({ error: 'Compte introuvable' }, 404);
+  // compte retrouvé par son identifiant et la clé réellement enregistrée (comme « Voir »), sinon par l'adresse
+  const email = normEmail(body && body.email), wantId = String((body && body.id) || '');
+  let key = email ? userKeyOf(email) : '', user = key ? await comptes.get(key, { type: 'json' }) : null;
+  if (!user || (wantId && user.id !== wantId)) {
+    const found = (await allUsers(comptes)).find(u => (wantId && u.id === wantId) || (email && normEmail(u.email) === email));
+    if (found) { key = found.key; const { key: _k, ...rest } = found; user = rest; }
+  }
+  if (!user) {
+    // déjà supprimé : on nettoie ce qui pourrait rester et on le signale sans erreur
+    if (action === 'supprimer') {
+      if (wantId) { try { await historiques.delete('u/' + wantId); } catch (e) {} }
+      return json({ ok: true, deja: true });
+    }
+    return json({ error: 'Compte introuvable' }, 404);
+  }
 
   if (action === 'motdepasse') {
     const pw = String(body.password || '');
@@ -88,12 +100,13 @@ export async function handleAdmin(req, action, { comptes, historiques, activite,
   }
   if (action === 'debloquer') { await comptes.setJSON(key, { ...user, fails: 0, lockedUntil: 0 }); return json({ ok: true }); }
   if (action === 'supprimer') {
-    if (normEmail(email) === normEmail(me.email)) return json({ error: 'Tu ne peux pas supprimer ton propre compte administrateur.' }, 400);
+    if (normEmail(user.email) === normEmail(me.email)) return json({ error: 'Tu ne peux pas supprimer ton propre compte administrateur.' }, 400);
     // le compte d'abord (plus de connexion possible), puis ses données ; une erreur est renvoyée clairement
     try { await comptes.delete(key); } catch (e) { return json({ error: 'Suppression impossible pour le moment (stockage indisponible). Réessaie.' }, 500); }
     const reste = [];
     try { await historiques.delete('u/' + user.id); } catch (e) { reste.push('historique'); }
-    try { await comptes.delete('c/' + createHash('sha256').update(normEmail(email)).digest('hex')); } catch (e) {}
+    try { await comptes.delete('c/' + createHash('sha256').update(normEmail(user.email)).digest('hex')); } catch (e) {}
+    const alt = userKeyOf(user.email); if (alt !== key) { try { await comptes.delete(alt); } catch (e) {} }
     if (activite) { try { await activite.delete('p/' + String(user.id).replace(/[^a-f0-9]/gi, '').slice(0, 12)); } catch (e) {} }
     if (await comptes.get(key, { type: 'json' })) return json({ error: 'Le compte n’a pas pu être supprimé. Réessaie.' }, 500);
     return json({ ok: true, email: user.email, reste });

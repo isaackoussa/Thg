@@ -3590,6 +3590,7 @@ function bindAdmin() {
     state.banks[id] = Object.assign(bk, { id, example:false }); state.cur = id; state.yi = 99; save(); state.tab = 'synthese'; renderAll(); window.scrollTo(0, 0); toast('Copie ouverte : ' + bk.name);
   });
   // zone d'action dans la carte du compte concerné (l'ancienne zone est vidée)
+  const idOf = email => ((adm.comptes || []).find(c => c.email === email) || (adm.detail && adm.detail.email === email ? { id:adm.detail.id } : {})).id || '';
   const actFor = b => { view.querySelectorAll('#admAction').forEach(x => { x.innerHTML = ''; x.removeAttribute('id'); }); const card = b.closest('.acc') || b.closest('#admDetail .card'); const z = card ? card.querySelector('.acc-act') : $('#admAction'); if (z) z.id = 'admAction'; return z; };
   view.querySelectorAll('[data-apw]').forEach(b => b.onclick = () => {
     const email = b.dataset.apw, act = actFor(b);
@@ -3599,11 +3600,11 @@ function bindAdmin() {
     $('#admPwOk').onclick = async () => {
       const pw = $('#admPw').value;
       if (pw.length < 8) { toast('8 caractères minimum'); return; }
-      try { await adminApi('motdepasse', { email, password:pw }); act.innerHTML = '<div class="banner"><b>Mot de passe changé pour ' + esc(email) + '</b><span class="note">Nouveau mot de passe : <b class="v-num" style="user-select:all">' + esc(pw) + '</b></span></div>'; }
+      try { await adminApi('motdepasse', { email, id:idOf(email), password:pw }); act.innerHTML = '<div class="banner"><b>Mot de passe changé pour ' + esc(email) + '</b><span class="note">Nouveau mot de passe : <b class="v-num" style="user-select:all">' + esc(pw) + '</b></span></div>'; }
       catch (e) { toast(e.message); }
     };
   });
-  view.querySelectorAll('[data-aun]').forEach(b => b.onclick = async () => { try { await adminApi('debloquer', { email:b.dataset.aun }); adm.msg = 'Compte débloqué : ' + b.dataset.aun; loadAdmin(); } catch (e) { toast(e.message); } });
+  view.querySelectorAll('[data-aun]').forEach(b => b.onclick = async () => { try { await adminApi('debloquer', { email:b.dataset.aun, id:idOf(b.dataset.aun) }); adm.msg = 'Compte débloqué : ' + b.dataset.aun; loadAdmin(); } catch (e) { toast(e.message); } });
   view.querySelectorAll('[data-adel]').forEach(b => b.onclick = () => {
     const email = b.dataset.adel, act = actFor(b);
     act.innerHTML = '<div class="confirm" role="alert"><span>Supprimer définitivement <b>' + esc(email) + '</b>, ses banques et son historique ? Cette action est irréversible.</span><div class="row"><button class="btn sm danger" id="admDelOk">Oui, supprimer</button><button class="btn sm" id="admDelNo">Annuler</button></div></div>';
@@ -3612,7 +3613,7 @@ function bindAdmin() {
     $('#admDelOk').onclick = async () => {
       $('#admDelOk').disabled = true; $('#admDelOk').textContent = 'Suppression…';
       try {
-        await adminApi('supprimer', { email });
+        await adminApi('supprimer', { email, id:idOf(email) });
         adm.msg = 'Compte supprimé : ' + email; if (adm.detail && adm.detail.email === email) adm.detail = null;
         adm.comptes = (adm.comptes || []).filter(c => c.email !== email); renderAdmin(); toast('Compte supprimé'); loadAdmin();
       } catch (e) { act.innerHTML = '<div class="confirm" style="background:var(--bad-bg);color:var(--bad)">Échec de la suppression : ' + esc(e.message) + '</div>'; }

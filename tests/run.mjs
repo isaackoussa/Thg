@@ -1103,6 +1103,13 @@ else {
     ok((await (await ad('comptes', adm)).json()).comptes.find(c => c.email === 'eleve@test.ci').locked, 'admin : compte bloqué visible');
     await ad('debloquer', adm, { email: 'eleve@test.ci' });
     ok((await po('connexion', { email: 'eleve@test.ci', password: 'nouveaumdp1' })).status === 200, 'admin : déblocage');
+    // compte enregistré sous une clé qui ne correspond pas à son adresse (ancien format, adresse modifiée…) : retrouvé par son identifiant
+    await cs.setJSON('u/ancienne-cle-123', { id: 'id-ancien', email: 'fabrice@test.ci', salt: 'abc', hash: '', createdAt: '2026-10-15T10:00:00Z' });
+    await hs.setJSON('u/id-ancien', { history: [], banks: {} });
+    ok((await ad('supprimer', adm, { email: 'fabrice@test.ci', id: 'id-ancien' })).status === 200 && !cs.m.has('u/ancienne-cle-123') && !hs.m.has('u/id-ancien'), 'admin : suppression d’un compte retrouvé par son identifiant (« Compte introuvable » corrigé)');
+    await cs.setJSON('u/autre-cle-456', { id: 'id-autre', email: 'autre@test.ci', salt: 'abc', hash: '' });
+    ok((await ad('supprimer', adm, { email: 'autre@test.ci' })).status === 200 && !cs.m.has('u/autre-cle-456'), 'admin : suppression retrouvée par l’adresse dans la liste des comptes');
+    ok((await (await ad('supprimer', adm, { email: 'disparu@test.ci', id: 'id-disparu' })).json()).deja === true, 'admin : compte déjà supprimé, pas d’erreur');
     ok((await ad('supprimer', adm, { email: 'admin@test.sn' })).status === 400, 'admin : impossible de supprimer son propre compte');
     ok((await handleAdmin(new Request('https://app.test/api/admin/supprimer', { method: 'POST', headers: { origin: 'https://pirate.test', cookie: adm }, body: JSON.stringify({ email: 'eleve@test.ci' }) }), 'supprimer', { comptes: cs, historiques: hs, adminEmails: 'admin@test.sn' })).status === 403, 'admin : action venant d’un autre site refusée');
     ok((await ad('supprimer', adm, { email: 'eleve@test.ci' })).status === 200 && (await (await ad('comptes', adm)).json()).comptes.length === 1 && !hs.m.has('u/' + el.id), 'admin : suppression du compte et de ses données');
