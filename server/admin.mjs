@@ -1,6 +1,6 @@
 // Partie admin : réservée aux adresses de ADMIN_EMAILS (réglage Netlify, séparées par des virgules).
 // Sans réglage, l'administrateur est le compte du propriétaire de l'app.
-import { userFromRequest, hashPassword, userKeyOf, normEmail, DEFAULT_ADMINS, adminList, ALERT_DEFAULTS } from './compte.mjs';
+import { userFromRequest, hashPassword, userKeyOf, normEmail, DEFAULT_ADMINS, adminList, ALERT_DEFAULTS, mailReady } from './compte.mjs';
 import { liveFeed, userActivity, activityStats } from './activite.mjs';
 import { createHash } from 'node:crypto';
 export { DEFAULT_ADMINS, adminList };
@@ -14,10 +14,13 @@ async function allUsers(comptes) {
 }
 const dayOf = iso => String(iso || '').slice(0, 10);
 
-export async function handleAdmin(req, action, { comptes, historiques, activite, adminEmails }) {
+export async function handleAdmin(req, action, { comptes, historiques, activite, adminEmails, env = () => undefined, codeRequired }) {
   const me = await userFromRequest(req, comptes);
   if (!me) return json({ error: 'Connexion requise' }, 401);
   if (!adminList(adminEmails).includes(normEmail(me.email))) return json({ error: 'Réservé à l’administrateur' }, 403);
+  // quand les codes e-mail fonctionnent, la console exige une session ouverte avec un code (adresse prouvée) :
+  // un compte créé ou ouvert avec un mot de passe ne suffit jamais
+  if ((codeRequired ?? mailReady(env)) && !me.viaCode) return json({ error: 'Pour ouvrir la console, déconnecte-toi puis reconnecte-toi avec le code reçu par e-mail.', code: 'verify' }, 403);
   if (req.method === 'POST') {
     const origin = req.headers.get('origin');
     if (!origin || origin !== new URL(req.url).origin) return json({ error: 'Origine refusée' }, 403);

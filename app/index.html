@@ -3353,13 +3353,13 @@ async function adminApi(path, body) {
   try { res = await fetch('/api/admin/' + path, body === undefined ? { credentials:'same-origin' } : { method:'POST', credentials:'same-origin', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify(body) }); }
   catch (e) { throw new Error('Le serveur ne répond pas.'); }
   let data = {}; try { data = await res.json(); } catch (e) {}
-  if (!res.ok) { const e = new Error(data.error || 'Erreur ' + res.status); e.status = res.status; throw e; }
+  if (!res.ok) { const e = new Error(data.error || 'Erreur ' + res.status); e.status = res.status; e.code = data.code; throw e; }
   return data;
 }
 async function checkAdmin() {
   const was = !!acct.isAdmin;
   if (!acct.user) acct.isAdmin = false;
-  else { try { await adminApi('moi'); acct.isAdmin = true; } catch (e) { acct.isAdmin = false; } }
+  else { try { await adminApi('moi'); acct.isAdmin = true; acct.adminMsg = ''; } catch (e) { acct.isAdmin = false; acct.adminMsg = e.code === 'verify' ? e.message : ''; } }
   if (was !== acct.isAdmin || state.tab === 'admin') renderAll(true);
 }
 async function loadAdmin() {
@@ -3387,6 +3387,7 @@ const evText = e => { const i = EV_INFO[e.type] || ['•', e.type]; return i[1] 
 const evKey = e => e.at + '|' + e.uid + '|' + e.type + '|' + e.d;
 function vAdmin() {
   if (!acct.isAdmin) {
+    if (acct.user && acct.adminMsg) return head('Administration', 'Console d’administration', '') + '<div class="banner warn"><b>Vérification nécessaire</b><span class="note">' + esc(acct.adminMsg) + '</span></div>' + accountCard();
     if (acct.user) return head('Administration', 'Console d’administration', '') + '<div class="banner warn"><b>Accès réservé</b><span class="note">Le compte ' + esc(acct.user.email) + ' n’est pas administrateur. Déconnecte-toi puis connecte-toi avec le compte administrateur, ou <a href="/">ouvre l’app</a>.</span></div>' + accountCard();
     return head('Administration', 'Connexion administrateur', 'Connecte-toi avec le compte administrateur pour accéder à la console.') + accountCard();
   }

@@ -1110,6 +1110,12 @@ else {
     await cs.setJSON('u/autre-cle-456', { id: 'id-autre', email: 'autre@test.ci', salt: 'abc', hash: '' });
     ok((await ad('supprimer', adm, { email: 'autre@test.ci' })).status === 200 && !cs.m.has('u/autre-cle-456'), 'admin : suppression retrouvée par l’adresse dans la liste des comptes');
     ok((await (await ad('supprimer', adm, { email: 'disparu@test.ci', id: 'id-disparu' })).json()).deja === true, 'admin : compte déjà supprimé, pas d’erreur');
+    {
+      const adR = (action, ck, codeRequired) => handleAdmin(new Request('https://app.test/api/admin/' + action, { headers: { cookie: ck || '' } }), action, { comptes: cs, historiques: hs, adminEmails: 'admin@test.sn', codeRequired });
+      const rr = await adR('comptes', adm, true);
+      ok(rr.status === 403 && (await rr.json()).code === 'verify', 'sécurité : avec les codes e-mail, une session ouverte par mot de passe n’ouvre pas la console');
+      ok([401, 403].includes((await adR('comptes', usr, true)).status) && (await adR('comptes', '', true)).status === 401, 'sécurité : console refusée aux comptes ordinaires et sans connexion');
+    }
     ok((await ad('supprimer', adm, { email: 'admin@test.sn' })).status === 400, 'admin : impossible de supprimer son propre compte');
     ok((await handleAdmin(new Request('https://app.test/api/admin/supprimer', { method: 'POST', headers: { origin: 'https://pirate.test', cookie: adm }, body: JSON.stringify({ email: 'eleve@test.ci' }) }), 'supprimer', { comptes: cs, historiques: hs, adminEmails: 'admin@test.sn' })).status === 403, 'admin : action venant d’un autre site refusée');
     ok((await ad('supprimer', adm, { email: 'eleve@test.ci' })).status === 200 && (await (await ad('comptes', adm)).json()).comptes.length === 1 && !hs.m.has('u/' + el.id), 'admin : suppression du compte et de ses données');
@@ -1232,8 +1238,11 @@ else {
     r = await po('verifier', { email: 'expire@test.ci', code: sent[2].code }); d = await r.json();
     ok(r.status === 400 && /expiré/.test(d.error), 'entrée : code expiré refusé', d);
     ok((await po('code', { email: 'x@y.sn' }, { send: async () => false })).status === 502, 'entrée : échec d’envoi signalé');
-    // compte existant (mot de passe) : le code connecte au même compte
-    await po('inscription', { email: 'ancien@test.sn', password: 'motdepasse1' });
+    // inscription par mot de passe fermée quand les codes fonctionnent (sinon on pourrait prendre l'adresse d'un autre)
+    r = await po('inscription', { email: 'koussaisaac199@gmail.com', password: 'motdepasse1' });
+    ok(r.status === 403 && (await r.json()).code === 'use_code' && ![...cs.m.keys()].some(k => k === 'u/' + require('crypto').createHash('sha256').update('koussaisaac199@gmail.com').digest('hex')), 'sécurité : impossible de créer un compte au nom d’une autre adresse (inscription par mot de passe fermée)');
+    // compte existant (mot de passe, créé avant les codes) : le code connecte au même compte
+    await handleCompte(new Request('https://app.test/api/compte/inscription', { method: 'POST', headers: { origin: 'https://app.test' }, body: JSON.stringify({ email: 'ancien@test.sn', password: 'motdepasse1' }) }), 'inscription', { store: cs });
     const before = [...cs.m.keys()].filter(x => x.startsWith('u/')).length;
     await po('code', { email: 'ancien@test.sn' });
     r = await po('verifier', { email: 'ancien@test.sn', code: sent[sent.length - 1].code }); d = await r.json();
@@ -1318,12 +1327,13 @@ else {
     const st2 = await activityStats(as);
     ok(st2.actions7 === 2 && st2.heures.reduce((a, b) => a + b, 0) === 2, 'activité : statistiques par heure');
     // alertes e-mail à l'admin
-    const { handleCompte: hc } = await import('../server/compte.mjs');
+    const { handleCompte: hc, hashPassword } = await import('../server/compte.mjs');
     const mailsA = [];
     const send = async (to, subject, html, code) => { mailsA.push({ to, subject, code }); return true; };
     const po = (action, body) => hc(new Request('https://app.test/api/compte/' + action, { method: 'POST', headers: { origin: 'https://app.test', 'user-agent': 'Mozilla/5.0 (Windows NT 10.0) Chrome/120.0 Safari/537.36' }, body: JSON.stringify(body) }), action, { store: cs2, send, adminEmails: 'chef@test.sn' });
-    await po('inscription', { email: 'nouveau@test.sn', password: 'motdepasse1' });
+    await po('code', { email: 'nouveau@test.sn' }); await po('verifier', { email: 'nouveau@test.sn', code: mailsA.filter(m => m.code).pop().code });
     ok(mailsA.some(m => m.to === 'chef@test.sn' && /Nouvelle inscription : nouveau@test\.sn/.test(m.subject)), 'alertes : e-mail à l’admin à chaque inscription', mailsA);
+    { const h = hashPassword('motdepasse1'); const k2 = [...cs2.m.keys()].find(k => k.startsWith('u/') && cs2.m.get(k).includes('nouveau@test.sn')); cs2.m.set(k2, JSON.stringify({ ...JSON.parse(cs2.m.get(k2)), salt: h.salt, hash: h.hash })); }
     const n0 = mailsA.length; await po('connexion', { email: 'nouveau@test.sn', password: 'motdepasse1' });
     ok(mailsA.length === n0, 'alertes : pas d’e-mail de connexion par défaut');
     await cs2.setJSON('reglages-admin', { alertes: { inscription: true, appareil: true, connexion: true } });
@@ -1342,7 +1352,7 @@ else {
         const req = new Request(rq.url(), { method: rq.method(), headers: { origin: h.origin || '', cookie: h.cookie || '', 'content-type': 'application/json', 'user-agent': h['user-agent'] || '' }, body: ['POST', 'PUT'].includes(rq.method()) ? rq.postData() || '' : undefined });
         const u = rq.url(), m = u.match(/compte\/([a-z]+)$/), ma = u.match(/admin\/([a-z]+)(\?|$)/);
         const res = m ? await handleCompte(req, m[1], { store: cs3, gate: true, adminEmails: 'chef@test.sn', send: async (to, s2, html, code) => { codes.push({ to, code }); return true; } })
-          : ma ? await handleAdmin(req, ma[1], { comptes: cs3, historiques: hs3, activite: as3, adminEmails: 'chef@test.sn' })
+          : ma ? await handleAdmin(req, ma[1], { comptes: cs3, historiques: hs3, activite: as3, adminEmails: 'chef@test.sn', codeRequired: true })
           : /activite$/.test(u) ? await handleActivite(req, { getUser: () => userFromRequest(req, cs3), store: as3 })
           : await handleHistorique(req, { getUser: () => userFromRequest(req, cs3), store: hs3 });
         const headers = { 'content-type': 'application/json' }; if (res.headers.get('set-cookie')) headers['set-cookie'] = res.headers.get('set-cookie');

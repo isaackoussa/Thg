@@ -127,8 +127,9 @@ async function secret(store) {
   return s;
 }
 const sign = (payload, key) => createHmac('sha256', key).update(payload).digest('base64url');
-async function makeToken(user, store) {
-  const payload = b64u(JSON.stringify({ uid: user.id, email: user.email, sv: String(user.salt).slice(0, 12), exp: Date.now() + SESSION_DAYS * 864e5 }));
+// vc : session ouverte avec un code reçu par e-mail (adresse prouvée) — exigé pour la console admin
+async function makeToken(user, store, viaCode = false) {
+  const payload = b64u(JSON.stringify({ uid: user.id, email: user.email, sv: String(user.salt).slice(0, 12), vc: viaCode ? 1 : 0, exp: Date.now() + SESSION_DAYS * 864e5 }));
   return payload + '.' + sign(payload, await secret(store));
 }
 function readCookie(req, name) {
@@ -152,7 +153,7 @@ export async function userFromRequest(req, store) {
     // le compte doit toujours exister, et son mot de passe ne doit pas avoir été changé depuis la connexion
     const u = await store.get(userKey(normEmail(p.email)), { type: 'json' });
     if (!u || u.id !== p.uid || String(u.salt).slice(0, 12) !== p.sv) return null;
-    return { id: p.uid, email: u.email };
+    return { id: p.uid, email: u.email, viaCode: p.vc === 1 };
   } catch (e) { return null; }
 }
 
@@ -219,12 +220,13 @@ export async function handleCompte(req, action, deps) {
     await store.setJSON(key, user);
     if (isNew) await alertAdmins('inscription', user, req, geo, deps);
     else { if (devBefore && (user.devices || []).length > devBefore) await alertAdmins('appareil', user, req, geo, deps); await alertAdmins('connexion', user, req, geo, deps); }
-    return json({ email, isNew }, isNew ? 201 : 200, { 'Set-Cookie': sessionCookie(req, await makeToken(user, store), SESSION_DAYS * 86400) });
+    return json({ email, isNew }, isNew ? 201 : 200, { 'Set-Cookie': sessionCookie(req, await makeToken(user, store, true), SESSION_DAYS * 86400) });
   }
   if (password.length > 200) return json({ error: 'Mot de passe trop long.', code: 'password' }, 400);
   const key = userKey(email);
 
   if (action === 'inscription') {
+    if (mailReady(env) || send) return json({ error: 'L’inscription se fait avec un code reçu par e-mail : choisis « Recevoir mon code ».', code: 'use_code' }, 403);
     if (password.length < 8) return json({ error: 'Le mot de passe doit faire au moins 8 caractères.', code: 'password' }, 400);
     const salt = randomBytes(16).toString('hex');
     const now = new Date().toISOString();
