@@ -482,6 +482,7 @@ function loadState() {
   s.base = s.base === 'moy' ? 'moy' : 'fin';
   s.tab = typeof s.tab === 'string' ? s.tab : 'synthese';
   s.myStyle = s.myStyle && typeof s.myStyle === 'object' ? s.myStyle : null;
+  s.owner = typeof s.owner === 'string' ? s.owner : null;
   s.report = s.report && typeof s.report === 'object' && !Array.isArray(s.report) ? s.report : undefined;
   if (!s.banks[s.cur]) s.cur = Object.keys(s.banks)[0];
   return s;
@@ -504,7 +505,7 @@ function trackBanks(silent) {
 }
 function save(opts) {
   const changed = trackBanks(opts && opts.silent);
-  try { localStorage.setItem(LS_KEY, JSON.stringify({ banks:state.banks, cur:state.cur, params:state.params, base:state.base, tab:state.tab, history:state.history, histDeleted:state.histDeleted, banksDeletedSaved:state.banksDeleted, myStyle:state.myStyle || null, report:state.report || null })); } catch (e) {}
+  try { localStorage.setItem(LS_KEY, JSON.stringify({ banks:state.banks, cur:state.cur, params:state.params, base:state.base, tab:state.tab, history:state.history, histDeleted:state.histDeleted, banksDeletedSaved:state.banksDeleted, myStyle:state.myStyle || null, report:state.report || null, owner:state.owner || null })); } catch (e) {}
   if (changed && typeof scheduleSync === 'function') scheduleSync();
 }
 trackBanks(true);
@@ -1437,14 +1438,23 @@ function parseImport(text) {
   const ctx = { sec:'actif', hb:'donnes' };
   let pending = null, prevLabel = '', orphan = null;
   const nk = () => (out.years || yrs).length;
+  // un tiret seul (« - », « – », « — ») dans une colonne de montants vaut zéro
+  const isDash = c => /^[-–—−]+$/.test(String(c ?? '').trim());
+  // « ? » : case illisible (photo) — laissée vide pour être complétée, contrairement à une case vide qui vaut 0
+  const cellNum = c => isDash(c) ? 0 : String(c ?? '').trim() === '?' ? NaN : parseNum(c);
   const commit = (hit, nums, raw) => {
     if (hit.chk) { if (hit.chk !== 'skip' && !(hit.kw && out.chk[hit.chk])) out.chk[hit.chk] = nums.slice(-nk()); return; }
-    if (out.vals[hit.k] && (!nums.some(fin) || hit.kw)) return;
-    out.vals[hit.k] = nums.slice(-nk());
+    // une ligne vide ou à zéro ne remplace jamais des montants déjà lus pour le même poste
+    if (out.vals[hit.k] && (!nums.some(v => fin(v) && v !== 0) || hit.kw)) return;
+    // cases vides = 0 : les exercices sans montant valent zéro (jamais le montant d'une autre ligne)
+    const arr = nums.slice(-nk()).map(v => fin(v) ? v : Number.isNaN(v) ? null : 0);
+    while (arr.length < nk()) arr.unshift(0);
+    out.vals[hit.k] = arr;
     if (F[hit.k].s === 'cp') ctx.sec = 'passif';
     if (F[hit.k].s === 'cr') ctx.sec = 'cr';
   };
   const flush = () => { if (pending) { if (pending.nums.length) commit(pending.hit, pending.nums); pending = null; } };
+  const zeros = () => Array(nk()).fill(0);
   // chiffres orphelins (placés entre les deux lignes d'un intitulé) : rattachés au début seul si rien ne suit
   const settleOrphan = () => { if (!orphan) return; const h = matchLabel(orphan.label, ctx); if (h) commit(h, orphan.nums); else out.unknown.push(orphan.raw); orphan = null; };
   text.split(/\r?\n/).forEach(rawLine => {
@@ -1461,11 +1471,13 @@ function parseImport(text) {
       // en-tête : colonnes d'années (y compris « 31/12/2023 »)
       const yc = cells.map((c, i) => { const m = c.match(/^(?:(?:exercice|ann[ée]e|au|d[ée]c\.?|decembre|décembre)\s*)?(?:\d{1,2}[\/.\-]\d{1,2}[\/.\-])?((?:19|20)\d{2})$/i); return m ? [i, +m[1]] : null; }).filter(Boolean);
       if (yc.length >= 1 && cells.filter(c => c && parseNum(c) !== null && !/^(19|20)\d{2}$/.test(c)).length === 0 && yc.length >= cells.filter(c => /\d/.test(c)).length) { flush(); prevLabel = ''; out.years = yc.map(x => x[1]); out.yearCols = yc[0][0] > 0 ? yc.map(x => x[0]) : null; return; }
-      const first = cells.findIndex(c => c !== '' && parseNum(c) !== null);
+      const first = cells.findIndex(c => c !== '' && cellNum(c) !== null);
       label = cells.slice(0, first < 0 ? cells.length : first).filter(Boolean).join(' ');
-      if (out.yearCols && first >= 0) nums = out.yearCols.map(i => i < cells.length ? parseNum(cells[i]) : null);
-      else { nums = first < 0 ? [] : cells.slice(first).map(c => parseNum(c)); while (nums.length && nums[nums.length - 1] === null) nums.pop(); }
+      if (out.yearCols && first >= 0) nums = out.yearCols.map(i => i < cells.length ? cellNum(cells[i]) : null);
+      else { nums = first < 0 ? [] : cells.slice(first).map(c => cellNum(c)); while (nums.length && nums[nums.length - 1] === null) nums.pop(); }
       if (nums.every(v => v === null)) nums = [];
+      // ligne de tableau dont toutes les colonnes de montants sont vides : poste à zéro
+      var blankRow = first < 0 && cells.filter(Boolean).length >= 1 && cells.length - cells.filter(Boolean).length >= 1;
     } else {
       const tk = line.trim().split(/\s+/);
       // en-tête d'années, y compris dates « 31/12/2022 » ou « Déc. 2023 »
@@ -1473,10 +1485,23 @@ function parseImport(text) {
       const rest = line.replace(/(?:\b\d{1,2}[\/.\-]\d{1,2}[\/.\-])?\b(?:19|20)\d{2}\b/g, '');
       if (yearHits.length >= 2 && !/\d/.test(rest) && (!norm(rest) || /^(CODE|POSTE|LIBELLE|ANNEE|EXERCICE|RUBRIQUE|EN MILLIONS|MILLIONS|EN MILLIERS|ACTIF|PASSIF|BILAN|COMPTE|AU|DEC|DECEMBRE|EXERCICES?|MONTANTS?|NOTES?)\b/.test(norm(rest)) || norm(rest).split(' ').every(w => /^(AU|DEC|DECEMBRE|EXERCICE|EXERCICES|ANNEE|ANNEES|NOTE|NOTES|MILLIONS|MILLIERS|FCFA|F|CFA|EN|DE)$/.test(w)))) { flush(); prevLabel = ''; out.years = yearHits; out.yearCols = null; return; }
       let i = tk.length;
-      while (i > 0 && /^[-−(]?\d+[,.]?\d*\)?$/.test(tk[i - 1])) i--;
+      while (i > 0 && (/^[-−(]?\d+[,.]?\d*\)?$/.test(tk[i - 1]) || isDash(tk[i - 1]) && i > 1)) i--;
       label = tk.slice(0, i).join(' ');
       const numToks = tk.slice(i);
       if (!numToks.length) nums = [];
+      else if (numToks.some(isDash)) {
+        // tirets = zéro ; les groupes de chiffres entre les tirets sont lus séparément
+        const runs = []; let cur = [];
+        numToks.forEach(t => { if (isDash(t)) { if (cur.length) runs.push(cur); cur = []; runs.push(null); } else cur.push(t); });
+        if (cur.length) runs.push(cur);
+        const numRuns = runs.filter(Boolean), dashes = runs.length - numRuns.length;
+        nums = [];
+        runs.forEach(r => {
+          if (!r) { nums.push(0); return; }
+          const want = numRuns.length === 1 ? Math.max(1, Math.min(r.length, nk() - dashes)) : 1;
+          nums.push(...(splitNumbers(r, want) || splitNumbers(r, Math.min(r.length, 2)) || splitNumbers(r, 1) || []));
+        });
+      }
       else if (!label && pending && numToks.length <= 3) {
         // ligne de chiffres seule après un intitulé : souvent un seul montant par ligne (copie depuis un PDF)
         const single = splitNumbers(numToks, 1);
@@ -1505,7 +1530,7 @@ function parseImport(text) {
     settleOrphan();
     // intitulé coupé sur deux lignes (fréquent dans les PDF) : on recolle la ligne précédente sans chiffres
     const joined = prevLabel && label ? prevLabel + ' ' + label : '';
-    const wasPending = pending && !pending.nums.length;
+    const wasPending = pending && !pending.nums.length, pendHit = wasPending ? pending.hit : null;
     flush();
     if (/COMPTES? DE RESULTAT|PRODUITS ?\/? ?CHARGES|^PRODUITS CHARGES/.test(L)) ctx.sec = 'cr';
     if (/^PASSIF\b/.test(L) || /TOTAL (DE L )?ACTIF/.test(L)) ctx.sec = 'passif';
@@ -1517,9 +1542,16 @@ function parseImport(text) {
     let hit = null;
     if (joined) {
       const jh = matchLabel(joined, ctx), alone = matchLabel(label, ctx);
+      const samePrev = h => h && pendHit && (h.k ? h.k === pendHit.k : h.chk === pendHit.chk);
+      if (pendHit && alone && !samePrev(alone) && (!jh || samePrev(jh))) {
+        // la ligne précédente était un poste complet sans montant (cases vides) : il vaut zéro, et cette ligne est un nouveau poste
+        if (pendHit.k) commit(pendHit, zeros());
+        hit = alone;
+      }
       // l'intitulé recollé l'emporte s'il correspond à un poste et que la ligne précédente était un début d'intitulé
-      if (jh && (wasPending || !alone || norm(joined).length > norm(label).length + 8 && jh.k !== alone.k && !(alone.code))) hit = jh; else hit = alone;
+      else if (jh && (wasPending || !alone || norm(joined).length > norm(label).length + 8 && jh.k !== alone.k && !(alone.code))) hit = jh; else hit = alone;
     } else hit = matchLabel(label, ctx);
+    if (!nums.length && typeof blankRow !== 'undefined' && blankRow && hit && hit.k) { commit(hit, zeros()); prevLabel = ''; return; }
     if (!nums.length) { prevLabel = joined && norm(joined).length < 160 ? joined : label; if (hit && !(hit.chk === 'skip')) pending = { hit, nums:[], raw:line.trim() }; return; }
     prevLabel = '';
     if (!hit) { out.unknown.push(line.trim()); return; }
@@ -1652,7 +1684,7 @@ async function getSample() {
 const CLAUDE_PROMPT = 'Ces images montrent des états financiers d’une banque de l’UMOA (bilan, hors bilan et/ou compte de résultat, format PCB révisé, comme dans le fascicule BCEAO). '
   + 'Recopie TOUTES les lignes chiffrées du tableau. Réponds uniquement avec un objet JSON de la forme '
   + '{"annees":[2021,2022,2023],"lignes":[{"libelle":"CREANCES SUR LA CLIENTELE","valeurs":[131072,130602,150766]}]}. '
-  + 'Règles : libellés recopiés tels qu’imprimés ; valeurs en nombres sans séparateur de milliers, dans l’ordre des colonnes d’années ; négatifs avec un signe moins ; null pour une case vide ou illisible ; '
+  + 'Règles : libellés recopiés tels qu’imprimés ; valeurs en nombres sans séparateur de milliers, dans l’ordre des colonnes d’années ; négatifs avec un signe moins ; 0 pour une case vide ou un tiret ; null seulement pour une case illisible ; '
   + 'garde les lignes de total et de sous-total ; pour un tableau sans années visibles, mets "annees": []. N’invente aucun chiffre.';
 async function readImages(blobs, label) {
   const imgs = [];
@@ -1681,7 +1713,7 @@ function claudeJsonToText(d) {
   if (Array.isArray(d.annees) && d.annees.length) lines.push('ANNEE\t' + d.annees.join('\t'));
   d.lignes.forEach(l => {
     if (!l || typeof l.libelle !== 'string' || !Array.isArray(l.valeurs)) return;
-    lines.push(l.libelle.replace(/[\t\r\n;]+/g, ' ') + '\t' + l.valeurs.map(v => typeof v === 'number' && Number.isFinite(v) ? String(v) : '').join('\t'));
+    lines.push(l.libelle.replace(/[\t\r\n;]+/g, ' ') + '\t' + l.valeurs.map(v => typeof v === 'number' && Number.isFinite(v) ? String(v) : v === null ? '?' : '').join('\t'));
   });
   return lines.join('\n');
 }
@@ -3022,7 +3054,7 @@ async function accountBoot() {
   gate.on = !!(cfg && cfg.gate); gate.mail = !!(cfg && cfg.mail); gate.pw = !gate.mail;
   if (gate.on) gateSeen(true);
   if (gate.on || accRemembered()) {
-    try { const me = await api('moi'); acct.user = { email:me.email }; accRemember(true); }
+    try { const me = await api('moi'); adoptAccount(me.email); acct.user = { email:me.email }; accRemember(true); }
     catch (e) { if (e.status === 401) { accRemember(false); acct.user = null; } }
   }
   // hors ligne : on garde l'accès si l'appareil était connecté ; sinon la première connexion demande internet
@@ -3072,6 +3104,7 @@ function renderGate() {
 function bindGate() {
   const fail = e => { gate.busy = false; gate.info = ''; gate.err = e && e.message && !/fetch|network|load failed/i.test(e.message) ? e.message : 'Le serveur ne répond pas. Vérifie ta connexion internet.'; renderGate(); };
   const entered = async (me, msg) => {
+    adoptAccount(me.email);
     acct.user = { email:me.email }; accRemember(true); gate.busy = false; gate.err = gate.info = ''; gate.step = 'email';
     track('connexion', me.isNew ? 'première connexion (nouveau compte)' : '');
     renderGate(); renderAll(true);
@@ -3144,6 +3177,18 @@ async function syncHistory(quiet) {
     if (acct.pending) { acct.pending = false; setTimeout(() => syncHistory(true), 300); }
   }
 }
+/* ---- Les données de l'appareil appartiennent à un seul compte ----
+   À la connexion d'un autre compte, celles du compte précédent sont retirées de l'appareil (elles restent sur
+   son compte) au lieu d'être fusionnées : chaque compte ne voit que ses banques et son historique. */
+function resetLocalData() {
+  state.history = []; state.histDeleted = []; state.banks = { bab:clone(SAMPLE) }; state.banksDeleted = {}; state.cur = 'bab'; state.yi = 99;
+  state.myStyle = null; if (state.report) { delete state.report.banks; if (state.report.writing === 'perso') state.report.writing = 'auto'; }
+}
+function adoptAccount(email) {
+  email = String(email || '').toLowerCase();
+  if (state.owner && state.owner !== email) resetLocalData();
+  state.owner = email; save({ silent:true });
+}
 /* ---- Journal d'activité (console admin, « en direct ») : actions envoyées par lots + signal de présence chaque minute ---- */
 const trk = { q:[], timer:null, lastSaisie:0 };
 const tabLabel = k => k === 'admin' ? 'Console admin' : (TABS.find(t => t[0] === k) || [, k])[1];
@@ -3176,7 +3221,7 @@ function accountInner() {
   const st = acct.status ? '<div class="file-status' + (acct.err ? ' err' : '') + '" id="accStatus">' + esc(acct.status) + '</div>' : '';
   if (acct.user) return '<h3>Compte</h3><p>Connecté avec <b>' + esc(acct.user.email || '') + '</b>. Tes banques et ton historique sont enregistrés sur ce compte et se retrouvent sur tous les appareils où tu te connectes.</p>'
     + '<p class="note">' + (acct.syncing ? 'Synchronisation en cours…' : acct.lastSync ? 'Dernière synchronisation : ' + acct.lastSync.toLocaleTimeString('fr-FR', { hour:'2-digit', minute:'2-digit' }) : 'Pas encore synchronisé.') + '</p>'
-    + '<div class="row"><button class="btn pri" id="accSync"' + (acct.syncing ? ' disabled' : '') + '>Synchroniser maintenant</button><button class="btn" id="accLogout">Se déconnecter</button><button class="btn danger" id="accLogoutWipe">Se déconnecter et effacer mes données de cet appareil</button></div>' + st;
+    + '<div class="row"><button class="btn pri" id="accSync"' + (acct.syncing ? ' disabled' : '') + '>Synchroniser maintenant</button><button class="btn" id="accLogout">Se déconnecter</button></div><p class="note">Tes banques et ton historique sont liés à ce compte seulement : à la déconnexion, ils sont retirés de cet appareil et personne d’autre ne les voit.</p>' + st;
   const signup = acct.mode === 'signup';
   return '<h3>' + (signup ? 'Créer un compte' : 'Se connecter') + '</h3><p class="note">' + (signup ? 'Il suffit d’une adresse e-mail et d’un mot de passe : pas d’e-mail de vérification, le compte est prêt tout de suite.' : 'Avec un compte, tes banques et ton historique d’analyses sont liés à ton adresse e-mail : tu les retrouves sur ton iPhone comme sur ton ordinateur.') + '</p>'
     + '<form id="accForm" class="meta-grid" autocomplete="on" novalidate><label>Adresse e-mail<input type="email" id="accEmail" autocomplete="email" required></label><label>Mot de passe' + (signup ? ' (8 caractères minimum)' : '') + '<input type="password" id="accPw" autocomplete="' + (signup ? 'new-password' : 'current-password') + '" required></label></form>'
@@ -3203,6 +3248,7 @@ function bindAccount() {
     const signup = acct.mode === 'signup';
     run(async () => {
       const me = await api(signup ? 'inscription' : 'connexion', { email, password:pw });
+      adoptAccount(me.email);
       acct.user = { email:me.email }; accRemember(true); acct.mode = 'login';
       track('connexion', signup ? 'première connexion (nouveau compte)' : '');
       await syncHistory(true);
@@ -3216,14 +3262,13 @@ function bindAccount() {
   const logout = wipe => run(async () => {
     track('deconnexion', wipe ? 'avec effacement des données de l’appareil' : ''); await flushTrack();
     try { await api('deconnexion', {}); } catch (e) {}
-    acct.user = null; accRemember(false); acct.lastSync = null; acct.isAdmin = false; adm.stats = null; adm.comptes = null; adm.detail = null;
-    if (wipe) { state.history = []; state.histDeleted = []; state.banks = { bab:clone(SAMPLE) }; state.banksDeleted = {}; state.cur = 'bab'; state.yi = 99; save({ silent:true }); }
-    acct.status = wipe ? 'Déconnecté. Tes banques et ton historique ont été effacés de cet appareil ; ils restent sur ton compte.' : 'Déconnecté. L’historique reste sur cet appareil.';
+    acct.user = null; accRemember(false); acct.lastSync = null; acct.isAdmin = false; adm.stats = null; adm.comptes = null; adm.detail = null; adm.live = null;
+    resetLocalData(); state.owner = null; save({ silent:true });
+    acct.status = 'Déconnecté. Tes banques et ton historique ont été retirés de cet appareil ; ils restent sur ton compte et reviendront à ta prochaine connexion.';
     acct.err = false;
     renderAll(true); renderGate();
   }, 'Déconnexion…');
   if ($('#accLogout')) $('#accLogout').onclick = () => logout(false);
-  if ($('#accLogoutWipe')) $('#accLogoutWipe').onclick = () => logout(true);
 }
 function vHistorique() {
   const all = state.history, banksIn = [...new Map(all.map(e => [e.bankId, e.bank.name])).entries()];

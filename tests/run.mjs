@@ -264,6 +264,19 @@ IMMOBILISES\t48\t0\t13`));
   ok(JSON.stringify(wrap.vals.R7) === '[46,509,7]' && JSON.stringify(wrap.vals.R14) === '[48,0,13]', 'lecture : autres intitulés coupés recollés', [wrap.vals.R7, wrap.vals.R14]);
   const crOnly = await page.evaluate(() => parseImport('COMPTE DE RESULTAT\n2022 2023\nIMMOBILISATIONS INCORPORELLES 5 6'));
   ok(!crOnly.vals.A13, 'lecture : dans le compte de résultat, une ligne ne remplit pas un poste du bilan', crOnly.vals);
+  /* Cases vides = 0, jamais les montants de la ligne du dessous */
+  const empt = await page.evaluate(() => [
+    parseImport('ACTIF 2021 2022 2023\nCAISSE, BANQUE CENTRALE, CCP 100 200 300\nACTIONNAIRES OU ASSOCIES\nAUTRES ACTIFS 1 873 2 450 1 186\nPRETS SUBORDONNES - 248 258\nPARTS DANS LES ENTREPRISES LIEES - - -'),
+    parseImport('Poste\t2021\t2022\t2023\nActionnaires ou associés\t\t\t\nAutres actifs\t1 873\t2 450\t1 186\nPrêts subordonnés\t\t248\t258\nImmobilisations incorporelles\t2\t\t61'),
+    parseImport('code;libellé;2021;2022;2023\nA7;Actionnaires ou associés;;;\nA8;Autres actifs;1873;2450;1186\nA12;Prêts subordonnés;-;248;258'),
+    parseImport('ACTIF 2021 2022 2023\nACTIONNAIRES OU ASSOCIES\nTOTAL DE L ACTIF 500 600 700\nPARTICIPATIONS ET AUTRES TITRES DETENUS A LONG TERME 178 178 178')
+  ].map(r => ({ A7: r.vals.A7, A8: r.vals.A8, A11: r.vals.A11, A12: r.vals.A12, A13: r.vals.A13, A10: r.vals.A10 })));
+  const J = x => JSON.stringify(x);
+  ok(J(empt[0].A7) === '[0,0,0]' && J(empt[0].A8) === '[1873,2450,1186]', 'lecture : poste sans montant = 0, la ligne du dessous garde ses chiffres (texte de PDF)', empt[0]);
+  ok(J(empt[0].A12) === '[0,248,258]' && J(empt[0].A11) === '[0,0,0]', 'lecture : tirets « - » = 0', empt[0]);
+  ok(J(empt[1].A7) === '[0,0,0]' && J(empt[1].A8) === '[1873,2450,1186]' && J(empt[1].A12) === '[0,248,258]' && J(empt[1].A13) === '[2,0,61]', 'lecture : cases vides d’un tableau (Excel, Word, PDF) = 0', empt[1]);
+  ok(J(empt[2].A7) === '[0,0,0]' && J(empt[2].A12) === '[0,248,258]', 'lecture : cases vides et tirets d’un CSV = 0', empt[2]);
+  ok(J(empt[3].A7) === '[0,0,0]' && J(empt[3].A10) === '[178,178,178]', 'lecture : poste vide suivi d’un total, le total n’est pas pris', empt[3]);
   /* Aller-retour CSV et JSON */
   const rt = await page.evaluate(() => { const before = JSON.stringify(bank().v); const csv = toCsv(false); const p = parseImport(csv); const back = {}; Object.keys(p.vals).forEach(k => back[k] = p.vals[k]); const ok1 = Object.keys(bank().v).every(k => JSON.stringify(bank().v[k]) === JSON.stringify(back[k] ?? bank().years.map(() => null)) || bank().v[k].every(x => x === null)); const j = parseImport(JSON.stringify({ banks: state.banks, cur: state.cur, params: state.params })); return [ok1, !!j.json, JSON.stringify(j.json.banks[state.cur].v) === before, p.years]; });
   ok(rt[0], 'export CSV puis import : mêmes valeurs');
@@ -522,10 +535,10 @@ else {
   let r = await parsed();
   ok(await page.inputValue('#impName') === 'CITIBANK', 'Excel : nom de la banque tiré du nom du fichier', await page.inputValue('#impName'));
   ok(JSON.stringify(r.years) === '[2021,2022,2023]' && JSON.stringify(r.vals.A4) === '[131072,130602,150766]' && JSON.stringify(r.vals.P3) === '[218985,187843,196626]', 'Excel : bilan lu', r.vals);
-  ok(JSON.stringify(r.vals.A12) === '[238,null,258]', 'Excel : case vide gardée à sa place', r.vals.A12);
+  ok(JSON.stringify(r.vals.A12) === '[238,0,258]', 'Excel : case vide = 0, à sa place', r.vals.A12);
   ok(JSON.stringify(r.vals.R1) === '[20000,21000,23000]' && JSON.stringify(r.vals.R2) === '[8000,8200,9000]', 'Excel : deuxième feuille lue', [r.vals.R1, r.vals.R2]);
   await page.click('#impApply');
-  ok(await page.evaluate(() => raw('A12', 1) === 248 && raw('A12', 2) === 258 && raw('R1', 2) === 23000), 'Excel : case vide ne remplace pas la valeur existante');
+  ok(await page.evaluate(() => raw('A12', 1) === 0 && raw('A12', 2) === 258 && raw('R1', 2) === 23000), 'Excel : case vide = 0 (ne garde pas une ancienne valeur ni celle d’une autre ligne)');
   await page.click('[data-tab="import"]');
 
   await upload('etats.docx', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', docxBuf); await waitPreview();
@@ -1023,7 +1036,7 @@ else {
   // déconnexion avec effacement local
   await A.page.fill('#hLabel', 'Deuxième analyse'); await A.page.click('#hSave');
   for (let i = 0; i < 100 && ![...shared.m.values()].some(v => v.includes('Deuxième analyse')); i++) await A.page.waitForTimeout(100);
-  await A.page.click('#accLogoutWipe');
+  await A.page.click('#accLogout');
   await A.page.waitForFunction(() => /Déconnecté/.test(document.querySelector('#accountCard').innerText));
   ok(await A.page.evaluate(() => state.history.length === 0), 'compte : déconnexion avec effacement de l’historique local');
   ok([...shared.m.values()].map(v => JSON.parse(v))[0].history.length > 0, 'compte : l’historique reste sur le compte après effacement local');
@@ -1032,6 +1045,16 @@ else {
   await A.page.click('#accSwitch'); await A.page.fill('#accEmail', 'isaac@test.ci'); await A.page.fill('#accPw', 'encoreunautre'); await A.page.click('#accGo');
   await A.page.waitForSelector('#accStatus.err');
   ok(/existe déjà/.test(await A.page.innerText('#accStatus')), 'compte : adresse déjà inscrite signalée');
+  // chaque compte ne voit que ses données : un autre compte sur le même appareil ne récupère rien du précédent
+  await A.page.fill('#accEmail', 'voisin@test.ci'); await A.page.fill('#accPw', 'motdepasse9'); await A.page.click('#accGo');
+  await A.page.waitForFunction(() => /Connecté avec/.test(document.querySelector('#accountCard').innerText), null, { timeout: 15000 });
+  for (let i = 0; i < 30; i++) await A.page.waitForTimeout(100);
+  const voisinDoc = [...shared.m.values()].map(v => JSON.parse(v)).find(d => d.email === 'voisin@test.ci') || { history: [], banks: {} };
+  ok(await A.page.evaluate(() => !state.history.some(e => /Deuxième analyse|iPhone/.test(e.label)) && !Object.values(state.banks).some(b => b.name === 'CORIS BANK')), 'compte : un autre compte sur le même appareil ne voit pas l’historique ni les banques du précédent');
+  ok(!JSON.stringify(voisinDoc).includes('Deuxième analyse') && !JSON.stringify(voisinDoc).includes('CORIS BANK'), 'compte : rien du compte précédent n’est envoyé sur le nouveau compte', Object.values(voisinDoc.banks || {}).map(b => b.name));
+  ok([...shared.m.values()].map(v => JSON.parse(v)).find(d => d.email === 'isaac@test.ci').history.some(e => e.label === 'Deuxième analyse'), 'compte : les analyses restent sur le compte qui les a faites');
+  await A.page.evaluate(() => { state.owner = 'isaac@test.ci'; state.history.push(...[]); });
+  ok(await A.page.evaluate(() => { const before = state.history.length; adoptAccount('isaac@test.ci'); return state.owner === 'isaac@test.ci'; }), 'compte : propriétaire des données de l’appareil noté');
   ok(A.errors.length === 0 && B.errors.length === 0, 'compte : aucune erreur JavaScript', [...A.errors, ...B.errors].slice(0, 3));
   ok(await A.page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), 'compte : pas de débordement sur téléphone');
   await A.ctx.close(); await B.ctx.close();

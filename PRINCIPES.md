@@ -132,7 +132,8 @@ Valeurs par défaut issues du dispositif prudentiel UMOA (Bâle II/III, BCEAO). 
 ## 5. Saisie des données
 1. **Formulaire manuel** : poste par poste, totaux et soldes intermédiaires calculés automatiquement, contrôle actif = passif
 2. **Import Excel/CSV** : modèle téléchargeable avec les codes A1… P9 et les postes du compte de résultat
-3. **Import de fichiers** : Excel (.xlsx, .xls, .ods), Word (.docx), PDF (recherche de la banque par son nom dans le fascicule), photos (lues par Claude dans claude.ai, par reconnaissance de texte Tesseract sur le site Netlify). Extraction automatique, puis **validation obligatoire par l'utilisateur** avant calcul
+3. **Cases vides = 0** : à l'import, une case vide ou un tiret (« - ») vaut zéro pour l'exercice concerné ; un poste dont toute la ligne est vide vaut zéro et ne prend jamais les chiffres de la ligne suivante. Seule une case illisible sur une photo reste vide, pour être complétée.
+4. **Import de fichiers** : Excel (.xlsx, .xls, .ods), Word (.docx), PDF (recherche de la banque par son nom dans le fascicule), photos (lues par Claude dans claude.ai, par reconnaissance de texte Tesseract sur le site Netlify). Extraction automatique, puis **validation obligatoire par l'utilisateur** avant calcul
 
 ## 6. Principes techniques
 - App web autonome, adaptée au mobile
@@ -145,6 +146,7 @@ Valeurs par défaut issues du dispositif prudentiel UMOA (Bâle II/III, BCEAO). 
 Sur le site Netlify, **l'app demande une adresse e-mail à l'ouverture**, comme Anglais 365 : on saisit son e-mail, on reçoit un **code à 6 chiffres** (envoyé par Brevo, valable 10 minutes, 5 essais, renvoi après 30 secondes), et l'app s'ouvre. Pas de mot de passe ; le compte est créé à la première connexion et la session dure **un an** sur l'appareil (cookie HttpOnly signé). Le code n'est jamais stocké en clair (empreinte SHA-256).
 - Réglages Netlify : `BREVO_API_KEY` et `MAIL_FROM` (adresse expéditrice validée dans Brevo), facultatif `MAIL_FROM_NAME`. Tant qu'ils manquent, l'écran d'entrée propose l'e-mail + mot de passe. `MAIL_DRY_RUN=1` écrit le code dans les journaux au lieu de l'envoyer ; `ACCES_LIBRE=1` supprime l'écran d'entrée.
 - Les comptes créés avant gardent leur mot de passe et peuvent aussi entrer par code.
+- **Chaque compte ne voit que ses propres données** : les banques et l'historique de l'appareil sont marqués au nom du compte connecté. À la déconnexion, ils sont retirés de l'appareil (ils restent sur le compte) ; si un autre compte se connecte sur le même appareil, il ne récupère rien du précédent et rien du précédent n'est envoyé sur son compte.
 - À la connexion, toutes les banques du compte s'affichent ; la version modifiée le plus récemment l'emporte, les suppressions se propagent. Fonctions `/api/compte/*` (server/compte.mjs) et `/api/historique` (server/historique.mjs) : un document par compte dans Netlify Blobs, fusion des appareils (union, suppressions propagées, plafond de 60).
 - Dans claude.ai (aperçu), il n'y a pas de partie serveur : l'app reste libre d'accès et l'historique reste sur l'appareil.
 
