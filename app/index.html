@@ -98,6 +98,7 @@ body.admin-mode .top .sub { opacity: .75; }
 body.admin-mode .top .tab { color: rgba(255,255,255,.75); }
 body.admin-mode .top .tab[aria-selected="true"] { color: #fff; border-bottom-color: #58c2a2; }
 .tab-back { margin-left: auto; }
+.tab-logout { color: #ffb4a8 !important; }
 .tab-admin { color: var(--accent); font-weight: 700; }
 .badge { display: inline-block; min-width: 18px; padding: 0 5px; border-radius: 999px; background: var(--bad); color: #fff; font-size: .7rem; line-height: 18px; text-align: center; }
 .live-head { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; }
@@ -4228,7 +4229,7 @@ function renderHeader() {
     $('#hdrSub').textContent = acct.user ? acct.user.email + (acct.isAdmin ? ' · administrateur' : '') : 'Connexion requise';
     if (acct.isAdmin && (adm.view || 'direct') === 'direct') adm.unread = 0;
     $('#tabs').innerHTML = (acct.isAdmin ? ADM_VIEWS.map(([k, l]) => '<button class="tab" role="tab" data-atab="' + k + '" aria-selected="' + ((adm.view || 'direct') === k) + '">' + (k === 'direct' ? '<span class="live-dot sm"></span> ' : '') + l + '</button>').join('') : '')
-      + '<a class="tab tab-back" href="/">← Ouvrir l’app</a>';
+      + '<a class="tab tab-back" href="/">← Ouvrir l’app</a>' + (acct.user ? '<button class="tab tab-logout" id="admLogout">⏻ Se déconnecter</button>' : '');
     return;
   }
   $('#tabs').innerHTML = TABS.map(([k, l]) => '<button class="tab" role="tab" data-tab="' + k + '" aria-selected="' + (state.tab === k) + '">' + l + '</button>').join('')
@@ -4350,7 +4351,19 @@ function bindView() {
     if ($('#dlJson')) $('#dlJson').onclick = () => track('export', 'sauvegarde JSON complète') || saveFile('sauvegarde_analyste_umoa.json', JSON.stringify({ banks:state.banks, cur:state.cur, params:state.params, history:state.history }, null, 1), 'application/json');
   }
 }
+/* Déconnexion depuis la console : la session est fermée côté serveur et l'écran de connexion revient */
+async function adminLogout() {
+  const b = $('#admLogout'); if (b) { b.disabled = true; b.textContent = 'Déconnexion…'; }
+  try { track('deconnexion', 'depuis la console'); await flushTrack(); } catch (e) {}
+  try { await api('deconnexion', {}); } catch (e) {}
+  acct.user = null; acct.isAdmin = false; acct.adminMsg = ''; accRemember(false); acct.lastSync = null;
+  Object.assign(adm, { stats:null, comptes:null, detail:null, live:null, liveSince:'', reglages:null, msg:'', view:'direct', filter:'', feedUser:'' });
+  resetLocalData(); state.owner = null; save({ silent:true });
+  acct.status = 'Déconnecté de la console.'; acct.err = false;
+  renderAll(); renderGate(); toast('Déconnecté');
+}
 $('#tabs').addEventListener('click', e => {
+  if (e.target.closest('#admLogout')) { adminLogout(); return; }
   const a = e.target.closest('[data-atab]');
   if (a) { adm.view = a.dataset.atab; adm.msg = ''; if (adm.view === 'direct') adminPoll(false); renderAll(); window.scrollTo(0, 0); return; }
   const b = e.target.closest('[data-tab]'); if (!b) return;

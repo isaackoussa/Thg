@@ -1406,6 +1406,11 @@ else {
     await Ad3.page.check('[data-alert="connexion"]');
     await Ad3.page.waitForFunction(() => /enregistré/.test(document.querySelector('#admAlertMsg').innerText), null, { timeout: 15000 });
     ok(JSON.parse(cs3.m.get('reglages-admin')).alertes.connexion === true, 'réglages : alerte à chaque connexion activée');
+    ok(await Ad3.page.isVisible('#admLogout'), 'console : bouton « Se déconnecter » visible');
+    await Ad3.page.click('#admLogout');
+    await Ad3.page.waitForSelector('#gMailForm', { timeout: 15000 });
+    ok(await Ad3.page.evaluate(async () => !acct.user && !acct.isAdmin && !document.querySelector('#adminBox table, .online') && (await fetch('/api/admin/comptes')).status === 401), 'console : déconnexion, session fermée côté serveur, écran de connexion affiché');
+    await enter(Ad3, 'chef@test.sn'); await Ad3.page.waitForFunction(() => /En ligne maintenant/.test(document.querySelector('#adminBox')?.innerText || ''), null, { timeout: 15000 });
     await Promise.all([Ad3.page.waitForNavigation(), Ad3.page.click('.tab-back')]); await Ad3.page.waitForSelector('#view .section-head');
     ok(await Ad3.page.evaluate(() => !document.body.classList.contains('admin-mode') && !!document.querySelector('[data-tab="structure"]')), 'console : « Ouvrir l’app » ramène aux onglets d’analyse');
     await Ad3.page.reload(); await Ad3.page.waitForSelector('#view .section-head');
