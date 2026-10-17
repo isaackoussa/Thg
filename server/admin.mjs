@@ -2,7 +2,7 @@
 // Sans réglage, l'administrateur est le compte du propriétaire de l'app.
 import { userFromRequest, hashPassword, userKeyOf, normEmail, DEFAULT_ADMINS, adminList, ALERT_DEFAULTS, mailReady } from './compte.mjs';
 import { liveFeed, userActivity, activityStats } from './activite.mjs';
-import { createHash } from 'node:crypto';
+import { createHash, timingSafeEqual } from 'node:crypto';
 export { DEFAULT_ADMINS, adminList };
 const json = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' } });
 
@@ -14,20 +14,36 @@ async function allUsers(comptes) {
 }
 const dayOf = iso => String(iso || '').slice(0, 10);
 
-export async function handleAdmin(req, action, { comptes, historiques, activite, adminEmails, env = () => undefined, codeRequired }) {
-  const me = await userFromRequest(req, comptes);
-  if (!me) return json({ error: 'Connexion requise' }, 401);
-  if (!adminList(adminEmails).includes(normEmail(me.email))) return json({ error: 'Réservé à l’administrateur' }, 403);
-  // quand les codes e-mail fonctionnent, la console exige une session ouverte avec un code (adresse prouvée) :
-  // un compte créé ou ouvert avec un mot de passe ne suffit jamais
-  if ((codeRequired ?? mailReady(env)) && !me.viaCode) return json({ error: 'Pour ouvrir la console, déconnecte-toi puis reconnecte-toi avec le code reçu par e-mail.', code: 'verify' }, 403);
+const sameKey = (a, b) => timingSafeEqual(createHash('sha256').update(String(a)).digest(), createHash('sha256').update(String(b)).digest());
+export async function handleAdmin(req, action, { comptes, historiques, activite, adminEmails, env = () => undefined, codeRequired, adminKey }) {
+  // Accès par clé admin (ADMIN_KEY, comme MasterGraf / SMC Lab) : la console ne dépend d'aucun compte de l'app.
+  // Sans ADMIN_KEY réglée, repli sur le compte administrateur ouvert avec un code e-mail.
+  const consoleKey = String(adminKey ?? env('ADMIN_KEY') ?? '').trim();
+  let me;
+  if (consoleKey) {
+    const fails = (await comptes.get('admin-echecs', { type: 'json' })) || { n: 0, until: 0 };
+    if (fails.until > Date.now()) return json({ error: 'Trop d’essais : console bloquée encore ' + Math.ceil((fails.until - Date.now()) / 60000) + ' minute(s).', code: 'locked' }, 429);
+    const got = String(req.headers.get('x-admin-key') || '').trim();
+    if (!got || !sameKey(got, consoleKey)) {
+      if (got) { fails.n = (fails.n || 0) + 1; if (fails.n >= 8) { fails.until = Date.now() + 15 * 60000; fails.n = 0; } await comptes.setJSON('admin-echecs', fails); }
+      return json({ error: got ? 'Clé admin incorrecte.' : 'Clé admin requise.', code: 'key' }, 401);
+    }
+    if (fails.n) await comptes.setJSON('admin-echecs', { n: 0, until: 0 });
+    me = { email: 'clé admin', viaKey: true };
+  } else {
+    me = await userFromRequest(req, comptes);
+    if (!me) return json({ error: 'Clé admin requise.', code: 'key' }, 401);
+    if (!adminList(adminEmails).includes(normEmail(me.email))) return json({ error: 'Réservé à l’administrateur' }, 403);
+    // quand les codes e-mail fonctionnent, une session ouverte avec un mot de passe ne suffit jamais
+    if ((codeRequired ?? mailReady(env)) && !me.viaCode) return json({ error: 'Pour ouvrir la console, déconnecte-toi puis reconnecte-toi avec le code reçu par e-mail.', code: 'verify' }, 403);
+  }
   if (req.method === 'POST') {
     const origin = req.headers.get('origin');
     if (!origin || origin !== new URL(req.url).origin) return json({ error: 'Origine refusée' }, 403);
   }
   const url = new URL(req.url);
 
-  if (action === 'moi' && req.method === 'GET') return json({ admin: true, email: me.email });
+  if (action === 'moi' && req.method === 'GET') return json({ admin: true, email: me.email, mode: me.viaKey ? 'cle' : 'compte', admins: adminList(adminEmails) });
   // en direct : qui est en ligne, ce qu'il fait ; « depuis » ne renvoie que les nouvelles actions
   if (action === 'direct' && req.method === 'GET') {
     if (!activite) return json({ now: new Date().toISOString(), enLigne: [], recents: [], events: [] });
@@ -103,7 +119,7 @@ export async function handleAdmin(req, action, { comptes, historiques, activite,
   }
   if (action === 'debloquer') { await comptes.setJSON(key, { ...user, fails: 0, lockedUntil: 0 }); return json({ ok: true }); }
   if (action === 'supprimer') {
-    if (normEmail(user.email) === normEmail(me.email)) return json({ error: 'Tu ne peux pas supprimer ton propre compte administrateur.' }, 400);
+    if (normEmail(user.email) === normEmail(me.email) || adminList(adminEmails).includes(normEmail(user.email))) return json({ error: 'Le compte administrateur ne peut pas être supprimé.' }, 400);
     // le compte d'abord (plus de connexion possible), puis ses données ; une erreur est renvoyée clairement
     try { await comptes.delete(key); } catch (e) { return json({ error: 'Suppression impossible pour le moment (stockage indisponible). Réessaie.' }, 500); }
     const reste = [];

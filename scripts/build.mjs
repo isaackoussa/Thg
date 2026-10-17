@@ -76,6 +76,7 @@ self.addEventListener('fetch', e => {
   const isPage = req.mode === 'navigate';
   const isFont = url.hostname === 'fonts.googleapis.com' || url.hostname === 'fonts.gstatic.com';
   if (url.origin !== location.origin && !isFont) return;
+  if (url.pathname === '/admin' || url.pathname === '/admin.html') return;
   if (isPage) {
     e.respondWith(fetch(req).then(r => { const copy = r.clone(); caches.open(CACHE).then(c => c.put('/', copy)); return r; }).catch(() => caches.match('/')));
     return;
@@ -89,5 +90,8 @@ mkdirSync(root + 'dist');
 writeFileSync(root + 'dist/index.html', html);
 writeFileSync(root + 'dist/manifest.webmanifest', JSON.stringify(manifest, null, 2));
 writeFileSync(root + 'dist/sw.js', sw);
+// Console d'administration : page à part (app/admin.html), avec la feuille de style de l'app mais aucun de son code
+const appCss = (src.match(/<style>([\s\S]*?)<\/style>/) || [])[1] || '';
+writeFileSync(root + 'dist/admin.html', readFileSync(root + 'app/admin.html', 'utf8').replace('/*@@APP_CSS@@*/', () => appCss));
 for (const f of readdirSync(root + 'public')) copyFileSync(root + 'public/' + f, root + 'dist/' + f);
 console.log('Site construit dans dist/ (version ' + version + ')');

@@ -91,12 +91,6 @@ main { max-width: 1180px; margin: 0 auto; padding: 18px 16px 60px; display: grid
 .ms-preview:not(:empty) { background: var(--surface-2); border-radius: 8px; padding: 10px 12px; font-size: .9rem; }
 .ms-preview p { margin: 0 0 8px; }
 /* Console d'administration */
-body.admin-mode .ctrls { display: none; }
-body.admin-mode .top { background: var(--ink); }
-body.admin-mode .top .bank-name, body.admin-mode .top .sub { color: #fff; }
-body.admin-mode .top .sub { opacity: .75; }
-body.admin-mode .top .tab { color: rgba(255,255,255,.75); }
-body.admin-mode .top .tab[aria-selected="true"] { color: #fff; border-bottom-color: #58c2a2; }
 .tab-back { margin-left: auto; }
 .tab-logout { color: #ffb4a8 !important; }
 .tab-admin { color: var(--accent); font-weight: 700; }
@@ -429,8 +423,7 @@ const SAMPLE = {
    4. ÉTAT & STOCKAGE LOCAL
    ===================================================================== */
 const LS_KEY = 'umoa-analyste-v1';
-// la console d'administration est une page à part : /admin (ou #admin) ; l'app ne s'ouvre jamais dessus
-const ADMIN_PAGE = (() => { try { return /^\/admin\/?$/.test(location.pathname) || location.hash === '#admin'; } catch (e) { return false; } })();
+
 /* Nettoie des données venues du stockage ou d'un import : jamais de plantage sur un fichier abîmé */
 function cleanParams(p) {
   const out = Object.assign({}, DEFAULT_PARAMS);
@@ -3068,7 +3061,7 @@ async function accountBoot() {
   // hors ligne : on garde l'accès si l'appareil était connecté ; sinon la première connexion demande internet
   if (offline && !accRemembered() && gateSeen()) { gate.on = true; gate.err = 'Pas de connexion internet : la première connexion demande internet.'; }
   gate.loading = false; renderGate();
-  if (acct.user) { track('ouverture', (bank() || {}).name || ''); await syncHistory(true); checkAdmin(); }
+  if (acct.user) { track('ouverture', (bank() || {}).name || ''); await syncHistory(true); }
   renderAccount();
 }
 function renderGate() {
@@ -3098,8 +3091,8 @@ function renderGate() {
       + '<button class="btn pri g-big" id="gPwGo" type="submit"' + (gate.busy ? ' disabled' : '') + '>' + (gate.signup ? 'Créer mon compte' : 'Me connecter') + '</button>'
       + '<div class="row"><button type="button" class="btn sm" id="gSignup">' + (gate.signup ? 'J’ai déjà un compte' : 'Créer un compte') + '</button>' + (gate.mail ? '<button type="button" class="btn sm" id="gUseCode">Recevoir un code par e-mail</button>' : '') + '</div></form>';
   } else {
-    card = '<form id="gMailForm" class="g-form" novalidate><h1 id="gTitle">' + (ADMIN_PAGE ? 'Console <span>d’administration</span>' : 'Ton espace <span>d’analyse</span>') + '</h1>'
-      + '<p class="note">' + (ADMIN_PAGE ? 'Réservée à l’administrateur. Connecte-toi avec l’adresse administrateur : tu recevras un code par e-mail.' : 'Connecte-toi avec ton e-mail : tes banques, tes analyses et ton historique sont sauvegardés et te suivent sur tous tes appareils. Pas de mot de passe, juste un code.') + '</p>'
+    card = '<form id="gMailForm" class="g-form" novalidate><h1 id="gTitle">Ton espace <span>d’analyse</span></h1>'
+      + '<p class="note">Connecte-toi avec ton e-mail : tes banques, tes analyses et ton historique sont sauvegardés et te suivent sur tous tes appareils. Pas de mot de passe, juste un code.</p>'
       + '<label>Adresse e-mail<input type="email" id="gEmail" inputmode="email" autocomplete="email" placeholder="toi@exemple.com" required></label>' + err + info
       + '<button class="btn pri g-big" id="gSend" type="submit"' + (gate.busy ? ' disabled' : '') + '>' + (gate.busy ? 'Envoi du code…' : 'Recevoir mon code →') + '</button>'
       + '<ul class="g-list"><li>Tes banques et analyses sauvegardées en ligne, sur ordinateur et téléphone</li><li>Rapports Word, code R et formules, prêts à rendre</li><li>Tu restes connecté sur cet appareil pendant un an</li></ul>'
@@ -3116,7 +3109,7 @@ function bindGate() {
     acct.user = { email:me.email }; accRemember(true); gate.busy = false; gate.err = gate.info = ''; gate.step = 'email';
     track('connexion', me.isNew ? 'première connexion (nouveau compte)' : '');
     renderGate(); renderAll(true);
-    await syncHistory(true); checkAdmin(); renderAccount();
+    await syncHistory(true); renderAccount();
     toast(msg || 'Bienvenue ' + me.email);
   };
   const sendCode = async () => {
@@ -3199,7 +3192,7 @@ function adoptAccount(email) {
 }
 /* ---- Journal d'activité (console admin, « en direct ») : actions envoyées par lots + signal de présence chaque minute ---- */
 const trk = { q:[], timer:null, lastSaisie:0 };
-const tabLabel = k => k === 'admin' ? 'Console admin' : (TABS.find(t => t[0] === k) || [, k])[1];
+const tabLabel = k => (TABS.find(t => t[0] === k) || [, k])[1];
 function track(type, d) {
   if (!acct.user || !accountsPossible()) return;
   trk.q.push({ at:new Date().toISOString(), type, d:String(d || '').slice(0, 160) });
@@ -3260,7 +3253,6 @@ function bindAccount() {
       acct.user = { email:me.email }; accRemember(true); acct.mode = 'login';
       track('connexion', signup ? 'première connexion (nouveau compte)' : '');
       await syncHistory(true);
-      checkAdmin();
       const nb = Object.keys(state.banks).length;
       accSet(signup ? 'Compte créé, tu es connecté. Tes banques et ton historique sont enregistrés sur ce compte.' : 'Connecté : ' + nb + ' banque' + (nb > 1 ? 's' : '') + ' et ' + state.history.length + ' analyse' + (state.history.length > 1 ? 's' : '') + ' retrouvée' + (nb + state.history.length > 1 ? 's' : '') + '.');
     }, signup ? 'Création du compte…' : 'Connexion…');
@@ -3270,7 +3262,7 @@ function bindAccount() {
   const logout = wipe => run(async () => {
     track('deconnexion', wipe ? 'avec effacement des données de l’appareil' : ''); await flushTrack();
     try { await api('deconnexion', {}); } catch (e) {}
-    acct.user = null; accRemember(false); acct.lastSync = null; acct.isAdmin = false; adm.stats = null; adm.comptes = null; adm.detail = null; adm.live = null;
+    acct.user = null; accRemember(false); acct.lastSync = null;
     resetLocalData(); state.owner = null; save({ silent:true });
     acct.status = 'Déconnecté. Tes banques et ton historique ont été retirés de cet appareil ; ils restent sur ton compte et reviendront à ta prochaine connexion.';
     acct.err = false;
@@ -3348,283 +3340,6 @@ function bindHistorique() {
 /* =====================================================================
    12 quinquies. ADMIN — réservé aux comptes administrateurs (vérifié par le serveur)
    ===================================================================== */
-const adm = { stats:null, comptes:null, err:'', loading:false, open:null, detail:null, msg:'', view:'direct', live:null, liveSince:'', unread:0 };
-async function adminApi(path, body) {
-  let res;
-  try { res = await fetch('/api/admin/' + path, body === undefined ? { credentials:'same-origin' } : { method:'POST', credentials:'same-origin', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify(body) }); }
-  catch (e) { throw new Error('Le serveur ne répond pas.'); }
-  let data = {}; try { data = await res.json(); } catch (e) {}
-  if (!res.ok) { const e = new Error(data.error || 'Erreur ' + res.status); e.status = res.status; e.code = data.code; throw e; }
-  return data;
-}
-async function checkAdmin() {
-  const was = !!acct.isAdmin;
-  if (!acct.user) acct.isAdmin = false;
-  else { try { await adminApi('moi'); acct.isAdmin = true; acct.adminMsg = ''; } catch (e) { acct.isAdmin = false; acct.adminMsg = e.code === 'verify' ? e.message : ''; } }
-  if (was !== acct.isAdmin || state.tab === 'admin') renderAll(true);
-}
-async function loadAdmin() {
-  adm.loading = true; adm.err = ''; renderAdmin();
-  try { const [st, cp] = await Promise.all([adminApi('stats'), adminApi('comptes')]); adm.stats = st; adm.comptes = cp.comptes; }
-  catch (e) { adm.err = e.message; if (e.status === 401 || e.status === 403) { acct.isAdmin = false; } }
-  adm.loading = false; renderAdmin();
-}
-const fmtD = iso => { if (!iso) return '—'; const d = new Date(iso); return isNaN(d) ? '—' : d.toLocaleDateString('fr-FR', { day:'2-digit', month:'2-digit', year:'numeric' }); };
-const fmtDT = iso => { if (!iso) return '—'; const d = new Date(iso); return isNaN(d) ? '—' : fmtD(iso) + ' ' + d.toLocaleTimeString('fr-FR', { hour:'2-digit', minute:'2-digit' }); };
-/* ---- Console d'administration : un espace à part (En direct, Tableau de bord, Comptes, Réglages) ---- */
-const ADM_VIEWS = [['direct', 'En direct'], ['tableau', 'Tableau de bord'], ['comptes', 'Comptes'], ['reglages', 'Réglages']];
-const EV_INFO = {
-  ouverture:['🚪', 'ouvre l’app'], connexion:['🔑', 'se connecte'], deconnexion:['👋', 'se déconnecte'], onglet:['👁', 'consulte'], banque:['🏦', 'passe sur la banque'],
-  nouvelle_banque:['➕', 'crée la banque'], saisie:['✏️', 'modifie les données de'], import:['📥', 'importe'], rapport:['📄', 'génère un rapport Word :'], code_r:['📊', 'code R :'],
-  analyse:['💾', 'enregistre l’analyse'], restauration:['↩️', 'restaure'], export:['📤', 'exporte'], parametres:['⚙️', 'modifie un paramètre :'], style:['✍️', 'règle son style de rédaction'], admin:['🛡', 'console admin']
-};
-const EV_IMPORTANT = new Set(['connexion', 'ouverture', 'nouvelle_banque', 'import', 'rapport', 'code_r', 'analyse', 'restauration', 'export']);
-const ADM_NOTIF_KEY = 'umoa-admin-notif';
-function admPrefs() { try { return JSON.parse(localStorage.getItem(ADM_NOTIF_KEY) || '{}') || {}; } catch (e) { return {}; } }
-function admSavePrefs(p) { try { localStorage.setItem(ADM_NOTIF_KEY, JSON.stringify(p)); } catch (e) {} }
-const ago = iso => { const s = Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 1000)); return !isFinite(s) ? '—' : s < 10 ? 'à l’instant' : s < 60 ? 'il y a ' + s + ' s' : s < 3600 ? 'il y a ' + Math.floor(s / 60) + ' min' : s < 86400 ? 'il y a ' + Math.floor(s / 3600) + ' h' : 'le ' + fmtD(iso); };
-const hms = iso => { const d = new Date(iso); return isNaN(d) ? '' : d.toLocaleTimeString('fr-FR', { hour:'2-digit', minute:'2-digit', second:'2-digit' }); };
-const evText = e => { const i = EV_INFO[e.type] || ['•', e.type]; return i[1] + (e.d ? (e.type === 'connexion' || e.type === 'deconnexion' ? ' (' + e.d + ')' : ' ' + (e.type === 'onglet' ? '« ' + e.d + ' »' : e.d)) : ''); };
-const evKey = e => e.at + '|' + e.uid + '|' + e.type + '|' + e.d;
-function vAdmin() {
-  if (!acct.isAdmin) {
-    if (acct.user && acct.adminMsg) return head('Administration', 'Console d’administration', '') + '<div class="banner warn"><b>Vérification nécessaire</b><span class="note">' + esc(acct.adminMsg) + '</span></div>' + accountCard();
-    if (acct.user) return head('Administration', 'Console d’administration', '') + '<div class="banner warn"><b>Accès réservé</b><span class="note">Le compte ' + esc(acct.user.email) + ' n’est pas administrateur. Déconnecte-toi puis connecte-toi avec le compte administrateur, ou <a href="/">ouvre l’app</a>.</span></div>' + accountCard();
-    return head('Administration', 'Connexion administrateur', 'Connecte-toi avec le compte administrateur pour accéder à la console.') + accountCard();
-  }
-  setTimeout(() => { if (!adm.stats && !adm.loading) loadAdmin(); if (!adm.live) adminPoll(true); }, 0);
-  const v = ADM_VIEWS.find(x => x[0] === (adm.view || 'direct'));
-  const sub = { direct:'Qui est connecté et ce qu’il fait, mis à jour toutes les 10 secondes.', tableau:'Statistiques d’utilisation : comptes, activité, heures d’affluence, banques les plus analysées.', comptes:'Tous les comptes, leurs appareils, leurs connexions, leurs actions et leurs analyses.', reglages:'Alertes par e-mail et notifications du navigateur.' }[v[0]];
-  return head('Console d’administration', v[1], sub) + '<div id="adminBox"></div>';
-}
-function renderAdmin() {
-  const box = document.getElementById('adminBox'); if (!box) return;
-  const v = adm.view || 'direct';
-  if (v !== 'direct' && v !== 'reglages') {
-    if (adm.loading && !adm.stats) { box.innerHTML = '<div class="card"><p class="note">Chargement…</p></div>'; return; }
-    if (adm.err && !adm.stats) { box.innerHTML = '<div class="banner warn"><b>Impossible de charger l’administration</b><span class="note">' + esc(adm.err) + '</span><div class="row"><button class="btn sm" id="admReload">Réessayer</button></div></div>'; bindAdmin(); return; }
-  }
-  const keepFeed = $('#admFeed') ? $('#admFeed').scrollTop : 0;
-  let h = '';
-  if (adm.msg) h += '<div class="row"><span class="note" id="admMsg">' + esc(adm.msg) + '</span></div>';
-  h += v === 'direct' ? adminLive() : v === 'tableau' ? adminBoard() : v === 'comptes' ? adminAccounts() : adminSettings();
-  box.innerHTML = h;
-  if ($('#admFeed')) $('#admFeed').scrollTop = keepFeed;
-  bindAdmin();
-}
-/* En direct */
-function adminLive() {
-  const L = adm.live, pr = admPrefs();
-  if (!L) return '<div class="card"><p class="note">' + (adm.liveErr ? esc(adm.liveErr) : 'Chargement de l’activité…') + '</p></div>';
-  const me = acct.user && acct.user.email, hideMe = pr.hideMe !== false;
-  const keep = p => !hideMe || p.email !== me;
-  const notif = typeof Notification !== 'undefined' ? Notification.permission : 'unsupported';
-  let h = '<div class="live-head"><span class="live-dot' + (adm.pause ? ' off' : '') + '" aria-hidden="true"></span><b>' + (adm.pause ? 'En pause' : 'En direct') + '</b><span class="note" id="admLiveAt">mis à jour ' + ago(adm.liveAt || L.now) + '</span>'
-    + '<button class="btn sm" id="admPause">' + (adm.pause ? 'Reprendre' : 'Mettre en pause') + '</button>'
-    + (notif === 'unsupported' ? '' : '<button class="btn sm' + (pr.notif && notif === 'granted' ? ' pri' : '') + '" id="admNotif">' + (pr.notif && notif === 'granted' ? '🔔 Notifications activées' : notif === 'denied' ? '🔕 Notifications bloquées par le navigateur' : '🔔 Me notifier') + '</button>')
-    + '<label class="check" for="admHideMe"><input type="checkbox" id="admHideMe"' + (hideMe ? ' checked' : '') + '> Masquer mes actions</label></div>';
-  const online = L.enLigne.filter(keep), recents = (L.recents || []).filter(keep);
-  h += '<div class="card"><h3>En ligne maintenant (' + online.length + ')</h3>' + (online.length ? '<div class="online">' + online.map(p => '<div class="who"><div class="who-h"><span class="live-dot sm' + (p.visible === false ? ' idle' : '') + '"></span><b>' + esc(p.email) + '</b></div>'
-      + '<div class="note">' + devIcon(p.type) + ' ' + esc(p.appareil || '—') + (p.lieu ? ' · ' + esc(p.lieu) : '') + '</div>'
-      + '<div>' + (p.visible === false ? '<span class="note">App en arrière-plan</span>' : 'Sur l’onglet <b>' + esc(p.tab || '—') + '</b>') + (p.bank ? ' · ' + esc(p.bank) : '') + '</div>'
-      + '<div class="note">Connecté depuis ' + ago(p.since).replace('il y a ', '') + ' · dernier signal ' + ago(p.at) + '</div></div>').join('') + '</div>' : '<p class="note">Personne n’est connecté en ce moment.</p>')
-    + (recents.length ? '<p class="eyebrow" style="margin-top:6px">Vus dans les dernières 24 h</p><div class="tbl-wrap"><table><thead><tr><th>Compte</th><th>Dernier signal</th><th>Appareil</th><th>Dernier onglet</th></tr></thead><tbody>' + recents.map(p => '<tr><td>' + esc(p.email) + '</td><td>' + ago(p.at) + '</td><td>' + devIcon(p.type) + ' ' + esc(p.appareil || '—') + (p.lieu ? '<br><span class="note">' + esc(p.lieu) + '</span>' : '') + '</td><td>' + esc(p.tab || '—') + (p.bank ? '<br><span class="note">' + esc(p.bank) + '</span>' : '') + '</td></tr>').join('') + '</tbody></table></div>' : '') + '</div>';
-  const emails = [...new Set(L.events.map(e => e.email))].sort();
-  const fu = adm.feedUser || '', fl = adm.feedLevel || 'tout';
-  const ev = L.events.filter(e => keep(e) && (!fu || e.email === fu) && (fl === 'tout' || EV_IMPORTANT.has(e.type)));
-  h += '<div class="card"><h3>Fil d’activité</h3><div class="row"><label class="note" for="admFeedUser">Compte <select id="admFeedUser"><option value="">Tous</option>' + emails.map(m => '<option' + (m === fu ? ' selected' : '') + '>' + esc(m) + '</option>').join('') + '</select></label>'
-    + '<label class="note" for="admFeedLevel">Actions <select id="admFeedLevel"><option value="tout"' + (fl === 'tout' ? ' selected' : '') + '>Toutes</option><option value="imp"' + (fl === 'imp' ? ' selected' : '') + '>Importantes (sans la navigation)</option></select></label><span class="note">' + ev.length + ' action(s) sur 48 h</span></div>'
-    + (ev.length ? '<div class="feed" id="admFeed">' + ev.map(e => { const i = EV_INFO[e.type] || ['•']; return '<div class="ev' + (adm.fresh && adm.fresh.has(evKey(e)) ? ' new' : '') + '"><time>' + hms(e.at) + '<small>' + ago(e.at) + '</small></time><span class="ev-ico" aria-hidden="true">' + i[0] + '</span><div class="ev-b"><b>' + esc(e.email) + '</b> ' + esc(evText(e)) + '<div class="note">' + devIcon(e.appType) + ' ' + esc(e.appareil || '') + (e.lieu ? ' · ' + esc(e.lieu) : '') + (e.bank && e.type !== 'banque' ? ' · ' + esc(e.bank) : '') + '</div></div></div>'; }).join('') + '</div>' : '<p class="note">Aucune action pour l’instant. Les actions des utilisateurs connectés (onglets ouverts, imports, rapports, code R…) apparaissent ici en quelques secondes.</p>') + '</div>';
-  return h;
-}
-/* Tableau de bord */
-function miniBars(vals, labels, color, tip, W = 360, H = 120) {
-  const max = Math.max(1, ...vals), bw = W / Math.max(1, vals.length);
-  let svg = '';
-  vals.forEach((v, i) => {
-    const hh = v / max * (H - 24);
-    svg += '<rect x="' + (i * bw + 1).toFixed(1) + '" y="' + (H - 18 - hh).toFixed(1) + '" width="' + Math.max(1, bw - 2).toFixed(1) + '" height="' + Math.max(0, hh).toFixed(1) + '" rx="1.5" style="fill:' + color + '" data-tip="' + esc(tip(i, v)) + '"/>';
-    if (labels[i]) svg += '<text x="' + Math.min(W - 10, Math.max(10, i * bw + bw / 2)).toFixed(1) + '" y="' + (H - 4) + '" font-size="10" text-anchor="middle" style="fill:var(--ink-3)">' + labels[i] + '</text>';
-  });
-  return '<svg class="chart" viewBox="0 0 ' + W + ' ' + H + '" role="img">' + svg + '<line x1="0" x2="' + W + '" y1="' + (H - 18) + '" y2="' + (H - 18) + '" style="stroke:var(--line)"/></svg>';
-}
-function adminBoard() {
-  const s = adm.stats || {};
-  const tile = (k, v, d) => '<div class="tile" style="cursor:default"><span class="k">' + k + '</span><span class="v">' + nfI.format(v || 0) + '</span><span class="d">' + (d || '&nbsp;') + '</span></div>';
-  let h = '<div class="row"><button class="btn sm" id="admReload">Actualiser</button></div><div class="tiles">' + tile('Comptes', s.comptes, 'inscrits') + tile('En ligne', adm.live ? adm.live.enLigne.length : 0, 'en ce moment') + tile('Actifs 7 jours', s.actifs7, 'connectés') + tile('Actifs 30 jours', s.actifs30, 'connectés') + tile('Actions 7 jours', s.actions7, 'dans l’app') + tile('Banques', s.banques, 'enregistrées') + tile('Analyses', s.analyses, 'dans les historiques') + '</div>';
-  const pd = s.parJour || [], max = Math.max(1, ...pd.map(d => Math.max(d.inscriptions, d.analyses)));
-  const W = 360, H = 120, bw = W / Math.max(1, pd.length);
-  let svg = '';
-  pd.forEach((d, i) => {
-    const x = i * bw, ha = d.analyses / max * (H - 24), hi = d.inscriptions / max * (H - 24);
-    svg += '<rect x="' + (x + 1).toFixed(1) + '" y="' + (H - 18 - ha).toFixed(1) + '" width="' + (bw / 2 - 1.5).toFixed(1) + '" height="' + Math.max(0, ha).toFixed(1) + '" rx="1.5" style="fill:var(--s1)" data-tip="' + fmtD(d.jour) + ' : ' + d.analyses + ' analyse(s)"/>';
-    svg += '<rect x="' + (x + bw / 2).toFixed(1) + '" y="' + (H - 18 - hi).toFixed(1) + '" width="' + (bw / 2 - 1.5).toFixed(1) + '" height="' + Math.max(0, hi).toFixed(1) + '" rx="1.5" style="fill:var(--s2)" data-tip="' + fmtD(d.jour) + ' : ' + d.inscriptions + ' inscription(s)"/>';
-    if (i % 7 === 0 && pd.length - i > 3 || i === pd.length - 1) svg += '<text x="' + Math.min(W - 14, Math.max(14, x + bw / 2)).toFixed(1) + '" y="' + (H - 4) + '" font-size="10" text-anchor="middle" style="fill:var(--ink-3)">' + d.jour.slice(8, 10) + '/' + d.jour.slice(5, 7) + '</text>';
-  });
-  // heures d'affluence en heure locale (le serveur compte en heure UTC)
-  const off = new Date().getTimezoneOffset() / 60, hu = s.heuresUTC || Array(24).fill(0), hl = Array(24).fill(0);
-  hu.forEach((v, u) => { hl[((u - off) % 24 + 24) % 24] += v; });
-  h += '<div class="grid2"><div class="card"><h3>Activité des 30 derniers jours</h3><div class="legend"><span><i style="background:var(--s1)"></i>Analyses enregistrées</span><span><i style="background:var(--s2)"></i>Inscriptions</span></div><svg class="chart" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Activité par jour">' + svg + '<line x1="0" x2="' + W + '" y1="' + (H - 18) + '" y2="' + (H - 18) + '" style="stroke:var(--line)"/></svg></div>'
-    + '<div class="card"><h3>Actions dans l’app par jour</h3>' + miniBars(pd.map(d => d.actions || 0), pd.map((d, i) => i % 7 === 0 && pd.length - i > 3 || i === pd.length - 1 ? d.jour.slice(8, 10) + '/' + d.jour.slice(5, 7) : ''), 'var(--s3)', (i, v) => fmtD(pd[i].jour) + ' : ' + v + ' action(s)') + '</div>'
-    + '<div class="card"><h3>Heures d’affluence (7 jours)</h3>' + miniBars(hl, hl.map((_, i) => i % 3 === 0 ? i + 'h' : ''), 'var(--s4)', (i, v) => i + 'h–' + (i + 1) + 'h : ' + v + ' action(s)') + '<p class="note">Heure de ton appareil.</p></div>'
-    + '<div class="card"><h3>Banques les plus analysées</h3>' + ((s.topBanques || []).length ? '<div class="tbl-wrap"><table><thead><tr><th>Banque</th><th>Comptes</th></tr></thead><tbody>' + s.topBanques.map(b => '<tr><td>' + esc(b.nom) + '</td><td>' + b.comptes + '</td></tr>').join('') + '</tbody></table></div>' : '<p class="note">Aucune banque enregistrée pour l’instant.</p>') + '</div></div>';
-  return h;
-}
-/* Comptes : une carte par compte, actions toujours visibles (aussi sur téléphone) */
-function adminAccounts() {
-  const cps = adm.comptes || [], online = new Set(adm.live ? adm.live.enLigne.map(p => p.email) : []), me = acct.user && acct.user.email;
-  const f = (adm.filter || '').toLowerCase(), list = cps.filter(c => !f || c.email.includes(f));
-  let h = '<div class="row"><button class="btn sm" id="admReload">Actualiser</button></div><div class="card"><h3>Comptes (' + cps.length + ')</h3><label class="note" for="admFilter">Rechercher <input type="text" id="admFilter" placeholder="adresse e-mail" value="' + esc(adm.filter || '') + '" style="min-width:200px"></label>'
-    + (list.length ? '<div class="accs">' + list.map(c => '<div class="acc" data-acc="' + esc(c.email) + '"><div class="acc-h">' + (online.has(c.email) ? '<span class="live-dot sm" title="En ligne"></span>' : '') + '<b>' + esc(c.email) + '</b>' + (c.email === me ? ' <span class="tag">toi</span>' : '') + (c.locked ? ' <span class="chip st-warn"><i>!</i>Bloqué</span>' : '') + '</div>'
-      + '<div class="note">Inscrit le ' + fmtD(c.createdAt) + ' · dernière connexion ' + fmtDT(c.lastLogin) + '</div>'
-      + '<div class="note">' + (c.device ? devIcon(c.device.type) + ' ' + esc(c.device.label) + (c.device.lieu ? ' · ' + esc(c.device.lieu) : '') + (c.nDevices > 1 ? ' · ' + c.nDevices + ' appareils' : '') : 'Aucun appareil noté') + '</div>'
-      + '<div class="note">' + c.banks + ' banque(s) · ' + c.analyses + ' analyse(s)</div>'
-      + '<div class="row acc-btns"><button class="btn sm" data-av="' + esc(c.id) + '">Voir</button><button class="btn sm" data-apw="' + esc(c.email) + '">Mot de passe</button>' + (c.locked ? '<button class="btn sm" data-aun="' + esc(c.email) + '">Débloquer</button>' : '') + (c.email !== me ? '<button class="btn sm danger" data-adel="' + esc(c.email) + '">Supprimer</button>' : '') + '</div>'
-      + '<div class="acc-act"></div></div>').join('') + '</div>' : '<p class="note">Aucun compte ne correspond.</p>')
-    + '<p class="note">Le point vert indique un compte en ligne. Ton propre compte administrateur ne peut pas être supprimé.</p></div>';
-  h += '<div id="admDetail">' + (adm.detail ? adminDetail(adm.detail) : '') + '</div>';
-  return h;
-}
-/* Réglages */
-function adminSettings() {
-  const r = adm.reglages, pr = admPrefs(), notif = typeof Notification !== 'undefined' ? Notification.permission : 'unsupported';
-  const al = r ? r.alertes : null;
-  const box = (k, l, d) => '<label class="check" for="al-' + k + '"><input type="checkbox" id="al-' + k + '" data-alert="' + k + '"' + (al && al[k] ? ' checked' : '') + (al ? '' : ' disabled') + '> <span><b>' + l + '</b><br><span class="note">' + d + '</span></span></label>';
-  return '<div class="card"><h3>Alertes par e-mail</h3><p class="note">Envoyées à l’adresse administrateur par Brevo (variables BREVO_API_KEY et MAIL_FROM dans Netlify), même quand la console est fermée.</p><div class="checks" style="display:grid;gap:8px">'
-    + box('inscription', 'Nouvelle inscription', 'Un e-mail dès qu’un nouveau compte est créé.')
-    + box('appareil', 'Connexion depuis un nouvel appareil', 'Un e-mail quand un compte se connecte depuis un appareil jamais vu.')
-    + box('connexion', 'Chaque connexion', 'Un e-mail à chaque connexion (peut être fréquent).')
-    + '</div>' + (r ? '' : '<p class="note">Chargement des réglages…</p>') + '<div id="admAlertMsg" class="note"></div></div>'
-    + '<div class="card"><h3>Notifications du navigateur</h3><p class="note">Tant que l’app est ouverte sur cet appareil (même dans un autre onglet), une notification s’affiche pour chaque action. ' + (notif === 'denied' ? '<b>Les notifications sont bloquées : autorise-les dans les réglages du navigateur pour ce site.</b>' : '') + '</p>'
-    + '<div class="checks" style="display:grid;gap:8px"><label class="check" for="nfOn"><input type="checkbox" id="nfOn"' + (pr.notif && notif === 'granted' ? ' checked' : '') + (notif === 'unsupported' || notif === 'denied' ? ' disabled' : '') + '> Activer les notifications</label>'
-    + '<label class="note" for="nfLevel">Me notifier pour <select id="nfLevel"><option value="imp"' + ((pr.level || 'imp') === 'imp' ? ' selected' : '') + '>les actions importantes (connexion, import, rapport, code R, analyse)</option><option value="tout"' + (pr.level === 'tout' ? ' selected' : '') + '>toutes les actions, y compris la navigation</option></select></label>'
-    + '<label class="check" for="nfSound"><input type="checkbox" id="nfSound"' + (pr.sound ? ' checked' : '') + '> Petit son à chaque nouvelle action</label></div></div>';
-}
-/* Interrogation régulière : toutes les 10 s dans la console, toutes les 30 s ailleurs (pour les notifications) */
-let admTick = 0;
-async function adminPoll(full) {
-  if (!acct.isAdmin || adm.polling) return;
-  adm.polling = true;
-  try {
-    const first = full || !adm.live;
-    const d = await adminApi('direct' + (!first && adm.liveSince ? '?depuis=' + encodeURIComponent(adm.liveSince) : ''));
-    adm.liveErr = '';
-    if (first) { adm.live = d; adm.fresh = new Set(); }
-    else {
-      const known = new Set(adm.live.events.map(evKey));
-      const nouveaux = d.events.filter(e => !known.has(evKey(e)));
-      adm.fresh = new Set(nouveaux.map(evKey));
-      adm.live = { now:d.now, enLigne:d.enLigne, recents:d.recents, events:nouveaux.concat(adm.live.events).sort((a, b) => String(b.at).localeCompare(String(a.at))).slice(0, 400) };
-      notifyAdmin(nouveaux);
-    }
-    adm.liveSince = d.now; adm.liveAt = new Date().toISOString();
-  } catch (e) { adm.liveErr = e.message; }
-  finally { adm.polling = false; }
-  const typing = document.activeElement && document.activeElement.closest && document.activeElement.closest('#adminBox') && /^(INPUT|SELECT|TEXTAREA)$/.test(document.activeElement.tagName);
-  if (state.tab === 'admin' && (adm.view || 'direct') === 'direct' && !typing) renderAdmin();
-  if (state.tab !== 'admin') renderHeader();
-}
-function notifyAdmin(list) {
-  const pr = admPrefs(), me = acct.user && acct.user.email;
-  const ev = list.filter(e => e.email !== me && (pr.level === 'tout' || EV_IMPORTANT.has(e.type)));
-  if (!ev.length) return;
-  if (state.tab !== 'admin' || (adm.view || 'direct') !== 'direct') adm.unread = (adm.unread || 0) + ev.length;
-  if (pr.sound) { try { const ctx = new (window.AudioContext || window.webkitAudioContext)(), o = ctx.createOscillator(), g = ctx.createGain(); o.frequency.value = 880; g.gain.value = 0.05; o.connect(g); g.connect(ctx.destination); o.start(); o.stop(ctx.currentTime + 0.12); } catch (e) {} }
-  if (pr.notif && typeof Notification !== 'undefined' && Notification.permission === 'granted') {
-    ev.slice(0, 3).forEach(e => { try { new Notification(e.email, { body:evText(e) + (e.lieu ? ' (' + e.lieu + ')' : ''), tag:'umoa-' + evKey(e), icon:'icon-192.png' }); } catch (x) {} });
-    if (ev.length > 3) try { new Notification('Analyste Bancaire', { body:'+ ' + (ev.length - 3) + ' autre(s) action(s)', tag:'umoa-plus' }); } catch (x) {}
-  }
-}
-setInterval(() => {
-  admTick++;
-  if (!acct.isAdmin || adm.pause || !ADMIN_PAGE) return;
-  const inLive = state.tab === 'admin' && (adm.view || 'direct') === 'direct' && document.visibilityState === 'visible';
-  if (inLive || admTick % 3 === 0) adminPoll(false);
-  else if (state.tab === 'admin' && $('#admLiveAt') && adm.liveAt) $('#admLiveAt').textContent = 'mis à jour ' + ago(adm.liveAt);
-}, 10000);
-const devIcon = t => t === 'Téléphone' ? '📱' : t === 'Tablette' ? '📲' : '💻';
-const JOURNAL_LBL = { connexion:'Connexion', inscription:'Inscription', visite:'Ouverture de l’app', echec:'Mot de passe incorrect' };
-function adminDevices(d) {
-  const dv = d.devices || [], jr = d.journal || [];
-  return '<p class="eyebrow">Appareils (' + dv.length + ')</p>' + (dv.length ? '<div class="tbl-wrap"><table><thead><tr><th>Appareil</th><th>Type</th><th>Lieu</th><th>Première fois</th><th>Dernière fois</th><th>Connexions</th></tr></thead><tbody>'
-      + dv.map(x => '<tr><td>' + devIcon(x.type) + ' ' + esc(x.label) + '</td><td>' + esc(x.type) + '</td><td>' + esc(x.lieu || '—') + '</td><td>' + fmtDT(x.firstSeen) + '</td><td>' + fmtDT(x.lastSeen) + '</td><td>' + (x.count || 0) + '</td></tr>').join('') + '</tbody></table></div>'
-      : '<p class="note">Aucun appareil noté pour l’instant : il le sera à la prochaine connexion ou ouverture de l’app.</p>')
-    + (jr.length ? '<p class="eyebrow" style="margin-top:10px">Connexions récentes</p><div class="tbl-wrap"><table><thead><tr><th>Date</th><th>Événement</th><th>Appareil</th><th>Lieu</th></tr></thead><tbody>'
-      + jr.map(j => '<tr><td>' + fmtDT(j.at) + '</td><td>' + (j.event === 'echec' ? '<span class="chip st-warn"><i>!</i>' + JOURNAL_LBL.echec + '</span>' : esc(JOURNAL_LBL[j.event] || j.event)) + '</td><td>' + devIcon(j.type) + ' ' + esc(j.appareil) + '</td><td>' + esc(j.lieu || '—') + '</td></tr>').join('') + '</tbody></table></div>' : '')
-    + '<p class="note">L’appareil est déduit du navigateur (le modèle exact n’est connu que sur certains Android) ; le lieu est approximatif (ville du réseau). Aucune adresse IP n’est conservée.</p>';
-}
-function adminDetail(d) {
-  const banks = Object.values(d.banks || {}), hist = d.history || [];
-  const acts = d.actions || [];
-  return '<div class="card"><h3>Compte ' + esc(d.email) + '</h3><p class="note">Inscrit le ' + fmtD(d.createdAt) + ' · connexion par ' + esc(d.via === 'code' ? 'code reçu par e-mail' : d.via || '—') + '</p>' + adminDevices(d)
-    + '<p class="eyebrow" style="margin-top:10px">Actions récentes (' + acts.length + ', 30 jours)</p>' + (acts.length ? '<div class="feed" style="max-height:340px">' + acts.map(e => { const i = EV_INFO[e.type] || ['•']; return '<div class="ev"><time>' + fmtD(e.at) + '<small>' + hms(e.at) + '</small></time><span class="ev-ico" aria-hidden="true">' + i[0] + '</span><div class="ev-b">' + esc(capFirst(evText(e))) + '<div class="note">' + devIcon(e.appType) + ' ' + esc(e.appareil || '') + (e.lieu ? ' · ' + esc(e.lieu) : '') + '</div></div></div>'; }).join('') + '</div>' : '<p class="note">Aucune action enregistrée.</p>')
-    + '<h3 style="margin-top:14px">Analyses</h3><p class="note">Lecture seule. « Ouvrir une copie » ajoute la banque à tes propres banques pour la consulter dans tous les onglets ; l’original de l’utilisateur n’est pas modifié.</p>'
-    + '<p class="eyebrow">Banques (' + banks.length + ')</p>' + (banks.length ? '<div class="tbl-wrap"><table><thead><tr><th>Banque</th><th>Exercices</th><th>Modifiée le</th><th></th></tr></thead><tbody>' + banks.map(b => '<tr><td>' + esc(b.name) + '</td><td>' + esc((b.years || []).join(', ')) + '</td><td>' + (b.mod ? fmtDT(new Date(b.mod).toISOString()) : '—') + '</td><td><button class="btn sm" data-acopy="' + esc(b.id) + '">Ouvrir une copie</button></td></tr>').join('') + '</tbody></table></div>' : '<p class="note">Aucune banque.</p>')
-    + '<p class="eyebrow" style="margin-top:10px">Historique (' + hist.length + ')</p>' + (hist.length ? '<div class="tbl-wrap"><table><thead><tr><th>Analyse</th><th>Date</th><th>Type</th><th>ROE</th><th>Solvabilité</th></tr></thead><tbody>' + hist.map(e => { const y = (e.res && e.res.years || []).length - 1, v = id => e.res && e.res.vals && e.res.vals[id] ? e.res.vals[id][y] : null; return '<tr><td>' + esc(e.label) + '</td><td>' + fmtDT(e.at) + '</td><td>' + esc(KIND_LBL[e.kind] || e.kind || '') + '</td><td>' + fmtP(fin(v('roe')) ? v('roe') : NaN, 1) + '</td><td>' + fmtP(fin(v('solva')) ? v('solva') : NaN, 1) + '</td></tr>'; }).join('') + '</tbody></table></div>' : '<p class="note">Aucune analyse enregistrée.</p>')
-    + '<div class="row" style="margin-top:8px"><button class="btn sm" id="admCloseDetail">Fermer</button>' + (d.email !== (acct.user && acct.user.email) ? '<button class="btn sm danger" data-adel="' + esc(d.email) + '">Supprimer ce compte</button>' : '') + '</div><div class="acc-act"></div></div>';
-}
-function bindAdmin() {
-  const act = $('#admAction');
-  const pr = admPrefs(), setPr = p => { admSavePrefs(Object.assign(admPrefs(), p)); renderAdmin(); };
-  if ($('#admPause')) $('#admPause').onclick = () => { adm.pause = !adm.pause; if (!adm.pause) adminPoll(false); renderAdmin(); };
-  const askNotif = async () => { if (typeof Notification === 'undefined') return false; let p = Notification.permission; if (p === 'default') { try { p = await Notification.requestPermission(); } catch (e) {} } return p === 'granted'; };
-  if ($('#admNotif')) $('#admNotif').onclick = async () => { if (pr.notif && Notification.permission === 'granted') { setPr({ notif:false }); toast('Notifications désactivées'); return; } const ok = await askNotif(); setPr({ notif:ok }); toast(ok ? 'Tu seras notifié de chaque action importante' : 'Le navigateur a refusé les notifications'); };
-  if ($('#admHideMe')) $('#admHideMe').onchange = e => setPr({ hideMe:e.target.checked });
-  if ($('#admFeedUser')) $('#admFeedUser').onchange = e => { adm.feedUser = e.target.value; renderAdmin(); };
-  if ($('#admFeedLevel')) $('#admFeedLevel').onchange = e => { adm.feedLevel = e.target.value; renderAdmin(); };
-  if ($('#nfOn')) $('#nfOn').onchange = async e => { const ok = e.target.checked ? await askNotif() : false; setPr({ notif:ok }); };
-  if ($('#nfLevel')) $('#nfLevel').onchange = e => setPr({ level:e.target.value });
-  if ($('#nfSound')) $('#nfSound').onchange = e => setPr({ sound:e.target.checked });
-  if ((adm.view || 'direct') === 'reglages' && !adm.reglages && !adm.regLoading) { adm.regLoading = true; adminApi('reglages').then(r => { adm.reglages = r; }).catch(e => { adm.msg = e.message; }).finally(() => { adm.regLoading = false; renderAdmin(); }); }
-  view.querySelectorAll('[data-alert]').forEach(c => c.onchange = async () => {
-    const alertes = {}; view.querySelectorAll('[data-alert]').forEach(x => { alertes[x.dataset.alert] = x.checked; });
-    try { adm.reglages = await adminApi('reglages', { alertes }); $('#admAlertMsg').textContent = 'Réglage enregistré.'; } catch (e) { $('#admAlertMsg').textContent = e.message; }
-  });
-  if ($('#admReload')) $('#admReload').onclick = () => { adm.msg = ''; loadAdmin(); };
-  if ($('#admFilter')) $('#admFilter').oninput = e => { adm.filter = e.target.value; const pos = e.target.selectionStart; renderAdmin(); const el = $('#admFilter'); el.focus(); el.setSelectionRange(pos, pos); };
-  if ($('#admCloseDetail')) $('#admCloseDetail').onclick = () => { adm.detail = null; renderAdmin(); };
-  view.querySelectorAll('[data-av]').forEach(b => b.onclick = async () => {
-    try { adm.detail = await adminApi('analyses?id=' + encodeURIComponent(b.dataset.av)); renderAdmin(); $('#admDetail').scrollIntoView({ behavior:'smooth', block:'start' }); }
-    catch (e) { if (act) act.innerHTML = '<p class="miss">' + esc(e.message) + '</p>'; else toast(e.message); }
-  });
-  view.querySelectorAll('[data-acopy]').forEach(b => b.onclick = () => {
-    const src = adm.detail && adm.detail.banks[b.dataset.acopy]; if (!src) return;
-    const id = 'b' + Date.now(), bk = cleanBanks({ x:Object.assign(clone(src), { name:src.name + ' (copie de ' + adm.detail.email + ')' }) }).x;
-    if (!bk) { toast('Banque illisible'); return; }
-    state.banks[id] = Object.assign(bk, { id, example:false }); state.cur = id; state.yi = 99; save(); scheduleSync();
-    b.outerHTML = '<a class="btn sm" href="/" target="_blank" rel="noopener">Copie ajoutée · ouvrir l’app</a>'; toast('Copie ajoutée à tes banques : ' + bk.name);
-  });
-  // zone d'action dans la carte du compte concerné (l'ancienne zone est vidée)
-  const idOf = email => ((adm.comptes || []).find(c => c.email === email) || (adm.detail && adm.detail.email === email ? { id:adm.detail.id } : {})).id || '';
-  const actFor = b => { view.querySelectorAll('#admAction').forEach(x => { x.innerHTML = ''; x.removeAttribute('id'); }); const card = b.closest('.acc') || b.closest('#admDetail .card'); const z = card ? card.querySelector('.acc-act') : $('#admAction'); if (z) z.id = 'admAction'; return z; };
-  view.querySelectorAll('[data-apw]').forEach(b => b.onclick = () => {
-    const email = b.dataset.apw, act = actFor(b);
-    act.innerHTML = '<div class="banner"><b>Nouveau mot de passe pour ' + esc(email) + '</b><span class="note">L’utilisateur sera déconnecté de ses appareils. Communique-lui ce mot de passe ; il pourra se reconnecter avec.</span><div class="row"><input type="text" id="admPw" minlength="8" placeholder="8 caractères minimum" autocomplete="off"><button class="btn sm" id="admPwGen">Générer</button><button class="btn sm pri" id="admPwOk">Enregistrer</button><button class="btn sm" id="admPwNo">Annuler</button></div></div>';
-    $('#admPwGen').onclick = () => { const a = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ23456789', r = new Uint32Array(10); crypto.getRandomValues(r); $('#admPw').value = [...r].map(x => a[x % a.length]).join(''); };
-    $('#admPwNo').onclick = () => { act.innerHTML = ''; };
-    $('#admPwOk').onclick = async () => {
-      const pw = $('#admPw').value;
-      if (pw.length < 8) { toast('8 caractères minimum'); return; }
-      try { await adminApi('motdepasse', { email, id:idOf(email), password:pw }); act.innerHTML = '<div class="banner"><b>Mot de passe changé pour ' + esc(email) + '</b><span class="note">Nouveau mot de passe : <b class="v-num" style="user-select:all">' + esc(pw) + '</b></span></div>'; }
-      catch (e) { toast(e.message); }
-    };
-  });
-  view.querySelectorAll('[data-aun]').forEach(b => b.onclick = async () => { try { await adminApi('debloquer', { email:b.dataset.aun, id:idOf(b.dataset.aun) }); adm.msg = 'Compte débloqué : ' + b.dataset.aun; loadAdmin(); } catch (e) { toast(e.message); } });
-  view.querySelectorAll('[data-adel]').forEach(b => b.onclick = () => {
-    const email = b.dataset.adel, act = actFor(b);
-    act.innerHTML = '<div class="confirm" role="alert"><span>Supprimer définitivement <b>' + esc(email) + '</b>, ses banques et son historique ? Cette action est irréversible.</span><div class="row"><button class="btn sm danger" id="admDelOk">Oui, supprimer</button><button class="btn sm" id="admDelNo">Annuler</button></div></div>';
-    act.scrollIntoView({ behavior:'smooth', block:'nearest' });
-    $('#admDelNo').onclick = () => { act.innerHTML = ''; };
-    $('#admDelOk').onclick = async () => {
-      $('#admDelOk').disabled = true; $('#admDelOk').textContent = 'Suppression…';
-      try {
-        await adminApi('supprimer', { email, id:idOf(email) });
-        adm.msg = 'Compte supprimé : ' + email; if (adm.detail && adm.detail.email === email) adm.detail = null;
-        adm.comptes = (adm.comptes || []).filter(c => c.email !== email); renderAdmin(); toast('Compte supprimé'); loadAdmin();
-      } catch (e) { act.innerHTML = '<div class="confirm" style="background:var(--bad-bg);color:var(--bad)">Échec de la suppression : ' + esc(e.message) + '</div>'; }
-    };
-  });
-}
 /* =====================================================================
    12 bis. TRADUCTION EN R — générée depuis les mêmes arbres de formules
    ===================================================================== */
@@ -4209,7 +3924,7 @@ function vR() {
 /* =====================================================================
    13. ORCHESTRATION
    ===================================================================== */
-const VIEWS = { admin:vAdmin, rapport:vRapport, historique:vHistorique, r:vR, synthese:vSynthese, saisie:vSaisie, dynamique:vDynamique, structure:vStructure, renta:vRenta, faillite:vFaillite, bale:vBale, import:vImport, params:vParams, methode:vMethode };
+const VIEWS = { rapport:vRapport, historique:vHistorique, r:vR, synthese:vSynthese, saisie:vSaisie, dynamique:vDynamique, structure:vStructure, renta:vRenta, faillite:vFaillite, bale:vBale, import:vImport, params:vParams, methode:vMethode };
 function renderHeader() {
   const b = bank();
   $('#hdrBank').textContent = b.name;
@@ -4222,22 +3937,11 @@ function renderHeader() {
   $('#toSel').innerHTML = all.map((y, i) => '<option value="' + y + '"' + (i === rz ? ' selected' : '') + (i < ra ? ' disabled' : '') + '>' + y + '</option>').join('');
   $('#fromSel').disabled = $('#toSel').disabled = locked;
   $('#yearSel').innerHTML = Y().map((y, i) => '<option value="' + i + '"' + (i === state.yi ? ' selected' : '') + '>' + y + '</option>').join('');
-  const inAdmin = state.tab === 'admin';
-  document.body.classList.toggle('admin-mode', inAdmin);
-  if (inAdmin) {
-    $('#hdrBank').textContent = 'Console d’administration';
-    $('#hdrSub').textContent = acct.user ? acct.user.email + (acct.isAdmin ? ' · administrateur' : '') : 'Connexion requise';
-    if (acct.isAdmin && (adm.view || 'direct') === 'direct') adm.unread = 0;
-    $('#tabs').innerHTML = (acct.isAdmin ? ADM_VIEWS.map(([k, l]) => '<button class="tab" role="tab" data-atab="' + k + '" aria-selected="' + ((adm.view || 'direct') === k) + '">' + (k === 'direct' ? '<span class="live-dot sm"></span> ' : '') + l + '</button>').join('') : '')
-      + '<a class="tab tab-back" href="/">← Ouvrir l’app</a>' + (acct.user ? '<button class="tab tab-logout" id="admLogout">⏻ Se déconnecter</button>' : '');
-    return;
-  }
   $('#tabs').innerHTML = TABS.map(([k, l]) => '<button class="tab" role="tab" data-tab="' + k + '" aria-selected="' + (state.tab === k) + '">' + l + '</button>').join('')
     ;
 }
 function renderAll(keepScroll) {
-  if (ADMIN_PAGE) state.tab = 'admin';
-  else if (!VIEWS[state.tab] || state.tab === 'admin') state.tab = 'synthese';
+  if (!VIEWS[state.tab]) state.tab = 'synthese';
   if (!state.banks[state.cur]) state.cur = Object.keys(state.banks)[0];
   if (state.yi >= Y().length || state.yi < 0) state.yi = Y().length - 1;
   renderHeader();
@@ -4328,7 +4032,6 @@ function bindView() {
   }
   if (state.tab === 'historique') bindHistorique();
   if (state.tab === 'rapport') bindRapport();
-  if (state.tab === 'admin') { renderAdmin(); if (!acct.isAdmin && $('#accountCard') && accountsPossible()) bindAccount(); }
   view.querySelectorAll('[data-hsave]').forEach(b => b.onclick = () => { addHistory('manuel', bank().name + ' · ' + Y()[0] + '–' + Y()[Y().length - 1], ''); track('analyse', bank().name + ' · ' + Y()[0] + '–' + Y()[Y().length - 1]); toast('Analyse enregistrée dans l’historique'); renderAll(true); });
   if (state.tab === 'r') {
     const st = () => R_STYLES.some(s => s[0] === state.rStyle) ? state.rStyle : 'complet';
@@ -4351,25 +4054,11 @@ function bindView() {
     if ($('#dlJson')) $('#dlJson').onclick = () => track('export', 'sauvegarde JSON complète') || saveFile('sauvegarde_analyste_umoa.json', JSON.stringify({ banks:state.banks, cur:state.cur, params:state.params, history:state.history }, null, 1), 'application/json');
   }
 }
-/* Déconnexion depuis la console : la session est fermée côté serveur et l'écran de connexion revient */
-async function adminLogout() {
-  const b = $('#admLogout'); if (b) { b.disabled = true; b.textContent = 'Déconnexion…'; }
-  try { track('deconnexion', 'depuis la console'); await flushTrack(); } catch (e) {}
-  try { await api('deconnexion', {}); } catch (e) {}
-  acct.user = null; acct.isAdmin = false; acct.adminMsg = ''; accRemember(false); acct.lastSync = null;
-  Object.assign(adm, { stats:null, comptes:null, detail:null, live:null, liveSince:'', reglages:null, msg:'', view:'direct', filter:'', feedUser:'' });
-  resetLocalData(); state.owner = null; save({ silent:true });
-  acct.status = 'Déconnecté de la console.'; acct.err = false;
-  renderAll(); renderGate(); toast('Déconnecté');
-}
 $('#tabs').addEventListener('click', e => {
-  if (e.target.closest('#admLogout')) { adminLogout(); return; }
-  const a = e.target.closest('[data-atab]');
-  if (a) { adm.view = a.dataset.atab; adm.msg = ''; if (adm.view === 'direct') adminPoll(false); renderAll(); window.scrollTo(0, 0); return; }
   const b = e.target.closest('[data-tab]'); if (!b) return;
   const from = state.tab;
   state.tab = b.dataset.tab; state.yi = 99; save(); renderAll(); window.scrollTo(0, 0);
-  if (state.tab !== from && state.tab !== 'admin') track('onglet', (TABS.find(t => t[0] === state.tab) || [, state.tab])[1]);
+  if (state.tab !== from) track('onglet', (TABS.find(t => t[0] === state.tab) || [, state.tab])[1]);
 });
 $('#bankSel').addEventListener('change', e => { state.cur = e.target.value; state.yi = 99; save(); renderAll(); track('banque', bank().name); });
 $('#yearSel').addEventListener('change', e => { state.yi = +e.target.value; renderAll(true); });
@@ -4390,8 +4079,8 @@ document.addEventListener('pointerdown', e => { const el = e.target.closest && e
 window.addEventListener('scroll', () => { tip.hidden = true; }, { passive:true });
 
 // lien direct vers l'administration : /admin ou #admin
-if (ADMIN_PAGE) { state.tab = 'admin'; acct.mode = 'login'; document.title = 'Console d’administration · Analyste Bancaire'; }
-window.addEventListener('hashchange', () => { if (location.hash === '#admin' && !ADMIN_PAGE) location.href = '/admin'; });
+// ancienne adresse de la console : elle est maintenant une page à part
+if (location.hash === '#admin') location.replace('/admin');
 renderAll();
 accountBoot();
 </script>

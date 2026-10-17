@@ -36,5 +36,11 @@
 
 [[redirects]]
   from = "/admin"
-  to = "/index.html"
+  to = "/admin.html"
   status = 200
+
+[[headers]]
+  for = "/admin.html"
+  [headers.values]
+    Cache-Control = "no-cache"
+    X-Robots-Tag = "noindex, nofollow"

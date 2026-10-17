@@ -37,7 +37,7 @@ const DIST = new URL('../dist/', import.meta.url).pathname;
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.webmanifest': 'application/manifest+json', '.png': 'image/png', '.svg': 'image/svg+xml' };
 const server = createServer((req, res) => {
   const p = decodeURIComponent(req.url.split('?')[0]);
-  const f = DIST + (p === '/' || p === '/admin' ? 'index.html' : p.slice(1));
+  const f = DIST + (p === '/' ? 'index.html' : p === '/admin' ? 'admin.html' : p.slice(1));
   if (!existsSync(f)) { res.writeHead(404); return res.end(); }
   res.writeHead(200, { 'Content-Type': TYPES[extname(f)] || 'application/octet-stream' });
   res.end(readFileSync(f));
@@ -1116,6 +1116,18 @@ else {
       ok(rr.status === 403 && (await rr.json()).code === 'verify', 'sécurité : avec les codes e-mail, une session ouverte par mot de passe n’ouvre pas la console');
       ok([401, 403].includes((await adR('comptes', usr, true)).status) && (await adR('comptes', '', true)).status === 401, 'sécurité : console refusée aux comptes ordinaires et sans connexion');
     }
+    {
+      const adK = (action, key, method = 'GET', body) => handleAdmin(new Request('https://app.test/api/admin/' + action, method === 'GET' ? { headers: key ? { 'x-admin-key': key } : {} } : { method, headers: { origin: 'https://app.test', 'x-admin-key': key }, body: JSON.stringify(body) }), action, { comptes: cs, historiques: hs, adminEmails: 'admin@test.sn', adminKey: 'K3y-tres-secrete' });
+      ok((await adK('comptes', '')).status === 401 && (await adK('comptes', 'mauvaise')).status === 401, 'clé admin : sans clé ou mauvaise clé, refusé');
+      const withAdminSession = await handleAdmin(new Request('https://app.test/api/admin/comptes', { headers: { cookie: adm } }), 'comptes', { comptes: cs, historiques: hs, adminEmails: 'admin@test.sn', adminKey: 'K3y-tres-secrete' });
+      ok(withAdminSession.status === 401, 'clé admin : le compte administrateur seul ne suffit plus, il faut la clé');
+      const okr = await adK('moi', 'K3y-tres-secrete'); const okd = await okr.json();
+      ok(okr.status === 200 && okd.mode === 'cle' && okd.admins[0] === 'admin@test.sn', 'clé admin : bonne clé acceptée', okd);
+      for (let i = 0; i < 8; i++) await adK('comptes', 'essai' + i);
+      ok((await adK('comptes', 'K3y-tres-secrete')).status === 429, 'clé admin : console bloquée 15 minutes après 8 mauvaises clés');
+      await cs.setJSON('admin-echecs', { n: 0, until: 0 });
+      ok((await adK('supprimer', 'K3y-tres-secrete', 'POST', { email: 'admin@test.sn' })).status === 400, 'clé admin : le compte administrateur ne peut pas être supprimé');
+    }
     ok((await ad('supprimer', adm, { email: 'admin@test.sn' })).status === 400, 'admin : impossible de supprimer son propre compte');
     ok((await handleAdmin(new Request('https://app.test/api/admin/supprimer', { method: 'POST', headers: { origin: 'https://pirate.test', cookie: adm }, body: JSON.stringify({ email: 'eleve@test.ci' }) }), 'supprimer', { comptes: cs, historiques: hs, adminEmails: 'admin@test.sn' })).status === 403, 'admin : action venant d’un autre site refusée');
     ok((await ad('supprimer', adm, { email: 'eleve@test.ci' })).status === 200 && (await (await ad('comptes', adm)).json()).comptes.length === 1 && !hs.m.has('u/' + el.id), 'admin : suppression du compte et de ses données');
@@ -1132,11 +1144,11 @@ else {
     for (let i = 0; i < 100 && ![...shared.m.values()].some(v => v.includes('Analyse élève')); i++) await Us.page.waitForTimeout(100);
     await Ad.page.click('[data-tab="historique"]'); await Ad.page.click('#accSwitch');
     await Ad.page.fill('#accEmail', 'admin@test.sn'); await Ad.page.fill('#accPw', 'motdepasseadmin'); await Ad.page.click('#accGo');
-    await Ad.page.waitForFunction(() => acct.isAdmin, null, { timeout: 15000 });
-    ok(!(await Ad.page.$('[data-tab="admin"]')) && !(await Ad.page.$('.tab-admin')) && await Ad.page.evaluate(() => !/Console/.test(document.querySelector('#tabs').innerText)), 'admin : l’app ne montre aucun accès à la console (séparée)');
-    await Ad.page.goto(BASE + 'admin'); await Ad.page.waitForSelector('#view .section-head');
+    await Ad.page.waitForFunction(() => /Connecté avec/.test(document.querySelector('#accountCard').innerText), null, { timeout: 15000 });
+    ok(await Ad.page.evaluate(() => !document.querySelector('[data-tab="admin"], [data-atab], .tab-admin') && typeof vAdmin === 'undefined' && typeof adminApi === 'undefined' && !/Console/.test(document.querySelector('#tabs').innerText)), 'admin : l’app ne contient ni bouton ni code de console (séparée)');
+    await Ad.page.goto(BASE + 'admin'); await Ad.page.waitForSelector('#main .section-head', { timeout: 15000 });
     await Ad.page.waitForFunction(() => /En ligne maintenant/.test(document.querySelector('#adminBox')?.innerText || ''), null, { timeout: 15000 });
-    ok(await Ad.page.evaluate(() => document.body.classList.contains('admin-mode') && !document.querySelector('[data-tab="structure"]') && !!document.querySelector('[data-atab="comptes"]') && !!document.querySelector('.tab-back') && getComputedStyle(document.querySelector('.ctrls')).display === 'none'), 'admin : console à part (ses propres onglets, sans les onglets d’analyse)');
+    ok(await Ad.page.evaluate(() => !!document.querySelector('[data-atab="comptes"]') && !document.querySelector('[data-tab]') && typeof bank === 'undefined' && typeof buildReport === 'undefined' && /Console d’administration/.test(document.title)), 'admin : console sur une page à part (aucun code ni onglet de l’app)');
     await Ad.page.click('[data-atab="tableau"]');
     await Ad.page.waitForFunction(() => /Activité des 30 derniers jours/.test(document.querySelector('#adminBox')?.innerText || ''), null, { timeout: 15000 });
     const tb = await Ad.page.innerText('#adminBox');
@@ -1152,9 +1164,8 @@ else {
     ok(/Appareils \(1\)/i.test(dtx) && /Connexions récentes/i.test(dtx) && /Inscription/.test(dtx), 'admin : appareils et connexions de l’utilisateur affichés', dtx.slice(0, 400));
     ok(/dernière connexion/.test(await Ad.page.innerText('.acc')) && /💻|📱|📲|Aucun appareil/.test(await Ad.page.innerText('.acc')), 'admin : dernier appareil et dernière connexion sur chaque compte');
     ok(/Analyse élève/.test(await Ad.page.innerText('#admDetail')), 'admin : analyses de l’utilisateur consultées');
-    const nBefore = await Ad.page.evaluate(() => Object.keys(state.banks).length);
-    await Ad.page.click('[data-acopy]');
-    ok(await Ad.page.evaluate(n => Object.keys(state.banks).length === n + 1 && /copie de eleve2@test\.ci/.test(bank().name) && state.tab === 'admin', nBefore), 'admin : copie d’une banque ajoutée aux banques de l’admin');
+    const [dlb] = await Promise.all([Ad.page.waitForEvent('download', { timeout: 15000 }), Ad.page.click('[data-acopy]')]);
+    ok(/\.json$/.test(dlb.suggestedFilename()), 'admin : données d’une banque d’utilisateur téléchargeables (.json)', dlb.suggestedFilename());
     await Ad.page.waitForFunction(() => /Comptes \(\d+\)/.test(document.querySelector('#adminBox')?.innerText || ''), null, { timeout: 15000 });
     await Ad.page.click('[data-apw="eleve2@test.ci"]'); await Ad.page.click('#admPwGen');
     const newPw = await Ad.page.inputValue('#admPw');
@@ -1170,8 +1181,8 @@ else {
     await Ad.page.waitForFunction(() => adm.comptes && !adm.comptes.some(c => c.email === 'eleve2@test.ci'), null, { timeout: 15000 });
     ok(true, 'admin : compte supprimé depuis le tableau de bord');
     ok(await Ad.page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), 'admin : pas de débordement sur téléphone');
-    await Promise.all([Ad.page.waitForNavigation(), Ad.page.click('.tab-back')]); await Ad.page.waitForSelector('#view .section-head');
-    ok(await Ad.page.evaluate(() => state.tab !== 'admin' && !document.body.classList.contains('admin-mode')), 'admin : « Ouvrir l’app » ouvre l’app, pas la console');
+    ok(await Ad.page.getAttribute('.aact a', 'href') === '/' && await Ad.page.evaluate(() => { const r = document.querySelector('#admLogout').getBoundingClientRect(); return r.right <= window.innerWidth && r.top >= 0; }), 'admin : « Ouvrir l’app » et « Se déconnecter » visibles dans l’en-tête (téléphone)');
+    await Ad.page.goto(BASE); await Ad.page.waitForSelector('#view .section-head');
     await Ad.page.click('[data-tab="historique"]'); await Ad.page.click('#accLogout');
     await Ad.page.waitForFunction(() => !document.querySelector('[data-tab="admin"]'), null, { timeout: 15000 });
     ok(true, 'admin : onglet retiré à la déconnexion');
@@ -1181,23 +1192,17 @@ else {
   // ---------- Lien direct /admin ----------
   {
     const D = await device();
-    await D.page.goto(BASE + 'admin'); await D.page.waitForSelector('#view .section-head');
-    ok(/Connexion administrateur/.test(await D.page.innerText('#view')) && await D.page.$('#accEmail'), 'lien /admin : écran de connexion administrateur');
-    await D.page.fill('#accEmail', 'admin@test.sn'); await D.page.fill('#accPw', 'motdepasseadmin'); await D.page.click('#accGo');
-    await D.page.waitForFunction(() => /En ligne maintenant/.test(document.querySelector('#adminBox')?.innerText || ''), null, { timeout: 15000 });
-    ok(true, 'lien /admin : tableau de bord après connexion, sans changer d’onglet');
-    await D.page.reload(); await D.page.waitForSelector('#view .section-head');
-    await D.page.waitForFunction(() => /En ligne maintenant/.test(document.querySelector('#adminBox')?.innerText || ''), null, { timeout: 15000 });
-    ok(true, 'lien /admin : session retrouvée au rechargement');
+    await D.page.goto(BASE + 'admin'); await D.page.waitForSelector('#agKey:visible', { timeout: 15000 });
+    ok(/Console d’administration/.test(await D.page.innerText('#adminGate')) && !(await D.page.isVisible('#adminApp')), 'lien /admin : écran d’entrée de la console, rien d’autre');
     ok(D.errors.length === 0, 'lien /admin : aucune erreur JavaScript', D.errors);
     await D.ctx.close();
     const U = await device();
     await U.page.click('[data-tab="historique"]');
     await U.page.fill('#accEmail', 'isaac@test.ci'); await U.page.fill('#accPw', 'motdepasse1'); await U.page.click('#accGo');
     await U.page.waitForFunction(() => /Connecté avec/.test(document.querySelector('#accountCard').innerText), null, { timeout: 15000 });
-    await U.page.goto(BASE + '#admin'); await U.page.waitForSelector('#view .section-head');
-    await U.page.waitForFunction(() => /n’est pas administrateur/.test(document.querySelector('#view').innerText), null, { timeout: 15000 });
-    ok(!(await U.page.$('#adminBox table')), 'lien /admin : compte ordinaire refusé, aucune donnée affichée');
+    await U.page.goto(BASE + 'admin'); await U.page.waitForSelector('#agKey:visible', { timeout: 15000 });
+    await U.page.waitForTimeout(300);
+    ok(!(await U.page.isVisible('#adminApp')) && /administrateur/.test(await U.page.innerText('#agErr')), 'lien /admin : compte ordinaire refusé, aucune donnée affichée', await U.page.innerText('#agErr'));
     await U.ctx.close();
   }
   // ---------- Entrée de l'app par e-mail : code à 6 chiffres (comme Anglais 365) ----------
@@ -1349,10 +1354,10 @@ else {
       await routeCdn(ctx);
       await ctx.route(/\/api\/(compte\/[a-z]+|historique|activite|admin\/[a-z]+(\?.*)?)$/, async route => {
         const rq = route.request(), h = await rq.allHeaders();
-        const req = new Request(rq.url(), { method: rq.method(), headers: { origin: h.origin || '', cookie: h.cookie || '', 'content-type': 'application/json', 'user-agent': h['user-agent'] || '' }, body: ['POST', 'PUT'].includes(rq.method()) ? rq.postData() || '' : undefined });
+        const req = new Request(rq.url(), { method: rq.method(), headers: { origin: h.origin || '', cookie: h.cookie || '', 'content-type': 'application/json', 'user-agent': h['user-agent'] || '', 'x-admin-key': h['x-admin-key'] || '' }, body: ['POST', 'PUT'].includes(rq.method()) ? rq.postData() || '' : undefined });
         const u = rq.url(), m = u.match(/compte\/([a-z]+)$/), ma = u.match(/admin\/([a-z]+)(\?|$)/);
         const res = m ? await handleCompte(req, m[1], { store: cs3, gate: true, adminEmails: 'chef@test.sn', send: async (to, s2, html, code) => { codes.push({ to, code }); return true; } })
-          : ma ? await handleAdmin(req, ma[1], { comptes: cs3, historiques: hs3, activite: as3, adminEmails: 'chef@test.sn', codeRequired: true })
+          : ma ? await handleAdmin(req, ma[1], { comptes: cs3, historiques: hs3, activite: as3, adminEmails: 'chef@test.sn', codeRequired: true, adminKey: 'Cle-Admin-Test-2026' })
           : /activite$/.test(u) ? await handleActivite(req, { getUser: () => userFromRequest(req, cs3), store: as3 })
           : await handleHistorique(req, { getUser: () => userFromRequest(req, cs3), store: hs3 });
         const headers = { 'content-type': 'application/json' }; if (res.headers.get('set-cookie')) headers['set-cookie'] = res.headers.get('set-cookie');
@@ -1388,8 +1393,15 @@ else {
     // l'admin suit en direct
     const Ad3 = await D3('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0 Safari/537.36', 1200);
     await enter(Ad3, 'chef@test.sn');
-    ok(await Ad3.page.evaluate(() => state.tab !== 'admin' && !document.querySelector('.tab-admin')), 'console séparée : à la connexion, l’admin arrive dans l’app, pas dans la console');
-    await Ad3.page.goto(BASE + 'admin'); await Ad3.page.waitForSelector('#view .section-head');
+    ok(await Ad3.page.evaluate(() => state.tab !== 'admin' && !document.querySelector('[data-atab]')), 'console séparée : à la connexion, l’admin arrive dans l’app, pas dans la console');
+    await Ad3.page.goto(BASE + 'admin'); await Ad3.page.waitForSelector('#agKey:visible', { timeout: 15000 });
+    ok(!(await Ad3.page.isVisible('#adminApp')), 'clé admin : même connecté avec son compte, la console demande la clé');
+    await Ad3.page.fill('#agKey', 'mauvaise-cle'); await Ad3.page.click('#agGo');
+    await Ad3.page.waitForFunction(() => /incorrecte/.test(document.querySelector('#agErr').innerText), null, { timeout: 15000 });
+    ok(!(await Ad3.page.isVisible('#adminApp')), 'clé admin : mauvaise clé refusée');
+    await Ad3.page.fill('#agKey', 'Cle-Admin-Test-2026'); await Ad3.page.click('#agGo');
+    await Ad3.page.waitForSelector('#adminApp:visible', { timeout: 15000 });
+    ok(await Ad3.page.evaluate(() => !location.href.includes('Cle-Admin') && sessionStorage.getItem('umoa-admin-key') === 'Cle-Admin-Test-2026' && !localStorage.getItem('umoa-admin-key')), 'clé admin : gardée le temps de la session seulement, jamais dans l’adresse');
     await Ad3.page.waitForFunction(() => /awa@test\.sn/.test(document.querySelector('.online')?.innerText || ''), null, { timeout: 15000 });
     const on = await Ad3.page.innerText('.online');
     ok(/iPhone/.test(on) && /Rapport Word/.test(on), 'en direct : l’admin voit qui est en ligne, sur quel appareil et quel onglet', on);
@@ -1408,13 +1420,12 @@ else {
     ok(JSON.parse(cs3.m.get('reglages-admin')).alertes.connexion === true, 'réglages : alerte à chaque connexion activée');
     ok(await Ad3.page.isVisible('#admLogout'), 'console : bouton « Se déconnecter » visible');
     await Ad3.page.click('#admLogout');
-    await Ad3.page.waitForSelector('#gMailForm', { timeout: 15000 });
-    ok(await Ad3.page.evaluate(async () => !acct.user && !acct.isAdmin && !document.querySelector('#adminBox table, .online') && (await fetch('/api/admin/comptes')).status === 401), 'console : déconnexion, session fermée côté serveur, écran de connexion affiché');
-    await enter(Ad3, 'chef@test.sn'); await Ad3.page.waitForFunction(() => /En ligne maintenant/.test(document.querySelector('#adminBox')?.innerText || ''), null, { timeout: 15000 });
-    await Promise.all([Ad3.page.waitForNavigation(), Ad3.page.click('.tab-back')]); await Ad3.page.waitForSelector('#view .section-head');
-    ok(await Ad3.page.evaluate(() => !document.body.classList.contains('admin-mode') && !!document.querySelector('[data-tab="structure"]')), 'console : « Ouvrir l’app » ramène aux onglets d’analyse');
-    await Ad3.page.reload(); await Ad3.page.waitForSelector('#view .section-head');
-    ok(await Ad3.page.evaluate(() => state.tab !== 'admin' && !document.body.classList.contains('admin-mode')), 'console séparée : l’app ne se rouvre jamais sur la console');
+    await Ad3.page.waitForSelector('#agKey:visible', { timeout: 15000 });
+    ok(await Ad3.page.evaluate(async () => !sessionStorage.getItem('umoa-admin-key') && !document.querySelector('#adminBox') && (await fetch('/api/admin/comptes')).status === 401), 'console : déconnexion, clé oubliée, plus aucune donnée');
+    await Ad3.page.reload(); await Ad3.page.waitForSelector('#agKey:visible', { timeout: 15000 });
+    ok(!(await Ad3.page.isVisible('#adminApp')), 'console : après déconnexion, la clé est redemandée');
+    await Ad3.page.goto(BASE); await Ad3.page.waitForSelector('#view .section-head');
+    ok(await Ad3.page.evaluate(() => !!document.querySelector('[data-tab="structure"]') && !document.querySelector('[data-atab]')), 'console séparée : l’app ne s’ouvre jamais sur la console');
     ok(Us3.errors.length === 0 && Ad3.errors.length === 0, 'console et style : aucune erreur JavaScript', [...Us3.errors, ...Ad3.errors]);
     await Us3.ctx.close(); await Ad3.ctx.close();
   }
