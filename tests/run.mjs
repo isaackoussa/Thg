@@ -768,6 +768,7 @@ else {
     if (res.pages) ok(res.pages >= minPages && res.pages <= maxPages, 'rapport ' + type + ' : longueur adaptée (' + res.pages + ' pages)', res.pages);
     ok(/w:fill="(1F3B73|7A1E32|2E3A44|0C5A48)"/.test(res.doc) && res.doc.includes(type === 'synthese' ? '1F3B73' : type === 'prudentiel' ? '7A1E32' : type === 'corrige' ? '2E3A44' : '0C5A48'), 'rapport ' + type + ' : couleurs du thème choisi');
     if (type === 'synthese') ok(!/<m:oMathPara>/.test(res.doc), 'note de synthèse : sans formules');
+    if (type === 'corrige') ok(!/Lecture compte par compte|Lecture année par année/.test(res.doc), 'corrigé : les explications détaillées restent propres à l’Option Isaac');
     if (type === 'corrige') ok((res.doc.match(/Application numérique 202[123]/g) || []).length >= 3 * 9, 'corrigé : application numérique pour chaque année', (res.doc.match(/Application numérique 202[123]/g) || []).length);
   }
   // styles de rédaction : quatre manières d'écrire, des tournures qui varient
@@ -815,12 +816,15 @@ else {
     const rt = await gen({ type: 'recueil_td', banks: ids, charts: true });
     ok(!rt.startsWith('ERR'), 'dossier TD : généré sans erreur', rt.slice(0, 200));
     if (!rt.startsWith('ERR')) {
+      if (process.env.DUMP_ISAAC) writeFileSync(process.env.DUMP_ISAAC, Buffer.from(rt, 'base64'));
       const res = await checkDocx(Buffer.from(rt, 'base64'), 'dossier TD', ['OPTION ISAAC', 'Énoncé', 'Vue d’ensemble comparée', 'Banque Atlantique', 'Banque Test Sénégal', 'Petite Banque du Mali', 'Analyse du bilan et du compte de résultat', 'Ratios de transformation, de liquidité, de levier et de solvabilité', 'ROA et ROE', 'Pertes de faillite et PNB critique', 'À retenir', /ROE\s*=/]);
       const d = (await (await JSZip.loadAsync(Buffer.from(rt, 'base64'))).file('word/document.xml').async('string'));
       const cnt = re => (d.match(re) || []).length;
       ok(cnt(/>\d\. Pertes de faillite et PNB critique</g) === 3 && cnt(/>\d\. Ratios de transformation, de liquidité, de levier et de solvabilité</g) === 3 && cnt(/>Compte de résultat</g) >= 3 && cnt(/>Conclusion</g) >= 3, 'dossier TD : les quatre parties pour chacune des trois banques', [cnt(/>\d\. Pertes de faillite et PNB critique</g), cnt(/>Compte de résultat</g)]);
       ok(['Ratio de transformation', 'Ratio de liquidité', 'Ratio de levier', 'ROA', 'ROE', 'PNB critique'].every(k => cnt(new RegExp(k, 'g')) >= 3) && cnt(/Application numérique 202[123]/g) >= 3 * 3 * 8, 'dossier TD : chaque ratio avec application numérique de chaque année, pour chaque banque', cnt(/Application numérique 202[123]/g));
       ok(!/undefined|NaN|\[object/.test(d.replace(/<[^>]+>/g, '')), 'dossier TD : pas de « undefined » ni « NaN »');
+      ok(cnt(/Lecture compte par compte/g) === 3 * 3 && cnt(/>Lecture année par année</g) >= 3 * 8 && cnt(/Pourquoi : le numérateur/g) >= 3 * 8 && cnt(/Le test de faillite expliqué/g) === 3 && cnt(/ROA et ROE expliqués simplement/g) === 3 && cnt(/>Indicateurs de la dynamique</g) === 3 && cnt(/Ce que l’on cherche/g) === 3 * 4, 'Option Isaac : chaque compte, chaque ratio et la faillite expliqués pour chaque banque', [cnt(/Lecture compte par compte/g), cnt(/>Lecture année par année</g), cnt(/Pourquoi : le numérateur/g)]);
+      ok(/Créances sur la clientèle<\/w:t>.*?le cœur du métier/.test(d) && /TCAM/.test(d) && /effet de ciseaux/.test(d) && /PNB devrait passer de/.test(d), 'Option Isaac : sens de chaque compte, TCAM, effet de ciseaux, PNB critique expliqué');
       if (res.pages) ok(res.pages >= 20, 'dossier TD : longueur adaptée (' + res.pages + ' pages)', res.pages);
     }
     ok((await gen({ type: 'recueil_td', banks: [], charts: false })).startsWith('ERR Choisis au moins une banque'), 'dossier TD : une banque au moins');
