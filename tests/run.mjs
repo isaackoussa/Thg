@@ -94,6 +94,7 @@ async function visitAllTabs(page, label, errors) {
   ok(m.icons.every(i => existsSync(DIST + i.src.slice(1))), 'build : toutes les icônes du manifeste existent');
   ok(m.display === 'standalone' && m.start_url === '/', 'build : manifeste installable');
   ok(existsSync(DIST + 'sw.js'), 'build : service worker présent');
+  { const sw = readFileSync(DIST + 'sw.js', 'utf8'); ok(/url\.pathname\.startsWith\('\/api\/'\)\) return;/.test(sw) && sw.indexOf("startsWith('/api/')") < sw.indexOf('caches.match(req)'), 'service worker : les réponses du serveur (/api/) ne sont jamais mises en cache (verrous, comptes, console toujours à jour)'); }
 }
 
 /* ---------- 2. Calculs sur l'exemple BAB ---------- */

@@ -120,6 +120,7 @@ main { max-width: 1180px; margin: 0 auto; padding: 18px 16px 60px; display: grid
 @keyframes flash { from { background: var(--accent-soft); } to { background: transparent; } }
 /* Entrée de l'app par e-mail */
 body.gated { overflow: hidden; }
+#adminLockBar { background: var(--bad-bg); color: var(--bad); font-size: .85rem; font-weight: 600; text-align: center; padding: 6px 12px; }
 #gate, #lockScreen { position: fixed; inset: 0; z-index: 100; overflow-y: auto; background: radial-gradient(ellipse at top, var(--accent-soft), var(--bg) 60%); display: flex; justify-content: center; padding: 28px 16px; }
 .g-wrap { width: 100%; max-width: 440px; display: grid; gap: 18px; align-content: start; margin: auto 0; }
 .g-brand { display: flex; gap: 12px; align-items: center; }
@@ -3183,6 +3184,7 @@ function vRapport() {
     + '<label>Couleurs<select id="rTheme">' + Object.entries(DOC_THEMES).map(([k, t]) => '<option value="' + k + '"' + (themeSel === k ? ' selected' : '') + '>' + t.n + '</option>').join('') + '</select></label></div>';
   if (type === 'complet') h += '<p class="eyebrow" style="margin:6px 0 0">Parties</p><div class="checks">' + REPORT_SECTIONS.map(([k, l]) => '<label class="check" for="rs-' + k + '"><input type="checkbox" id="rs-' + k + '" data-rsec="' + k + '"' + (secs.includes(k) ? ' checked' : '') + '> ' + l + '</label>').join('') + '</div>';
   if (type === 'recueil') h += '<label class="note" for="rDepth" style="display:grid;gap:4px;margin-top:6px;max-width:420px">Partie consacrée à chaque banque<select id="rDepth"><option value="synthese"' + (o.depth === 'detaillee' ? '' : ' selected') + '>Synthèse : chiffres clés, note, graphiques, recommandations</option><option value="detaillee"' + (o.depth === 'detaillee' ? ' selected' : '') + '>Analyse détaillée : en plus, les tableaux et chaque ratio expliqué</option></select></label>';
+  if (MULTI_TYPES.includes(type) && acct.isAdmin && acct.verrous && acct.verrous.options && acct.verrous.options.actif) h += '<p class="note" id="rAdminOpen">🔓 Option ouverte pour toi (administrateur). Les autres comptes doivent saisir le code d’accès.</p>';
   if (type === 'comparaison' || MULTI_TYPES.includes(type)) h += '<p class="eyebrow" style="margin:6px 0 0">' + (MULTI_TYPES.includes(type) ? 'Banques à réunir dans le dossier (' + allBanks.length + ' traitée' + (allBanks.length > 1 ? 's' : '') + ')' : 'Banques à comparer (2 au moins)') + '</p>'
     + (allBanks.length > 1 ? '<div class="row" style="margin:4px 0"><button type="button" class="btn sm" id="rbAll">Tout cocher</button><button type="button" class="btn sm" id="rbNone">Tout décocher</button></div>' : '') + '<div class="checks">' + allBanks.map(x => '<label class="check" for="rb-' + esc(x.id) + '"><input type="checkbox" id="rb-' + esc(x.id) + '" data-rbank="' + esc(x.id) + '"' + (chosen.includes(x.id) ? ' checked' : '') + '> ' + esc(x.name) + ' <span class="note">(' + esc(x.years[0] + (x.years.length > 1 ? '–' + x.years[x.years.length - 1] : '')) + ')</span></label>').join('') + '</div>'
     + (allBanks.length < 2 ? '<p class="miss">' + (MULTI_TYPES.includes(type) ? 'Il n’y a qu’une banque : le dossier ne contiendra qu’elle. Ajoute ou importe d’autres banques pour les réunir et les comparer.' : 'Il n’y a qu’une banque : ajoute ou importe d’autres banques pour les comparer.') + '</p>' : '');
@@ -3336,6 +3338,11 @@ async function refreshAccess() {
   catch (e) { if (e.status === 401) { acct.user = null; accRemember(false); renderGate(); } }
 }
 function renderLock() {
+  // l'administrateur n'est jamais bloqué : un bandeau lui rappelle que l'app est verrouillée pour les autres
+  let bar = document.getElementById('adminLockBar');
+  const adminSees = !!(acct.user && acct.isAdmin && acct.verrous && acct.verrous.app && acct.verrous.app.actif);
+  if (adminSees && !bar) { bar = document.createElement('div'); bar.id = 'adminLockBar'; bar.setAttribute('role', 'status'); document.body.prepend(bar); }
+  if (bar) { if (adminSees) bar.textContent = '🔒 App verrouillée pour les utilisateurs — tu passes car tu es administrateur.'; else bar.remove(); }
   let el = document.getElementById('lockScreen');
   const v = acct.verrous && acct.verrous.app, show = !!(acct.user && acct.acces && !acct.acces.app);
   document.body.classList.toggle('locked', show);
@@ -3375,7 +3382,7 @@ async function deviceHint() {
 async function api(path, body) {
   let res;
   const hint = await deviceHint(), hh = hint ? { 'X-Appareil':hint } : {};
-  try { res = await fetch('/api/compte/' + path, body === undefined ? { credentials:'same-origin', headers:hh } : { method:'POST', credentials:'same-origin', headers:Object.assign({ 'Content-Type':'application/json' }, hh), body:JSON.stringify(body) }); }
+  try { res = await fetch('/api/compte/' + path, body === undefined ? { credentials:'same-origin', cache:'no-store', headers:hh } : { method:'POST', credentials:'same-origin', headers:Object.assign({ 'Content-Type':'application/json' }, hh), body:JSON.stringify(body) }); }
   catch (e) { throw new Error('Le serveur ne répond pas. Vérifie ta connexion internet.'); }
   let data = {}; try { data = await res.json(); } catch (e) { data = {}; }
   if (res.status === 404 && !data.error) throw new Error('Les comptes ne sont pas encore disponibles sur ce site : il doit être déployé depuis GitHub pour inclure la partie serveur.');
@@ -3393,7 +3400,7 @@ async function accountBoot() {
   if (!accountsPossible()) return;
   if (!accRemembered()) { gate.loading = true; renderGate(); }
   let cfg = null, offline = false;
-  try { const r = await fetch('/api/compte/config', { credentials:'same-origin' }); if (r.ok) cfg = await r.json(); } catch (e) { offline = true; }
+  try { const r = await fetch('/api/compte/config', { credentials:'same-origin', cache:'no-store' }); if (r.ok) cfg = await r.json(); } catch (e) { offline = true; }
   gate.on = !!(cfg && cfg.gate); gate.mail = !!(cfg && cfg.mail); gate.pw = !gate.mail;
   if (gate.on) gateSeen(true);
   if (gate.on || accRemembered()) {
@@ -3553,7 +3560,11 @@ async function flushTrack() {
     if (r.status >= 500) trk.q.unshift(...events.slice(-20));
   } catch (e) { trk.q.unshift(...events.slice(-20)); }
 }
-setInterval(() => { if (acct.user && document.visibilityState === 'visible') { flushTrack(); refreshAccess(); } }, 60000);
+setInterval(() => { if (acct.user && document.visibilityState === 'visible') flushTrack(); }, 60000);
+// verrous : vérifiés toutes les 20 secondes, au retour sur l'app et quand une nouvelle version du service worker prend la main
+setInterval(() => { if (acct.user && document.visibilityState === 'visible') refreshAccess(); }, 20000);
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') refreshAccess(); });
+try { navigator.serviceWorker && navigator.serviceWorker.addEventListener('controllerchange', () => refreshAccess()); } catch (e) {}
 document.addEventListener('visibilitychange', () => { if (acct.user) flushTrack(); });
 let syncTimer = null;
 function scheduleSync() { if (!acct.user) return; clearTimeout(syncTimer); syncTimer = setTimeout(() => syncHistory(true), 1500); }

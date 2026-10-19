@@ -77,6 +77,8 @@ self.addEventListener('fetch', e => {
   const isFont = url.hostname === 'fonts.googleapis.com' || url.hostname === 'fonts.gstatic.com';
   if (url.origin !== location.origin && !isFont) return;
   if (url.pathname === '/admin' || url.pathname === '/admin.html') return;
+  // jamais de cache pour le serveur : comptes, verrous, console admin, historique doivent toujours être à jour
+  if (url.pathname.startsWith('/api/')) return;
   if (isPage) {
     e.respondWith(fetch(req).then(r => { const copy = r.clone(); caches.open(CACHE).then(c => c.put('/', copy)); return r; }).catch(() => caches.match('/')));
     return;

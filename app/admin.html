@@ -82,7 +82,7 @@ const adm = { stats:null, comptes:null, err:'', loading:false, open:null, detail
 async function adminApi(path, body) {
   let res;
   const headers = { 'x-admin-key':adminKey() };
-  try { res = await fetch('/api/admin/' + path, body === undefined ? { credentials:'same-origin', headers } : { method:'POST', credentials:'same-origin', headers:Object.assign({ 'Content-Type':'application/json' }, headers), body:JSON.stringify(body) }); }
+  try { res = await fetch('/api/admin/' + path, body === undefined ? { credentials:'same-origin', cache:'no-store', headers } : { method:'POST', credentials:'same-origin', headers:Object.assign({ 'Content-Type':'application/json' }, headers), body:JSON.stringify(body) }); }
   catch (e) { throw new Error('Le serveur ne répond pas. Vérifie ta connexion internet.'); }
   let data = {}; try { data = await res.json(); } catch (e) {}
   if (!res.ok) {
