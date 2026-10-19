@@ -2120,7 +2120,7 @@ const REPORT_TYPES = [
   ['corrige', 'Corrigé de TD', 'Format exercice : énoncé puis chaque question du cours résolue (formule, application numérique pour chaque année, réponse, à retenir).', '10 à 25 pages'],
   ['comparaison', 'Comparaison de banques', 'Plusieurs banques côte à côte sur leur dernier exercice : classement, chiffres clés, ratios, graphiques et lecture ratio par ratio.', '4 à 8 pages'],
   ['recueil', 'Dossier multi-banques', 'Toutes les banques choisies réunies dans un seul document : vue d’ensemble comparée, puis la synthèse (ou l’analyse détaillée) de chaque banque.', '3 à 6 pages par banque'],
-  ['recueil_td', 'Option Isaac', 'Dossier multi-banques : pour chaque banque choisie, les questions du TD résolues : dynamique du bilan et du compte de résultat compte par compte, transformation, liquidité, levier, solvabilité, ROA et ROE de chaque année, pertes de faillite et PNB critique, chaque compte et chaque ratio expliqués pas à pas.', '25 à 30 pages par banque']
+  ['recueil_td', 'Option Isaac', 'Dossier multi-banques : pour chaque banque choisie, les questions du TD : dynamique du bilan et du compte de résultat, transformation, liquidité, levier, solvabilité, ROA et ROE de chaque année, pertes de faillite et PNB critique. Calculs et lecture courte.', '5 à 7 pages par banque']
 ];
 const MULTI_TYPES = ['recueil', 'recueil_td'];
 const REPORT_FILE = { complet:'Analyse', synthese:'Note_synthese', prudentiel:'Conformite', corrige:'Corrige', comparaison:'Comparaison', recueil:'Dossier_banques', recueil_td:'Option_Isaac' };
@@ -2540,8 +2540,8 @@ async function buildReportDoc(opt, type) {
   const title = opt.title || reportTitle(type, b);
   const writing = opt.writing && opt.writing !== 'auto' && WRITING_STYLES.some(w => w[0] === opt.writing) && (opt.writing !== 'perso' || hasMyStyle()) ? opt.writing : STYLE_BY_TYPE[type];
   let Wr = makeWriter(writing);
-  const explain = type === 'recueil_td'; // Option Isaac : tout est expliqué pas à pas
-  /* ---- Option Isaac : explications détaillées ---- */
+  const lean = type === 'recueil_td'; // Option Isaac : l'essentiel, sans détour
+  // sens d'un compte : [ce que c'est, s'il monte, s'il baisse]
   const ACC_HELP = {
     A1:['les liquidités immédiates de la banque (caisse et compte à la BCEAO, réserves obligatoires comprises)', 'la banque garde plus de liquidités disponibles', 'la banque garde moins de liquidités disponibles, souvent pour prêter ou placer davantage'],
     A2:['les titres émis par les États de l’UMOA (bons et obligations du Trésor)', 'la banque finance davantage les États : placements liquides et peu risqués, mais exposition souveraine accrue', 'la banque réduit son exposition aux titres d’État'],
@@ -2572,106 +2572,57 @@ async function buildReportDoc(opt, type) {
     RAI:['le résultat avant impôt', 'le résultat avant impôt progresse', 'le résultat avant impôt recule'],
     RNCR:['le résultat net : le bénéfice (ou la perte) de l’exercice', 'la banque gagne plus d’argent', 'la banque gagne moins d’argent']
   };
-  const pctTxt = p => (p >= 0 ? 'hausse de ' : 'baisse de ') + fmtP(Math.abs(p), 1);
-  function explainAccounts(kind) {
+  const pctS = p => fin(p) ? (p >= 0 ? '+' : '−') + fmtP(Math.abs(p), 1) : '—';
+  const growth = (a, z) => fin(a) && fin(z) && a ? (z - a) / Math.abs(a) : NaN;
+  // les comptes qui comptent (≥ 5 % du total, ou les soldes du compte de résultat), une ligne chacun
+  function leanAccounts(kind) {
     if (yrs.length < 2) return;
-    const tot = kind === 'cr' ? 'PNB' : 'TA', lines = [];
+    const tot = kind === 'cr' ? 'PNB' : 'TA', CR = ['MI', 'PNB', 'R11', 'RBE', 'R13', 'RNCR'], lines = [];
     dynRows(kind).forEach(r => {
-      const v = rowVals(r), id = r.k || r.q;
+      const id = r.k || r.q, v = rowVals(r), den = qv(tot, n), help = ACC_HELP[id];
+      if (r.sub || id === 'TP' || (kind === 'cr' ? !CR.includes(id) : !r.tot && !(fin(v[n]) && den && Math.abs(v[n] / den) >= 0.05))) return;
       if (!v.some(x => fin(x) && x !== 0)) return;
-      const lab = r.l || (r.k ? F[r.k].l : QTY[r.q].long || QTY[r.q].n), help = ACC_HELP[id];
-      let t = '<b>' + esc(lab) + '</b>' + (help ? ' — ' + help[0] : '') + '. ' + fmtM(v[0]) + ' M en ' + yrs[0];
-      const moves = [];
-      for (let i = 1; i < yrs.length; i++) {
-        const d = v[i] - v[i - 1], p = v[i - 1] ? d / Math.abs(v[i - 1]) : NaN;
-        t += ', ' + fmtM(v[i]) + ' M en ' + yrs[i] + (!fin(p) ? '' : Math.abs(p) < 0.005 ? ' (stable)' : ' (' + pctTxt(p) + ', ' + fmtSigned(d) + ' M)');
-        if (fin(p) && Math.abs(p) >= 0.005) moves.push(d);
-      }
-      t += '.';
-      const z = v[v.length - 1], den = qv(tot, yrs.length - 1);
-      if (fin(z) && fin(den) && den && !r.tot) t += ' Il représente ' + fmtP(z / den, 1) + (kind === 'cr' ? ' du PNB' : ' du total du bilan') + ' en ' + yrs[yrs.length - 1] + '.';
-      const g = yrs[yrs.length - 1] - yrs[0], a = v[0];
-      if (g > 0 && fin(a) && fin(z) && a > 0 && z > 0) t += ' Croissance annuelle moyenne (TCAM) : ' + fmtP(Math.pow(z / a, 1 / g) - 1, 1) + '.';
-      if (help && moves.length) {
-        const up = moves.filter(d => d > 0).length, dn = moves.filter(d => d < 0).length;
-        t += ' ' + capFirst(up && dn ? (moves[moves.length - 1] > 0 ? 'après un recul, il repart à la hausse : ' + help[1] : 'après une hausse, il recule : ' + help[2]) : up ? 'en hausse sur toute la période : ' + help[1] : dn ? 'en baisse sur toute la période : ' + help[2] : 'stable sur la période') + '.';
-      }
-      lines.push(t);
+      const ch = []; for (let i = 1; i <= n; i++) ch.push(pctS(growth(v[i - 1], v[i])) + ' en ' + yrs[i]);
+      const last = v[n] - v[n - 1];
+      lines.push('<b>' + esc(r.l || (r.k ? SHORT[r.k] || F[r.k].l : QTY[r.q].long || QTY[r.q].n)) + '</b>' + (kind !== 'cr' && !r.tot && den ? ' (' + fmtP(v[n] / den, 0) + ' du bilan)' : '') + ' : ' + ch.join(', ') + (help && fin(last) && last !== 0 ? ' — ' + (last > 0 ? help[1] : help[2]) + '.' : '.'));
     });
-    if (!lines.length) return;
-    body.push(W.p(W.run('Lecture compte par compte : ' + (kind === 'actif' ? 'actif' : kind === 'passif' ? 'passif' : 'compte de résultat'), { b:true, color:DOC_COLORS.accent }), { keep:true }));
-    body.push(W.bullets(lines));
+    if (lines.length) body.push(W.bullets(lines));
   }
-  function explainDynIndicators() {
+  function leanDynSummary() {
     if (yrs.length < 2) return;
-    const g = yrs[n] - yrs[0], keys = [['TA', 'Total du bilan', 'TA'], ['A4', 'Crédits à la clientèle', 'TA'], ['P3', 'Dépôts de la clientèle', 'TA'], ['CP', 'Capitaux propres', 'TA'], ['PNB', 'PNB', 'PNB'], ['R11', 'Charges générales d’exploitation', 'PNB'], ['RBE', 'Résultat brut d’exploitation', 'PNB'], ['RN', 'Résultat net', 'PNB']];
-    const get = (k, i) => F[k] ? (raw(k, i) ?? NaN) : qv(k, i);
-    body.push(W.h(3, 'Indicateurs de la dynamique'));
-    body.push(W.p(W.run('Les quatre indicateurs à calculer pour analyser la dynamique : la variation absolue (ΔX = X' + '\u2099 − X' + '\u2099\u208b\u2081' + '), le taux de variation (ΔX / X' + '\u2099\u208b\u2081' + '), le taux de croissance annuel moyen sur la période (TCAM = (X' + yrs[n] + ' / X' + yrs[0] + ')^(1/' + g + ') − 1) et le poids du poste dans le total du bilan ou dans le PNB.')));
-    const head = ['Poste'];
-    for (let i = 1; i <= n; i++) head.push('Δ ' + yrs[i] + ' (M)', 'Δ% ' + yrs[i]);
-    head.push('TCAM', 'Poids ' + yrs[n]);
-    body.push(W.table([head, ...keys.map(([k, l, t]) => {
-      const v = yrs.map((_, i) => get(k, i)), row = [l];
-      for (let i = 1; i <= n; i++) { const d = v[i] - v[i - 1], p = v[i - 1] ? d / Math.abs(v[i - 1]) : NaN; row.push(fmtSigned(d), fin(p) ? (p >= 0 ? '+' : '') + fmtP(p, 1) : '—'); }
-      const tc = g > 0 && v[0] > 0 && v[n] > 0 ? Math.pow(v[n] / v[0], 1 / g) - 1 : NaN, w = qv(t, n);
-      row.push(fin(tc) ? fmtP(tc, 1) : '—', fin(v[n]) && fin(w) && w && !(k === t) ? fmtP(v[n] / w, 1) : k === t ? '100 %' : '—');
-      return row;
-    })], { firstCol:28 }));
-    const ta = keys.slice(0, 4).map(([k]) => yrs.map((_, i) => get(k, i))), gr = x => x[0] > 0 && x[n] > 0 ? x[n] / x[0] - 1 : NaN;
-    const [gTA, gCr, gDep, gCP] = ta.map(gr), lines = [];
-    if (fin(gTA)) lines.push('Sur ' + yrs[0] + '–' + yrs[n] + ', le bilan ' + (gTA >= 0 ? 'progresse' : 'recule') + ' de ' + fmtP(Math.abs(gTA), 1) + ' au total.');
-    if (fin(gCr) && fin(gDep)) lines.push(gCr > gDep ? 'Les crédits (' + pctTxt(gCr) + ') progressent plus vite que les dépôts (' + pctTxt(gDep) + ') : la banque transforme une part croissante de ses dépôts en crédits, ce que l’on retrouve dans le ratio de transformation.' : 'Les dépôts (' + pctTxt(gDep) + ') progressent plus vite que les crédits (' + pctTxt(gCr) + ') : la banque collecte plus qu’elle ne prête, sa liquidité se renforce mais l’intermédiation est moins poussée.');
-    if (fin(gCP) && fin(gTA)) lines.push(gCP >= gTA ? 'Les capitaux propres (' + pctTxt(gCP) + ') suivent ou dépassent la croissance du bilan : la solidité de la banque se maintient ou se renforce.' : 'Les capitaux propres (' + pctTxt(gCP) + ') progressent moins vite que le bilan : la banque grandit surtout par l’endettement, l’effet de levier augmente.');
-    const pnb = yrs.map((_, i) => qv('PNB', i)), cg = yrs.map((_, i) => raw('R11', i) ?? NaN), gP = gr(pnb), gC = gr(cg);
-    if (fin(gP) && fin(gC)) lines.push(gP >= gC ? 'Le PNB (' + pctTxt(gP) + ') augmente plus vite que les charges générales (' + pctTxt(gC) + ') : effet de ciseaux favorable, le RBE s’améliore.' : 'Les charges générales (' + pctTxt(gC) + ') augmentent plus vite que le PNB (' + pctTxt(gP) + ') : effet de ciseaux défavorable, le RBE est sous pression.');
-    if (lines.length) { body.push(W.p(W.run('Ce qu’il faut retenir de la dynamique', { b:true, color:DOC_COLORS.accent }), { keep:true })); body.push(W.bullets(lines)); }
+    const g = k => growth(F[k] ? raw(k, 0) ?? NaN : qv(k, 0), F[k] ? raw(k, n) ?? NaN : qv(k, n));
+    const [gTA, gCr, gDep, gCP, gP, gC] = ['TA', 'A4', 'P3', 'CP', 'PNB', 'R11'].map(g), out = [];
+    if (fin(gTA)) out.push('Bilan ' + pctS(gTA) + ' sur ' + yrs[0] + '–' + yrs[n] + '.');
+    if (fin(gCr) && fin(gDep)) out.push(gCr > gDep ? 'Crédits (' + pctS(gCr) + ') plus dynamiques que les dépôts (' + pctS(gDep) + ') : la transformation augmente.' : 'Dépôts (' + pctS(gDep) + ') plus dynamiques que les crédits (' + pctS(gCr) + ') : la liquidité se renforce.');
+    if (fin(gCP) && fin(gTA)) out.push(gCP >= gTA ? 'Fonds propres (' + pctS(gCP) + ') au moins aussi rapides que le bilan : solidité renforcée.' : 'Fonds propres (' + pctS(gCP) + ') moins rapides que le bilan : le levier augmente.');
+    if (fin(gP) && fin(gC)) out.push(gP >= gC ? 'PNB (' + pctS(gP) + ') plus rapide que les charges (' + pctS(gC) + ') : effet de ciseaux favorable.' : 'Charges (' + pctS(gC) + ') plus rapides que le PNB (' + pctS(gP) + ') : effet de ciseaux défavorable.');
+    if (out.length) body.push(W.fromHtml('<b>À retenir.</b> ' + out.join(' ')));
   }
-  const nodeLabel = nd => !nd ? '' : nd.t === 'v' ? (SHORT[nd.k] || F[nd.k].l).toLowerCase() : nd.t === 'q' ? (QTY[nd.id].long || QTY[nd.id].n).toLowerCase() : nd.t === '/' && nd.a[0].t === 's' && nd.a[0].a[0] ? nodeLabel(nd.a[0].a[0][1]) + ' (moyenne N et N−1)' : nd.t === 's' ? 'numérateur' : '';
-  function explainRatio(ind, vals) {
-    if (!vals.some(fin)) return;
-    const node = nodeOf(ind), isDiv = node.t === '/', t = thrVal(ind), pct = (ind.fmt || 'pct') === 'pct', lines = [];
-    const gap = (a, c) => pct ? fmtPts(a - c) : (a - c >= 0 ? '+' : '−') + fmtCell(ind, Math.abs(a - c));
-    const stTxt = v => !ind.thr || !fin(t) ? '' : ind.thr.dir === 'min' ? (v >= t ? ' C’est au-dessus du minimum de ' + fmtCell(ind, t) + ' (marge de ' + gap(v, t) + ') : ' + (ind.thr.reg ? 'la norme est respectée.' : 'le repère est respecté.') : ' C’est en dessous du minimum de ' + fmtCell(ind, t) + ' (écart de ' + gap(v, t) + ') : ' + (ind.thr.reg ? 'la norme n’est pas respectée.' : 'le repère n’est pas atteint.')) : (v <= t ? ' C’est sous le plafond de ' + fmtCell(ind, t) + ' (marge de ' + gap(t, v) + ') : ' + (ind.thr.reg ? 'la norme est respectée.' : 'le repère est respecté.') : ' C’est au-dessus du plafond de ' + fmtCell(ind, t) + ' (dépassement de ' + gap(v, t) + ') : ' + (ind.thr.reg ? 'la norme n’est pas respectée.' : 'le repère est dépassé.'));
-    const nl = isDiv ? nodeLabel(node.a[0]) : '', dl = isDiv ? nodeLabel(node.a[1]) : '';
-    vals.forEach((v, i) => {
-      if (!fin(v)) return;
-      let s = '<b>' + yrs[i] + '</b> : ' + fmtCell(ind, v) + '.';
-      if (i > 0 && fin(vals[i - 1])) {
-        const d = v - vals[i - 1];
-        s = '<b>' + yrs[i] + '</b> : ' + fmtCell(ind, v) + ', ' + (Math.abs(d) < 1e-9 ? 'stable' : (d > 0 ? 'en hausse' : 'en baisse') + ' de ' + gap(v, vals[i - 1]).replace(/^[+−]/, '')) + ' par rapport à ' + yrs[i - 1] + '.';
-        if (isDiv && nl && dl) {
-          const a1 = val(node.a[0], i), a0 = val(node.a[0], i - 1), b1 = val(node.a[1], i), b0 = val(node.a[1], i - 1);
-          const pa = a0 ? (a1 - a0) / Math.abs(a0) : NaN, pb = b0 ? (b1 - b0) / Math.abs(b0) : NaN;
-          const mv = p => (p >= 0 ? 'augmente' : 'diminue') + ' de ' + fmtP(Math.abs(p), 1);
-          if (fin(pa) && fin(pb)) s += ' Pourquoi : le numérateur (' + nl + ') ' + mv(pa) + ' et le dénominateur (' + dl + ') ' + mv(pb) + '. ' + (Math.abs(pa - pb) < 0.001 ? 'Les deux évoluent au même rythme, le ratio bouge peu.' : pa > pb ? 'Le numérateur ' + (pa >= 0 ? 'progresse plus vite' : 'recule moins vite') + ' que le dénominateur, d’où la hausse du ratio.' : 'Le numérateur ' + (pa >= 0 ? 'progresse moins vite' : 'recule plus vite') + ' que le dénominateur, d’où la baisse du ratio.');
-        }
-      }
-      lines.push(s + stTxt(v));
-    });
+  const nodeLabel = nd => !nd ? '' : nd.t === 'v' ? (SHORT[nd.k] || F[nd.k].l).toLowerCase() : nd.t === 'q' ? QTY[nd.id].n.toLowerCase() : nd.t === '/' && nd.a[0].t === 's' && nd.a[0].a[0] ? nodeLabel(nd.a[0].a[0][1]) + ' moyen' : '';
+  // un ratio : formule, calcul de chaque année, tableau et une lecture en deux ou trois phrases
+  async function leanRatio(ind) {
+    const node = nodeOf(ind), vals = yrs.map((_, i) => val(node, i)), t = thrVal(ind);
+    body.push(W.h(3, ind.n));
+    M.lines(ind.n + ' = ', node, 'sym').forEach(l => body.push(l));
+    yrs.forEach((yr, i) => M.lines(yr + ' : ', node, 'num', i, ' = ' + fmtCell(ind, vals[i])).forEach(l => body.push(l)));
+    body.push(W.table([['Exercice', ...yrs.map(String)], ['Valeur', ...vals.map(v => fmtCell(ind, v))], ['Appréciation', ...vals.map(v => stCell(ind, v))]], { firstCol:22 }));
     const f = vals.findIndex(fin), l = vals.length - 1 - [...vals].reverse().findIndex(fin);
-    body.push(W.p(W.run('Lecture année par année', { b:true, color:DOC_COLORS.accent }), { keep:true }));
-    body.push(W.bullets(lines));
-    if (l > f && ind.up && ind.down) body.push(W.fromHtml('<b>Ce que cela signifie pour la banque.</b> Entre ' + yrs[f] + ' et ' + yrs[l] + ', le ratio passe de ' + fmtCell(ind, vals[f]) + ' à ' + fmtCell(ind, vals[l]) + '. ' + (vals[l] > vals[f] ? ind.up : vals[l] < vals[f] ? ind.down : 'Il est globalement stable.')));
-  }
-  function explainRenta() {
-    const roa = series(I.roa), roe = series(I.roe), m = series(I.mult), lines = [];
-    yrs.forEach((yr, i) => { if (fin(roa[i]) && fin(roe[i]) && fin(m[i])) lines.push('<b>' + yr + '</b> : chaque 100 FCFA d’actif rapporte ' + nf(2).format(roa[i] * 100) + ' FCFA de résultat net (ROA ' + fmtP(roa[i]) + ') ; chaque 100 FCFA apportés par les actionnaires rapportent ' + nf(2).format(roe[i] * 100) + ' FCFA (ROE ' + fmtP(roe[i]) + '). L’écart vient du levier : la banque porte ' + nf(2).format(m[i]) + ' FCFA d’actifs pour 1 FCFA de fonds propres, donc ROE = ROA × multiplicateur = ' + fmtP(roa[i]) + ' × ' + nf(2).format(m[i]) + ' = ' + fmtP(roe[i]) + '.'); });
-    if (!lines.length) return;
-    body.push(W.p(W.run('ROA et ROE expliqués simplement', { b:true, color:DOC_COLORS.accent }), { keep:true }));
-    body.push(W.bullets(lines));
-  }
-  function explainFaillite() {
-    const lines = [];
-    yrs.forEach((yr, i) => {
-      const cp = qv('CP', i), pnb = qv('PNB', i), pc = qv('PNBC', i), ch = val(nodeOf(I.chute), i);
-      if (![cp, pnb, pc].every(fin)) return;
-      lines.push('<b>' + yr + '</b> : les capitaux propres s’élèvent à ' + fmtM(cp) + ' M. La banque ferait donc faillite avec une perte de ' + fmtM(cp) + ' M (RN* = −' + fmtM(cp) + ' M). Pour arriver à cette perte, toutes charges égales par ailleurs, le PNB devrait passer de ' + fmtM(pnb) + ' M à ' + fmtM(pc) + ' M, soit une baisse de ' + fmtM(pnb - pc) + ' M' + (fin(ch) ? ' (' + fmtP(ch, 1) + ' du PNB)' : '') + '. '
-        + (!fin(ch) ? '' : ch >= 1 ? 'Le PNB* est négatif : même sans aucun revenu, la banque ne perdrait pas tous ses fonds propres en un an. La marge de sécurité est très large.' : ch >= 0.5 ? 'La banque pourrait perdre plus de la moitié de ses revenus avant la faillite : marge de sécurité confortable.' : ch >= 0.2 ? 'La marge de sécurité est correcte, mais une crise sévère de revenus la réduirait vite.' : 'Une baisse modérée des revenus suffirait à effacer les fonds propres : la banque est fragile.'));
-    });
-    if (!lines.length) return;
-    body.push(W.p(W.run('Le test de faillite expliqué, année par année', { b:true, color:DOC_COLORS.accent }), { keep:true }));
-    body.push(W.bullets(lines));
+    if (f < 0) return;
+    let txt = '';
+    if (l > f) {
+      const d = vals[l] - vals[f], up = d > 0;
+      txt += 'Le ratio ' + (Math.abs(d) < 1e-6 ? 'est stable' : (up ? 'monte' : 'baisse') + ' de ' + fmtCell(ind, vals[f]) + ' à ' + fmtCell(ind, vals[l])) + ' entre ' + yrs[f] + ' et ' + yrs[l];
+      if (node.t === '/') {
+        const pa = growth(val(node.a[0], f), val(node.a[0], l)), pb = growth(val(node.a[1], f), val(node.a[1], l));
+        if (fin(pa) && fin(pb) && Math.abs(d) >= 1e-6) txt += ' : ' + nodeLabel(node.a[0]) + ' ' + pctS(pa) + ' contre ' + nodeLabel(node.a[1]) + ' ' + pctS(pb);
+      }
+      txt += '. ' + (Math.abs(d) < 1e-6 ? '' : (up ? ind.up : ind.down) + ' ');
+    }
+    if (ind.thr && fin(t)) {
+      const ok = vals.filter(fin).every(v => status(ind, v) !== 'bad'), v = vals[l];
+      txt += (ind.thr.dir === 'min' ? 'Minimum ' : 'Plafond ') + fmtCell(ind, t) + ' : ' + (ok ? 'respecté chaque année' : 'non respecté en ' + yrs.filter((_, i) => fin(vals[i]) && status(ind, vals[i]) === 'bad').join(', ')) + ' (écart de ' + fmtPts(ind.thr.dir === 'min' ? v - t : t - v) + ' en ' + yrs[l] + ').';
+    }
+    if (txt) body.push(W.fromHtml(txt.trim()));
   }
 
   const introP = k => { const t = Wr.intro(k); if (t) body.push(W.p(W.run(t, { color:DOC_COLORS.ink2 }))); };
@@ -2708,7 +2659,6 @@ async function buildReportDoc(opt, type) {
     if (miss.size) body.push(W.note('Données manquantes pour ' + yrs[y] + ' : ' + [...miss].map(k => F[k].l).join(', ') + '.'));
     body.push(W.table([['Exercice', ...yrs.map(String)], ['Valeur', ...vals.map(v => fmtCell(ind, v))], ['Appréciation', ...vals.map(v => stCell(ind, v))]], { firstCol:22 }));
     if (vals.some(fin)) { await addChart(printIndicator(ind, vals), ind.n + ' par exercice'); body.push(W.fromHtml(Wr.interp(ind, vals))); }
-    if (explain) explainRatio(ind, vals);
     return vals;
   };
   // Questions du TD (corrigé et dossier multi-banques « questions du TD ») : énoncé, résolution, à retenir
@@ -2738,9 +2688,9 @@ async function buildReportDoc(opt, type) {
         tbl.push(line);
       });
       body.push(W.table(tbl, { boldRows:bold, firstCol:yrs.length > 3 ? 30 : 38 }));
+      if (lean) { leanAccounts(kind); continue; }
       const hl = highlights(kind);
       if (hl) body.push(W.fromHtml(hl));
-      if (explain) explainAccounts(kind);
       if (kind !== 'cr') await addChart(printStack(kind), 'Structure ' + (kind === 'actif' ? 'de l’actif' : 'du passif') + ' par exercice');
       if (kind === 'passif') await addChart(chartBilan(), 'Total du bilan, crédits et dépôts');
       if (kind === 'cr') await addChart(chartResultats(), 'PNB, RBE et résultat net');
@@ -2955,59 +2905,36 @@ async function buildReportDoc(opt, type) {
     methodGlossary();
     comment();
   } else if (type === 'recueil_td') {
-    // Option Isaac : dossier multi-banques « questions du TD » : pour chaque banque, les quatre parties du TD résolues
+    // Option Isaac : pour chaque banque, les quatre questions du TD, calculées et commentées brièvement
     const ids = (opt.banks || []).filter(id => state.banks[id]);
     if (!ids.length) throw new Error('Choisis au moins une banque à réunir dans le dossier.');
-    const QS = tdQuestions();
-    const PARTS = [
-      ['Analyse du bilan et du compte de résultat', 'Analysez le bilan et le compte de résultat sur la période : dynamique de chaque compte d’une année à l’autre et indicateurs à calculer.', [0, 1]],
-      ['Ratios de transformation, de liquidité, de levier et de solvabilité', 'Calculez et analysez le ratio de transformation, le ratio de liquidité, le ratio de levier et le ratio de solvabilité.', [2, 3, 4, 5]],
-      ['ROA et ROE', 'Calculez et analysez le ROA et le ROE de chaque année, puis la dynamique d’une année à l’autre.', [6]],
-      ['Pertes de faillite et PNB critique', 'Déterminez le montant des pertes (résultat net) qui mettrait la banque en faillite, puis le niveau de PNB qui provoquerait cette perte.', [7, 8]]
-    ];
-    const PART_HELP = [
-      [['Ce que l’on cherche', 'comprendre comment la banque a évolué : a-t-elle grandi, sur quels postes, avec quelles ressources, et ses revenus ont-ils suivi ?'],
-       ['Méthode', 'pour chaque compte du bilan (actif et passif) et du compte de résultat, on compare chaque année à la précédente : variation en valeur (X<sub>N</sub> − X<sub>N−1</sub>), taux de variation ((X<sub>N</sub> − X<sub>N−1</sub>) / X<sub>N−1</sub>), puis sur toute la période le taux de croissance annuel moyen (TCAM) et le poids de chaque poste dans le total (structure).'],
-       ['Comment lire', 'un poste qui augmente plus vite que le total gagne du poids dans le bilan ; une variation de plus de 10 % sur un an est significative et doit être expliquée. Au compte de résultat, on suit la cascade du PNB jusqu’au résultat net pour voir à quel étage la performance se gagne ou se perd.']],
-      [['Ce que l’on cherche', 'mesurer les grands équilibres de la banque : combien elle prête de ses dépôts (transformation), sa capacité à faire face aux retraits (liquidité), son endettement (levier) et sa capacité à absorber des pertes (solvabilité).'],
-       ['Méthode', 'pour chaque ratio : la formule, l’application numérique de chaque année, puis la comparaison au seuil de la BCEAO (norme) ou au repère d’analyse. On explique ensuite chaque variation par le numérateur et le dénominateur : un ratio monte quand son numérateur progresse plus vite que son dénominateur.'],
-       ['Comment lire', 'un ratio « minimum » (liquidité, levier, solvabilité) doit rester au-dessus de son seuil ; un ratio « plafond » (transformation) doit rester en dessous. L’écart au seuil, en points, mesure la marge de sécurité.']],
-      [['Ce que l’on cherche', 'savoir si la banque est rentable, pour l’ensemble de ses actifs (ROA) et pour ses actionnaires (ROE), et pourquoi cette rentabilité change d’une année à l’autre.'],
-       ['Méthode', 'ROA = résultat net / total actif ; ROE = résultat net / capitaux propres. Les deux sont liés : ROE = ROA × multiplicateur de fonds propres (total actif / capitaux propres). On décompose chaque variation du ROE en effet rentabilité des actifs et effet levier.'],
-       ['Comment lire', 'un ROE qui progresse grâce au ROA est sain (les actifs rapportent plus) ; un ROE qui progresse seulement grâce au levier signifie que la banque s’endette davantage : la rentabilité monte, mais le risque aussi.']],
-      [['Ce que l’on cherche', 'mesurer la distance qui sépare la banque de la faillite : quelle perte la ferait disparaître, et quelle chute de revenus provoquerait cette perte.'],
-       ['Méthode', 'étape 1 : la banque est en faillite quand la perte efface les capitaux propres, donc la perte critique est RN* = −capitaux propres. Étape 2 : on remonte le compte de résultat à partir de RN* (l’impôt est nul en cas de perte) : on ajoute toutes les charges situées sous le PNB (charges générales d’exploitation, dotations aux amortissements, coût du risque) et on retire les autres produits (subventions, gains sur actifs immobilisés). On obtient le PNB critique PNB*, toutes charges égales par ailleurs.'],
-       ['Comment lire', 'plus l’écart entre le PNB réel et le PNB* est grand, plus la banque est loin de la faillite. On l’exprime en % du PNB : c’est la baisse de revenus que la banque peut encaisser avant de perdre tous ses fonds propres.']]
-    ];
-    cover(ids.length + ' banque' + (ids.length > 1 ? 's' : '') + ' · les questions du TD résolues et expliquées pour chacune');
-    body.push(W.h(2, 'Sommaire'));
-    ['Énoncé', ...(ids.length > 1 ? ['Vue d’ensemble comparée'] : []), ...ids.map(id => state.banks[id].name), 'Méthodologie et glossaire'].forEach((l, i) => body.push(W.p(W.run((i + 1) + '. ' + l), { after:40 })));
-    section('Énoncé');
-    body.push(W.p(W.run('Pour chacune des banques suivantes, à partir de ses bilans et comptes de résultat :')));
-    body.push(W.bullets(ids.map(id => { const x = state.banks[id]; return x.name + ' (' + (x.years.length > 1 ? x.years[0] + ' à ' + x.years[x.years.length - 1] : x.years[0]) + ')'; })));
-    PARTS.forEach(([, q], i) => body.push(W.p(W.run((i + 1) + '. ' + q), { ind:360, after:40 })));
-    body.push(W.note('Chaque ratio est donné avec sa formule, l’application numérique pour chaque année, sa dynamique d’une année à l’autre et sa lecture par rapport au seuil de la BCEAO ou au repère d’analyse. Les ratios de rentabilité sont calculés sur ' + (state.base === 'moy' ? 'la moyenne des exercices N et N−1' : 'les montants de fin d’exercice') + '.'));
-    if (ids.length > 1) await comparisonSections(ids, false);
+    const QS = ['Analyse du bilan et du compte de résultat : dynamique de chaque compte d’une année à l’autre.', 'Ratios de transformation, de liquidité, de levier et de solvabilité.', 'ROA et ROE de chaque année et leur dynamique.', 'Pertes qui mettraient la banque en faillite, puis niveau de PNB qui provoquerait cette perte.'];
+    cover(ids.length + ' banque' + (ids.length > 1 ? 's' : '') + ' · questions du TD');
+    section('Énoncé', false);
+    body.push(W.p(W.run('Pour chaque banque (' + ids.map(id => state.banks[id].name).join(', ') + ') :')));
+    QS.forEach((q, i) => body.push(W.p(W.run((i + 1) + '. ' + q), { ind:360, after:40 })));
     dynLevel = 3;
     await eachBank(ids, async () => {
-      for (let i = 0; i < PARTS.length; i++) {
-        const [t, , qi] = PARTS[i];
-        body.push(W.h(2, (i + 1) + '. ' + t));
-        PART_HELP[i].forEach(([l, x]) => body.push(W.fromHtml('<b>' + l + '.</b> ' + capFirst(x))));
-        for (const k of qi) {
-          body.push(W.p(W.run(QS[k][0], { b:true, i:true }), { keep:true }));
-          await QS[k][1]();
-          body.push(W.box('À retenir', QS[k][2]));
-        }
-        if (i === 0) explainDynIndicators();
-        if (i === 2) { await addChart(chartRenta(), b.name + ' : ROE et ROA'); explainRenta(); }
-        if (i === 3) explainFaillite();
-      }
+      body.push(W.h(2, '1. Bilan et compte de résultat'));
+      await dynTables(['actif', 'passif', 'cr']);
+      leanDynSummary();
+      body.push(W.h(2, '2. Transformation, liquidité, levier, solvabilité'));
+      for (const k of ['transfo', 'liq', 'levier', 'solva']) await leanRatio(I[k]);
+      body.push(W.h(2, '3. ROA et ROE'));
+      for (const k of ['roa', 'roe']) await leanRatio(I[k]);
+      const roa = series(I.roa), roe = series(I.roe), m = series(I.mult);
+      const dp = yrs.map((yr, i) => fin(roa[i]) && fin(m[i]) ? yr + ' : ' + fmtP(roa[i]) + ' × ' + nf(2).format(m[i]) + ' = ' + fmtP(roe[i]) : '').filter(Boolean);
+      if (dp.length) body.push(W.fromHtml('<b>ROE = ROA × multiplicateur</b> (total actif / capitaux propres) — ' + dp.join(' ; ') + '.' + (n > 0 && [roa[0], roa[n], m[0], m[n]].every(fin) ? ' Sur la période, le ROE varie surtout à cause ' + (Math.abs((roa[n] - roa[0]) * m[0]) >= Math.abs(roa[n] * (m[n] - m[0])) ? 'de la rentabilité des actifs (ROA).' : 'de l’effet de levier (multiplicateur).') : '')));
+      body.push(W.h(2, '4. Faillite et PNB critique'));
+      body.push(M.para(M.r('RN*') + M.r(' = ') + M.r('−') + M.r('Capitaux propres')));
+      M.lines('PNB* = ', QTY.PNBC.node, 'sym').forEach(l => body.push(l));
+      body.push(W.table([['', ...yrs.map(String)], ['Capitaux propres', ...yrs.map((_, i) => fmtM(qv('CP', i)))], ['Perte de faillite RN*', ...yrs.map((_, i) => fmtM(-qv('CP', i)))], ['PNB réel', ...yrs.map((_, i) => fmtM(qv('PNB', i)))], ['PNB critique PNB*', ...yrs.map((_, i) => fmtM(qv('PNBC', i)))], ['Baisse de PNB supportable', ...yrs.map((_, i) => fmtP(val(nodeOf(I.chute), i), 1))]], { boldRows:[2, 4], firstCol:34 }));
+      const ch = val(nodeOf(I.chute), n);
+      if (fin(ch)) body.push(W.fromHtml('En ' + yrs[n] + ', la banque ferait faillite avec une perte de ' + fmtM(qv('CP', n)) + ' M, soit un PNB ramené de ' + fmtM(qv('PNB', n)) + ' à ' + fmtM(qv('PNBC', n)) + ' M (−' + fmtP(ch, 1) + '). ' + (ch >= 1 ? 'Même sans aucun PNB, elle ne perdrait pas tous ses fonds propres : marge très large.' : ch >= 0.5 ? 'Marge confortable.' : ch >= 0.2 ? 'Marge correcte.' : 'Marge faible : la banque est fragile.')));
       body.push(W.h(2, 'Conclusion'));
       body.push(W.fromHtml(Wr.conclusion(n)));
     });
     dynLevel = 2;
-    methodGlossary();
     comment();
   }
 
