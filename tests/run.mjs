@@ -815,7 +815,7 @@ else {
     const rt = await gen({ type: 'recueil_td', banks: ids, charts: true });
     ok(!rt.startsWith('ERR'), 'dossier TD : généré sans erreur', rt.slice(0, 200));
     if (!rt.startsWith('ERR')) {
-      const res = await checkDocx(Buffer.from(rt, 'base64'), 'dossier TD', ['DOSSIER MULTI-BANQUES', 'Énoncé', 'Vue d’ensemble comparée', 'Banque Atlantique', 'Banque Test Sénégal', 'Petite Banque du Mali', 'Analyse du bilan et du compte de résultat', 'Ratios de transformation, de liquidité, de levier et de solvabilité', 'ROA et ROE', 'Pertes de faillite et PNB critique', 'À retenir', /ROE\s*=/]);
+      const res = await checkDocx(Buffer.from(rt, 'base64'), 'dossier TD', ['OPTION ISAAC', 'Énoncé', 'Vue d’ensemble comparée', 'Banque Atlantique', 'Banque Test Sénégal', 'Petite Banque du Mali', 'Analyse du bilan et du compte de résultat', 'Ratios de transformation, de liquidité, de levier et de solvabilité', 'ROA et ROE', 'Pertes de faillite et PNB critique', 'À retenir', /ROE\s*=/]);
       const d = (await (await JSZip.loadAsync(Buffer.from(rt, 'base64'))).file('word/document.xml').async('string'));
       const cnt = re => (d.match(re) || []).length;
       ok(cnt(/>\d\. Pertes de faillite et PNB critique</g) === 3 && cnt(/>\d\. Ratios de transformation, de liquidité, de levier et de solvabilité</g) === 3 && cnt(/>Compte de résultat</g) >= 3 && cnt(/>Conclusion</g) >= 3, 'dossier TD : les quatre parties pour chacune des trois banques', [cnt(/>\d\. Pertes de faillite et PNB critique</g), cnt(/>Compte de résultat</g)]);

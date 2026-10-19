@@ -2120,10 +2120,10 @@ const REPORT_TYPES = [
   ['corrige', 'Corrigé de TD', 'Format exercice : énoncé puis chaque question du cours résolue (formule, application numérique pour chaque année, réponse, à retenir).', '10 à 25 pages'],
   ['comparaison', 'Comparaison de banques', 'Plusieurs banques côte à côte sur leur dernier exercice : classement, chiffres clés, ratios, graphiques et lecture ratio par ratio.', '4 à 8 pages'],
   ['recueil', 'Dossier multi-banques', 'Toutes les banques choisies réunies dans un seul document : vue d’ensemble comparée, puis la synthèse (ou l’analyse détaillée) de chaque banque.', '3 à 6 pages par banque'],
-  ['recueil_td', 'Dossier multi-banques : questions du TD', 'Pour chaque banque choisie, les questions du TD résolues : dynamique du bilan et du compte de résultat compte par compte, transformation, liquidité, levier, solvabilité, ROA et ROE de chaque année, pertes de faillite et PNB critique.', '8 à 15 pages par banque']
+  ['recueil_td', 'Option Isaac', 'Dossier multi-banques : pour chaque banque choisie, les questions du TD résolues : dynamique du bilan et du compte de résultat compte par compte, transformation, liquidité, levier, solvabilité, ROA et ROE de chaque année, pertes de faillite et PNB critique.', '8 à 15 pages par banque']
 ];
 const MULTI_TYPES = ['recueil', 'recueil_td'];
-const REPORT_FILE = { complet:'Analyse', synthese:'Note_synthese', prudentiel:'Conformite', corrige:'Corrige', comparaison:'Comparaison', recueil:'Dossier_banques', recueil_td:'Dossier_TD_banques' };
+const REPORT_FILE = { complet:'Analyse', synthese:'Note_synthese', prudentiel:'Conformite', corrige:'Corrige', comparaison:'Comparaison', recueil:'Dossier_banques', recueil_td:'Option_Isaac' };
 const DOC_THEMES = {
   classique: { n:'Vert et bleu (classique)', accent:'0C5A48', head:'E8EDE8', zebra:'F5F7F5', chart:'#2a78d6', soft:'#9cc3f1' },
   marine: { n:'Bleu marine', accent:'1F3B73', head:'E3E9F4', zebra:'F4F6FB', chart:'#2a5bb8', soft:'#a8bfe8' },
@@ -2818,7 +2818,7 @@ async function buildReportDoc(opt, type) {
     methodGlossary();
     comment();
   } else if (type === 'recueil_td') {
-    // Dossier multi-banques « questions du TD » : pour chaque banque, les quatre parties du TD résolues
+    // Option Isaac : dossier multi-banques « questions du TD » : pour chaque banque, les quatre parties du TD résolues
     const ids = (opt.banks || []).filter(id => state.banks[id]);
     if (!ids.length) throw new Error('Choisis au moins une banque à réunir dans le dossier.');
     const QS = tdQuestions();
@@ -2955,7 +2955,7 @@ async function buildReportDoc(opt, type) {
     body.push(missAll.size ? W.p(W.run('Les postes suivants ne sont pas saisis pour au moins un exercice ; les indicateurs qui en dépendent sont marqués « Non calculé » : ' + [...missAll].map(k => F[k].l).join(', ') + '.')) : W.p(W.run('Toutes les données utilisées par les indicateurs sont renseignées.')));
   }
 
-  const headRight = type === 'comparaison' ? 'Comparaison de banques' : MULTI_TYPES.includes(type) ? 'Dossier multi-banques' : b.name;
+  const headRight = type === 'comparaison' ? 'Comparaison de banques' : type === 'recueil_td' ? 'Option Isaac' : MULTI_TYPES.includes(type) ? 'Dossier multi-banques' : b.name;
   const NS = 'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"';
   const doc = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document ' + NS + '><w:body>' + body.join('')
     + '<w:sectPr><w:headerReference w:type="default" r:id="rIdHeader"/><w:headerReference w:type="first" r:id="rIdHeaderFirst"/><w:footerReference w:type="default" r:id="rIdFooter"/><w:footerReference w:type="first" r:id="rIdFooterFirst"/><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1247" w:right="1134" w:bottom="1247" w:left="1134" w:header="567" w:footer="567" w:gutter="0"/><w:titlePg/></w:sectPr></w:body></w:document>';
