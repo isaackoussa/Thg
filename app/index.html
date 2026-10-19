@@ -2004,6 +2004,66 @@ const W = {
     return x + '</w:tbl>' + W.p('', { after:60 });
   }
 };
+/* Mise en page simulée d'un document Word (A4, marges du rapport) : page de chaque signet.
+   Hauteurs estimées en twips : lignes de texte selon la taille de police et la largeur disponible, formules,
+   images, lignes de tableau (les lignes ne se coupent pas), sauts de page et titres gardés avec la suite. */
+function estimatePages(xml) {
+  const dom = new DOMParser().parseFromString(xml, 'application/xml');
+  const body = dom.documentElement.firstElementChild;
+  const PAGE_H = 14344, TEXT_W = 9638;
+  const STY = { Title:{ sz:52, b:2400, a:240 }, Heading1:{ sz:34, b:360, a:200 }, Heading2:{ sz:27, b:280, a:120 }, Heading3:{ sz:23, b:220, a:80 }, Caption:{ sz:19, b:60, a:60 }, Note:{ sz:18 }, TOC1:{ b:100, a:40 }, TOC2:{ a:40 }, TableofFigures:{ a:40 } };
+  const kid = (el, n) => el ? [...el.children].find(c => c.localName === n) : null;
+  const kids = (el, n) => el ? [...el.children].filter(c => c.localName === n) : [];
+  const at = (el, n) => el ? el.getAttribute('w:' + n) : null;
+  const tags = (el, q) => [...el.getElementsByTagName(q)];
+  function paraH(p, width) {
+    const pPr = kid(p, 'pPr'), S = STY[at(kid(pPr, 'pStyle'), 'val')] || {}, sp = kid(pPr, 'spacing'), ind = kid(pPr, 'ind');
+    const before = sp && at(sp, 'before') != null ? +at(sp, 'before') : (S.b || 0);
+    const after = sp && at(sp, 'after') != null ? +at(sp, 'after') : (S.a ?? 120);
+    const ext = tags(p, 'wp:extent')[0];
+    if (ext) return before + after + Math.round(+ext.getAttribute('cy') / 635) + 40;
+    if (tags(p, 'm:oMath').length) return before + after + (tags(p, 'm:f').length ? 600 : 340);
+    const szEl = tags(p, 'w:sz')[0], pt = (szEl ? +at(szEl, 'val') : (S.sz || 21)) / 2;
+    const w = width - (ind ? +(at(ind, 'left') || 0) : 0);
+    const txt = tags(p, 'w:t').map(t => t.textContent).join('') + '        '.repeat(tags(p, 'w:tab').length);
+    const cpl = Math.max(8, w / (pt * 20 * 0.47)), lines = Math.max(1, Math.ceil(txt.length / cpl));
+    return before + after + Math.round(lines * pt * 20 * 1.21);
+  }
+  function blockH(el, width) { return el.localName === 'tbl' ? rowsOf(el).reduce((a, r) => a + r.h, 0) : el.localName === 'p' ? paraH(el, width) : 0; }
+  function rowsOf(tbl) {
+    const mar = kid(kid(tbl, 'tblPr'), 'tblCellMar'), m = mar ? (+at(kid(mar, 'top'), 'w') || 0) + (+at(kid(mar, 'bottom'), 'w') || 0) : 80;
+    return kids(tbl, 'tr').map(tr => {
+      let h = 0;
+      kids(tr, 'tc').forEach(tc => {
+        const w = +at(kid(kid(tc, 'tcPr'), 'tcW'), 'w') || TEXT_W;
+        h = Math.max(h, [...tc.children].reduce((a, c) => a + blockH(c, w - 200), 0));
+      });
+      return { el:tr, h:h + m };
+    });
+  }
+  const pages = {};
+  let page = 1, y = 0;
+  const mark = el => tags(el, 'w:bookmarkStart').forEach(b => { const n = at(b, 'name'); if (n && !pages[n]) pages[n] = page; });
+  const brk = () => { if (y > 0) { page++; y = 0; } };
+  const blocks = [...body.children].filter(c => c.localName === 'p' || c.localName === 'tbl');
+  blocks.forEach((el, i) => {
+    if (el.localName === 'tbl') {
+      rowsOf(el).forEach(r => { if (y + r.h > PAGE_H) brk(); mark(r.el); y += r.h; while (y > PAGE_H) { page++; y -= PAGE_H; } });
+      return;
+    }
+    const pPr = kid(el, 'pPr');
+    if (kid(pPr, 'pageBreakBefore')) brk();
+    const h = paraH(el, TEXT_W);
+    let need = h;
+    // titre ou légende gardés avec le début de ce qui suit
+    if (kid(pPr, 'keepNext') && blocks[i + 1]) { const nx = blocks[i + 1]; need += nx.localName === 'tbl' ? (rowsOf(nx)[0] || { h:0 }).h + ((rowsOf(nx)[1] || { h:0 }).h) : paraH(nx, TEXT_W); }
+    if (y + need > PAGE_H) brk();
+    mark(el); y += h;
+    while (y > PAGE_H) { page++; y -= PAGE_H; }
+  });
+  pages._total = page;
+  return pages;
+}
 /* Équations Word (OMML) générées depuis les arbres de formules */
 const M = {
   r(t) { return '<m:r><m:rPr><m:sty m:val="p"/></m:rPr><w:rPr><w:rFonts w:ascii="Cambria Math" w:hAnsi="Cambria Math"/></w:rPr><m:t xml:space="preserve">' + XE(String(t).replace(/\*/g, '\u2217')) + '</m:t></m:r>'; },
@@ -2578,6 +2638,7 @@ async function buildReportDoc(opt, type) {
   // Option Isaac : sa propre rédaction (fiches verdict, lecture courte et directe), légendes et descriptions
   // sous chaque tableau et graphique, sommaire et table des illustrations automatiques
   const isaac = type === 'recueil_td', toc = [], figs = [], tabs = [], figsBm = [], tabsBm = [];
+  let indexAt = -1;
   let tabN = 0;
   const GOLD = 'B8902F';
   // sens d'un compte : [ce que c'est, s'il monte, s'il baisse]
@@ -2670,12 +2731,13 @@ async function buildReportDoc(opt, type) {
     return vals;
   }
   // sommaire et table des illustrations : champs Word préremplis (Word ajoute les numéros de page à l'ouverture)
-  function isaacIndex() {
+  function isaacIndex(pages = {}) {
+    const pg = name => pages[name] ? String(pages[name]) : '00';
     const t = x => W.p(W.run(x, { b:true, sz:30, color:DOC_COLORS.accent }), { after:160 });
-    return t('Sommaire') + W.note('Table des matières Word : clique sur une ligne (Ctrl + clic sur ordinateur) pour aller à la page. Si Word demande de mettre à jour les champs à l’ouverture, réponds Oui ; sinon clic droit → Mettre à jour les champs.') + W.field('TOC \\o "1-2" \\h \\z \\u', toc.map(e => ({ t:e.t, style:'TOC' + e.l, bm:e.bm })), 'TOC1')
+    return t('Sommaire') + W.note('Table des matières Word : clique sur une ligne (Ctrl + clic sur ordinateur) pour aller à la page. Si Word demande de mettre à jour les champs à l’ouverture, réponds Oui ; sinon clic droit → Mettre à jour les champs.') + W.field('TOC \\o "1-2" \\h \\z \\u', toc.map(e => ({ t:e.t, style:'TOC' + e.l, bm:e.bm, page:pg(e.bm) })), 'TOC1')
       + W.p('', { pageBreak:true, after:0 }) + t('Table des illustrations')
-      + W.p(W.run('Figures', { b:true, color:GOLD }), { after:60 }) + W.field('TOC \\h \\z \\c "Figure"', figs.map((x, i) => ({ t:'Figure ' + (i + 1) + ' – ' + x, bm:figsBm[i] })), 'TableofFigures')
-      + W.p(W.run('Tableaux', { b:true, color:GOLD }), { after:60 }) + W.field('TOC \\h \\z \\c "Tableau"', tabs.map((x, i) => ({ t:'Tableau ' + (i + 1) + ' – ' + x, bm:tabsBm[i] })), 'TableofFigures');
+      + W.p(W.run('Figures', { b:true, color:GOLD }), { after:60 }) + W.field('TOC \\h \\z \\c "Figure"', figs.map((x, i) => ({ t:'Figure ' + (i + 1) + ' – ' + x, bm:figsBm[i], page:pg(figsBm[i]) })), 'TableofFigures')
+      + W.p(W.run('Tableaux', { b:true, color:GOLD }), { after:60 }) + W.field('TOC \\h \\z \\c "Tableau"', tabs.map((x, i) => ({ t:'Tableau ' + (i + 1) + ' – ' + x, bm:tabsBm[i], page:pg(tabsBm[i]) })), 'TableofFigures');
   }
 
   const introP = k => { const t = Wr.intro(k); if (t) body.push(W.p(W.run(t, { color:DOC_COLORS.ink2 }))); };
@@ -2966,7 +3028,7 @@ async function buildReportDoc(opt, type) {
     const QS = ['Analyse du bilan et du compte de résultat : dynamique de chaque compte d’une année à l’autre.', 'Ratios de transformation, de liquidité, de levier et de solvabilité.', 'ROA et ROE de chaque année et leur dynamique.', 'Pertes qui mettraient la banque en faillite, puis niveau de PNB qui provoquerait cette perte.'];
     cover(ids.length + ' banque' + (ids.length > 1 ? 's' : '') + ' · questions du TD' + (ids.length > 1 ? ' · comparaison finale' : ''));
     body.push(W.p('', { pageBreak:true, after:0 }));
-    const indexAt = body.length; body.push('');
+    indexAt = body.length; body.push('');
     section('Énoncé');
     body.push(W.p(W.run('Pour chaque banque (' + ids.map(id => state.banks[id].name).join(', ') + ') :')));
     QS.forEach((q, i) => body.push(W.p(W.run((i + 1) + '. ' + q), { ind:360, after:40 })));
@@ -3012,7 +3074,6 @@ async function buildReportDoc(opt, type) {
     dynLevel = 2;
     if (ids.length > 1) { section('Comparaison des banques'); lede('Les banques côte à côte, sur leur dernier exercice : qui tient le mieux ?'); await comparisonSections(ids, false, true); }
     comment();
-    body[indexAt] = isaacIndex();
   }
 
   // Une partie par banque : la banque devient la banque « courante » le temps de sa partie, puis tout est rétabli
@@ -3119,6 +3180,14 @@ async function buildReportDoc(opt, type) {
 
   const headRight = type === 'comparaison' ? 'Comparaison de banques' : type === 'recueil_td' ? 'Option Isaac' : MULTI_TYPES.includes(type) ? 'Dossier multi-banques' : b.name;
   const NS = 'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"';
+  // Option Isaac : numéros de page du sommaire et de la table des illustrations calculés dès la création
+  // (mise en page simulée), pour qu'ils s'affichent même dans les lecteurs qui ne mettent pas les champs à jour
+  if (isaac && indexAt >= 0) {
+    body[indexAt] = isaacIndex();
+    let pages = {};
+    try { pages = estimatePages('<w:document ' + NS + '><w:body>' + body.join('') + '</w:body></w:document>'); } catch (e) { pages = {}; }
+    body[indexAt] = isaacIndex(pages);
+  }
   const doc = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document ' + NS + '><w:body>' + body.join('')
     + '<w:sectPr><w:headerReference w:type="default" r:id="rIdHeader"/><w:headerReference w:type="first" r:id="rIdHeaderFirst"/><w:footerReference w:type="default" r:id="rIdFooter"/><w:footerReference w:type="first" r:id="rIdFooterFirst"/><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1247" w:right="1134" w:bottom="1247" w:left="1134" w:header="567" w:footer="567" w:gutter="0"/><w:titlePg/></w:sectPr></w:body></w:document>';
   const styles = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
