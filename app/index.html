@@ -1943,6 +1943,33 @@ const W = {
       + '<w:tc><w:tcPr><w:tcW w:w="' + a + '" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="' + color + '"/><w:vAlign w:val="center"/></w:tcPr>' + W.p(W.run(mark, { b:true, sz:big, color:'FFFFFF' }), { align:'center', after:0 }) + '</w:tc>'
       + '<w:tc><w:tcPr><w:tcW w:w="' + (tw - a) + '" w:type="dxa"/><w:vAlign w:val="center"/></w:tcPr>' + W.p(W.run(title, { b:true, sz:24, color }), { after:60 }) + W.p(W.run(text, { sz:18, color:DOC_COLORS.ink2 }), { after:0 }) + '</w:tc></w:tr></w:tbl>' + W.p('', { after:160 });
   },
+  /* Légende numérotée (champ SEQ) : alimente la table des illustrations de Word */
+  caption(kind, n, text, keep) {
+    return '<w:p><w:pPr><w:pStyle w:val="Caption"/>' + (keep ? '<w:keepNext/>' : '') + '</w:pPr>' + W.run(kind + ' ', { b:true }) + '<w:fldSimple w:instr=" SEQ ' + kind + ' \\* ARABIC "><w:r><w:rPr><w:b/></w:rPr><w:t>' + n + '</w:t></w:r></w:fldSimple>' + W.run(' – ' + text) + '</w:p>';
+  },
+  /* Champ Word (sommaire, table des illustrations) : contenu prérempli, mis à jour par Word à l'ouverture (numéros de page) */
+  field(instr, entries, style) {
+    const beg = '<w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve"> ' + instr + ' </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r>';
+    const ps = entries.map(e => '<w:p><w:pPr><w:pStyle w:val="' + (e.style || style) + '"/></w:pPr>' + W.run(e.t) + '</w:p>');
+    if (!ps.length) ps.push('<w:p>' + W.run('(vide)', { i:true }) + '</w:p>');
+    ps[0] = ps[0].replace(/(<\/w:pPr>|<w:p>)/, '$1' + beg);
+    ps[ps.length - 1] = ps[ps.length - 1].replace(/<\/w:p>$/, '<w:r><w:fldChar w:fldCharType="end"/></w:r></w:p>');
+    return ps.join('');
+  },
+  /* Fiche verdict : valeur en grand dans une case colorée, puis des lignes « Libellé : texte » */
+  fiche(mark, color, title, lines) {
+    const tw = 9638, a = 1900;
+    return '<w:tbl><w:tblPr><w:tblW w:w="5000" w:type="pct"/><w:tblBorders><w:top w:val="nil"/><w:left w:val="nil"/><w:bottom w:val="single" w:sz="6" w:color="' + color + '"/><w:right w:val="nil"/><w:insideH w:val="nil"/><w:insideV w:val="nil"/></w:tblBorders><w:tblCellMar><w:top w:w="90" w:type="dxa"/><w:left w:w="140" w:type="dxa"/><w:bottom w:w="90" w:type="dxa"/><w:right w:w="140" w:type="dxa"/></w:tblCellMar></w:tblPr><w:tblGrid><w:gridCol w:w="' + a + '"/><w:gridCol w:w="' + (tw - a) + '"/></w:tblGrid><w:tr><w:trPr><w:cantSplit/></w:trPr>'
+      + '<w:tc><w:tcPr><w:tcW w:w="' + a + '" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="' + color + '"/><w:vAlign w:val="center"/></w:tcPr>' + W.p(W.run(mark, { b:true, sz:30, color:'FFFFFF' }), { align:'center', after:0 }) + '</w:tc>'
+      + '<w:tc><w:tcPr><w:tcW w:w="' + (tw - a) + '" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="' + DOC_COLORS.zebra + '"/></w:tcPr>' + W.p(W.run(title, { b:true, sz:21, color }), { after:50 })
+      + lines.map(([l, t]) => W.p(W.run(l + ' · ', { b:true, sz:18, color:'B8902F' }) + W.fromHtml(t, { run:{ sz:18 } }).replace(/^<w:p>(<w:pPr>.*?<\/w:pPr>)?|<\/w:p>$/g, ''), { after:30 })).join('') + '</w:tc></w:tr></w:tbl>' + W.p('', { after:100 });
+  },
+  /* Encadré doré « En un coup d'œil » */
+  callout(title, html) {
+    const tw = 9638;
+    return '<w:tbl><w:tblPr><w:tblW w:w="5000" w:type="pct"/><w:tblBorders><w:top w:val="nil"/><w:left w:val="single" w:sz="36" w:color="B8902F"/><w:bottom w:val="nil"/><w:right w:val="nil"/></w:tblBorders><w:tblCellMar><w:top w:w="120" w:type="dxa"/><w:left w:w="200" w:type="dxa"/><w:bottom w:w="120" w:type="dxa"/><w:right w:w="160" w:type="dxa"/></w:tblCellMar></w:tblPr><w:tblGrid><w:gridCol w:w="' + tw + '"/></w:tblGrid><w:tr><w:tc><w:tcPr><w:tcW w:w="' + tw + '" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="' + DOC_COLORS.zebra + '"/></w:tcPr>'
+      + W.p(W.run(title.toUpperCase(), { b:true, sz:17, color:'B8902F' }), { after:60 }) + W.fromHtml(html, { after:40 }) + '</w:tc></w:tr></w:tbl>' + W.p('', { after:120 });
+  },
   /* Encadré « À retenir » */
   box(title, text) {
     const tw = 9638;
@@ -2120,7 +2147,7 @@ const REPORT_TYPES = [
   ['corrige', 'Corrigé de TD', 'Format exercice : énoncé puis chaque question du cours résolue (formule, application numérique pour chaque année, réponse, à retenir).', '10 à 25 pages'],
   ['comparaison', 'Comparaison de banques', 'Plusieurs banques côte à côte sur leur dernier exercice : classement, chiffres clés, ratios, graphiques et lecture ratio par ratio.', '4 à 8 pages'],
   ['recueil', 'Dossier multi-banques', 'Toutes les banques choisies réunies dans un seul document : vue d’ensemble comparée, puis la synthèse (ou l’analyse détaillée) de chaque banque.', '3 à 6 pages par banque'],
-  ['recueil_td', 'Option Isaac', 'Dossier multi-banques : pour chaque banque choisie, les questions du TD : dynamique du bilan et du compte de résultat, transformation, liquidité, levier, solvabilité, ROA et ROE de chaque année, pertes de faillite et PNB critique. Calculs et lecture courte.', '5 à 7 pages par banque']
+  ['recueil_td', 'Option Isaac', 'Dossier multi-banques : pour chaque banque choisie, les questions du TD : dynamique du bilan et du compte de résultat, transformation, liquidité, levier, solvabilité, ROA et ROE de chaque année, pertes de faillite et PNB critique, en fiches verdict. Sommaire, table des illustrations et comparaison des banques à la fin.', '10 à 12 pages par banque']
 ];
 const MULTI_TYPES = ['recueil', 'recueil_td'];
 const REPORT_FILE = { complet:'Analyse', synthese:'Note_synthese', prudentiel:'Conformite', corrige:'Corrige', comparaison:'Comparaison', recueil:'Dossier_banques', recueil_td:'Option_Isaac' };
@@ -2128,7 +2155,8 @@ const DOC_THEMES = {
   classique: { n:'Vert et bleu (classique)', accent:'0C5A48', head:'E8EDE8', zebra:'F5F7F5', chart:'#2a78d6', soft:'#9cc3f1' },
   marine: { n:'Bleu marine', accent:'1F3B73', head:'E3E9F4', zebra:'F4F6FB', chart:'#2a5bb8', soft:'#a8bfe8' },
   bordeaux: { n:'Bordeaux', accent:'7A1E32', head:'F3E6E9', zebra:'FAF5F6', chart:'#9b2c45', soft:'#dcaab5' },
-  anthracite: { n:'Anthracite et or', accent:'2E3A44', head:'ECE9E1', zebra:'F7F6F2', chart:'#b8862b', soft:'#e2cc9c' }
+  anthracite: { n:'Anthracite et or', accent:'2E3A44', head:'ECE9E1', zebra:'F7F6F2', chart:'#b8862b', soft:'#e2cc9c' },
+  isaac: { n:'Bleu nuit et or (Option Isaac)', accent:'1B2A4A', head:'EDE6D3', zebra:'F8F5EC', chart:'#1b2a4a', soft:'#c8a24a' }
 };
 function reportTitle(type, b) {
   return ({ synthese:'Note de synthèse : ' + b.name, prudentiel:'Conformité prudentielle : ' + b.name, corrige:'Corrigé : analyse financière de ' + b.name, comparaison:'Comparaison de banques UMOA', recueil:'Dossier de synthèse des banques UMOA', recueil_td:'Analyse financière des banques UMOA : questions du TD' })[type] || 'Analyse financière de ' + b.name;
@@ -2526,7 +2554,8 @@ async function buildReport(opt) {
   const type = REPORT_TYPES.some(t => t[0] === opt.type) ? opt.type : 'complet';
   if (optionLocked(type)) throw new Error('Option verrouillée : saisis le code d’accès dans l’onglet Rapport Word.');
   await lib('jszip');
-  const theme = DOC_THEMES[opt.theme] || DOC_THEMES.classique;
+  // l'Option Isaac a sa propre identité visuelle (bleu nuit et or), sauf si un autre jeu de couleurs est choisi
+  const theme = DOC_THEMES[type === 'recueil_td' && (!opt.theme || opt.theme === 'classique') ? 'isaac' : opt.theme] || DOC_THEMES.classique;
   const saved = { c:Object.assign({}, DOC_COLORS), s0:PC.s[0], soft:PC.soft };
   Object.assign(DOC_COLORS, { accent:theme.accent, head:theme.head, zebra:theme.zebra }); PC.s[0] = theme.chart; PC.soft = theme.soft;
   try { return await buildReportDoc(opt, type); }
@@ -2540,7 +2569,11 @@ async function buildReportDoc(opt, type) {
   const title = opt.title || reportTitle(type, b);
   const writing = opt.writing && opt.writing !== 'auto' && WRITING_STYLES.some(w => w[0] === opt.writing) && (opt.writing !== 'perso' || hasMyStyle()) ? opt.writing : STYLE_BY_TYPE[type];
   let Wr = makeWriter(writing);
-  const lean = type === 'recueil_td'; // Option Isaac : l'essentiel, sans détour
+  // Option Isaac : sa propre rédaction (fiches verdict, lecture courte et directe), légendes et descriptions
+  // sous chaque tableau et graphique, sommaire et table des illustrations automatiques
+  const isaac = type === 'recueil_td', toc = [], figs = [], tabs = [];
+  let tabN = 0;
+  const GOLD = 'B8902F';
   // sens d'un compte : [ce que c'est, s'il monte, s'il baisse]
   const ACC_HELP = {
     A1:['les liquidités immédiates de la banque (caisse et compte à la BCEAO, réserves obligatoires comprises)', 'la banque garde plus de liquidités disponibles', 'la banque garde moins de liquidités disponibles, souvent pour prêter ou placer davantage'],
@@ -2574,8 +2607,14 @@ async function buildReportDoc(opt, type) {
   };
   const pctS = p => fin(p) ? (p >= 0 ? '+' : '−') + fmtP(Math.abs(p), 1) : '—';
   const growth = (a, z) => fin(a) && fin(z) && a ? (z - a) / Math.abs(a) : NaN;
+  const ih2 = t => { toc.push({ l:2, t }); body.push(W.h(2, t)); };
+  const lede = t => body.push(W.p(W.run(t, { i:true, color:GOLD, sz:21 }), { after:140 }));
+  const desc = t => body.push(W.p(W.run(t, { i:true, sz:18, color:DOC_COLORS.ink2 }), { after:160 }));
+  // légende au-dessus d'un tableau (Option Isaac seulement), suivie de sa description
+  const tcap = (title, d) => { if (!isaac) return; tabN++; tabs.push(title); body.push(W.caption('Tableau', tabN, title, true)); if (d) body.push(W.p(W.run(d, { i:true, sz:18, color:DOC_COLORS.ink2 }), { keep:true, after:80 })); };
+  const evo = (vals, f) => yrs.map((yr, i) => fin(vals[i]) ? f(vals[i]) + ' (' + yr + ')' : '').filter(Boolean).join(' → ');
   // les comptes qui comptent (≥ 5 % du total, ou les soldes du compte de résultat), une ligne chacun
-  function leanAccounts(kind) {
+  function isaacAccounts(kind) {
     if (yrs.length < 2) return;
     const tot = kind === 'cr' ? 'PNB' : 'TA', CR = ['MI', 'PNB', 'R11', 'RBE', 'R13', 'RNCR'], lines = [];
     dynRows(kind).forEach(r => {
@@ -2584,50 +2623,56 @@ async function buildReportDoc(opt, type) {
       if (!v.some(x => fin(x) && x !== 0)) return;
       const ch = []; for (let i = 1; i <= n; i++) ch.push(pctS(growth(v[i - 1], v[i])) + ' en ' + yrs[i]);
       const last = v[n] - v[n - 1];
-      lines.push('<b>' + esc(r.l || (r.k ? SHORT[r.k] || F[r.k].l : QTY[r.q].long || QTY[r.q].n)) + '</b>' + (kind !== 'cr' && !r.tot && den ? ' (' + fmtP(v[n] / den, 0) + ' du bilan)' : '') + ' : ' + ch.join(', ') + (help && fin(last) && last !== 0 ? ' — ' + (last > 0 ? help[1] : help[2]) + '.' : '.'));
+      lines.push('<b>' + esc(r.l || (r.k ? SHORT[r.k] || F[r.k].l : QTY[r.q].long || QTY[r.q].n)) + '</b>' + (kind !== 'cr' && !r.tot && den ? ' · ' + fmtP(v[n] / den, 0) + ' du bilan' : '') + ' · ' + ch.join(', ') + (help && fin(last) && last !== 0 ? ' → ' + (last > 0 ? help[1] : help[2]) + '.' : '.'));
     });
     if (lines.length) body.push(W.bullets(lines));
   }
-  function leanDynSummary() {
-    if (yrs.length < 2) return;
+  function isaacGlance() {
     const g = k => growth(F[k] ? raw(k, 0) ?? NaN : qv(k, 0), F[k] ? raw(k, n) ?? NaN : qv(k, n));
-    const [gTA, gCr, gDep, gCP, gP, gC] = ['TA', 'A4', 'P3', 'CP', 'PNB', 'R11'].map(g), out = [];
-    if (fin(gTA)) out.push('Bilan ' + pctS(gTA) + ' sur ' + yrs[0] + '–' + yrs[n] + '.');
-    if (fin(gCr) && fin(gDep)) out.push(gCr > gDep ? 'Crédits (' + pctS(gCr) + ') plus dynamiques que les dépôts (' + pctS(gDep) + ') : la transformation augmente.' : 'Dépôts (' + pctS(gDep) + ') plus dynamiques que les crédits (' + pctS(gCr) + ') : la liquidité se renforce.');
-    if (fin(gCP) && fin(gTA)) out.push(gCP >= gTA ? 'Fonds propres (' + pctS(gCP) + ') au moins aussi rapides que le bilan : solidité renforcée.' : 'Fonds propres (' + pctS(gCP) + ') moins rapides que le bilan : le levier augmente.');
-    if (fin(gP) && fin(gC)) out.push(gP >= gC ? 'PNB (' + pctS(gP) + ') plus rapide que les charges (' + pctS(gC) + ') : effet de ciseaux favorable.' : 'Charges (' + pctS(gC) + ') plus rapides que le PNB (' + pctS(gP) + ') : effet de ciseaux défavorable.');
-    if (out.length) body.push(W.fromHtml('<b>À retenir.</b> ' + out.join(' ')));
+    const [gTA, gCr, gDep, gCP, gP, gC] = ['TA', 'A4', 'P3', 'CP', 'PNB', 'R11'].map(g), out = [], sc = scoreCard(n);
+    if (fin(sc.score)) out.push('<b>Note ' + sc.grade + '</b> (' + sc.score + '/100) : ' + sc.label.toLowerCase() + '.');
+    if (n > 0 && fin(gTA)) out.push('Taille : bilan ' + pctS(gTA) + ' entre ' + yrs[0] + ' et ' + yrs[n] + '.');
+    if (n > 0 && fin(gCr) && fin(gDep)) out.push(gCr > gDep ? 'Moteur : les crédits (' + pctS(gCr) + ') vont plus vite que les dépôts (' + pctS(gDep) + ').' : 'Moteur : les dépôts (' + pctS(gDep) + ') vont plus vite que les crédits (' + pctS(gCr) + ').');
+    if (n > 0 && fin(gCP) && fin(gTA)) out.push('Solidité : fonds propres ' + pctS(gCP) + (gCP >= gTA ? ', plus vite que le bilan.' : ', moins vite que le bilan.'));
+    if (n > 0 && fin(gP) && fin(gC)) out.push('Exploitation : PNB ' + pctS(gP) + ' contre charges ' + pctS(gC) + (gP >= gC ? ' (effet de ciseaux favorable).' : ' (effet de ciseaux défavorable).'));
+    body.push(W.callout('En un coup d’œil', '<p>' + out.join(' ') + '</p>'));
   }
   const nodeLabel = nd => !nd ? '' : nd.t === 'v' ? (SHORT[nd.k] || F[nd.k].l).toLowerCase() : nd.t === 'q' ? QTY[nd.id].n.toLowerCase() : nd.t === '/' && nd.a[0].t === 's' && nd.a[0].a[0] ? nodeLabel(nd.a[0].a[0][1]) + ' moyen' : '';
-  // un ratio : formule, calcul de chaque année, tableau et une lecture en deux ou trois phrases
-  async function leanRatio(ind) {
+  const ST_WORD = { ok:'conforme', warn:'à surveiller', bad:'hors seuil', info:'indicatif', na:'non calculé' };
+  // un ratio : formule, calcul de chaque année, puis une fiche verdict (évolution, moteur, portée, seuil)
+  async function isaacRatio(ind) {
     const node = nodeOf(ind), vals = yrs.map((_, i) => val(node, i)), t = thrVal(ind);
     body.push(W.h(3, ind.n));
     M.lines(ind.n + ' = ', node, 'sym').forEach(l => body.push(l));
     yrs.forEach((yr, i) => M.lines(yr + ' : ', node, 'num', i, ' = ' + fmtCell(ind, vals[i])).forEach(l => body.push(l)));
-    body.push(W.table([['Exercice', ...yrs.map(String)], ['Valeur', ...vals.map(v => fmtCell(ind, v))], ['Appréciation', ...vals.map(v => stCell(ind, v))]], { firstCol:22 }));
-    const f = vals.findIndex(fin), l = vals.length - 1 - [...vals].reverse().findIndex(fin);
-    if (f < 0) return;
-    let txt = '';
-    if (l > f) {
-      const d = vals[l] - vals[f], up = d > 0;
-      txt += 'Le ratio ' + (Math.abs(d) < 1e-6 ? 'est stable' : (up ? 'monte' : 'baisse') + ' de ' + fmtCell(ind, vals[f]) + ' à ' + fmtCell(ind, vals[l])) + ' entre ' + yrs[f] + ' et ' + yrs[l];
-      if (node.t === '/') {
-        const pa = growth(val(node.a[0], f), val(node.a[0], l)), pb = growth(val(node.a[1], f), val(node.a[1], l));
-        if (fin(pa) && fin(pb) && Math.abs(d) >= 1e-6) txt += ' : ' + nodeLabel(node.a[0]) + ' ' + pctS(pa) + ' contre ' + nodeLabel(node.a[1]) + ' ' + pctS(pb);
-      }
-      txt += '. ' + (Math.abs(d) < 1e-6 ? '' : (up ? ind.up : ind.down) + ' ');
+    const l = vals.length - 1 - [...vals].reverse().findIndex(fin), f = vals.findIndex(fin);
+    if (f < 0) { body.push(W.note('Non calculé : données manquantes.')); return vals; }
+    const st = status(ind, vals[l]), color = st === 'ok' ? DOC_COLORS.ok : st === 'warn' ? DOC_COLORS.warn : st === 'bad' ? DOC_COLORS.bad : DOC_COLORS.accent;
+    const lines = [['Évolution', evo(vals, v => fmtCell(ind, v))]];
+    if (l > f && node.t === '/') {
+      const pa = growth(val(node.a[0], f), val(node.a[0], l)), pb = growth(val(node.a[1], f), val(node.a[1], l));
+      if (fin(pa) && fin(pb)) lines.push(['Moteur', capFirst(nodeLabel(node.a[0])) + ' ' + pctS(pa) + ', ' + nodeLabel(node.a[1]) + ' ' + pctS(pb) + ' : ' + (pa > pb ? 'le numérateur l’emporte, le ratio monte.' : pa < pb ? 'le dénominateur l’emporte, le ratio baisse.' : 'même rythme, ratio stable.')]);
     }
+    if (l > f && vals[l] !== vals[f]) lines.push(['Portée', vals[l] > vals[f] ? ind.up : ind.down]);
     if (ind.thr && fin(t)) {
-      const ok = vals.filter(fin).every(v => status(ind, v) !== 'bad'), v = vals[l];
-      txt += (ind.thr.dir === 'min' ? 'Minimum ' : 'Plafond ') + fmtCell(ind, t) + ' : ' + (ok ? 'respecté chaque année' : 'non respecté en ' + yrs.filter((_, i) => fin(vals[i]) && status(ind, vals[i]) === 'bad').join(', ')) + ' (écart de ' + fmtPts(ind.thr.dir === 'min' ? v - t : t - v) + ' en ' + yrs[l] + ').';
+      const bad = yrs.filter((_, i) => fin(vals[i]) && status(ind, vals[i]) === 'bad');
+      lines.push(['Seuil', (ind.thr.dir === 'min' ? 'minimum ' : 'plafond ') + fmtCell(ind, t) + (ind.thr.reg ? ' (norme BCEAO)' : ' (repère)') + ' · ' + (bad.length ? 'franchi en ' + bad.join(', ') : 'respecté chaque année') + ' · marge ' + fmtPts(ind.thr.dir === 'min' ? vals[l] - t : t - vals[l]) + ' en ' + yrs[l] + '.']);
     }
-    if (txt) body.push(W.fromHtml(txt.trim()));
+    body.push(W.fiche(fmtCell(ind, vals[l]), color, ind.n + ' ' + yrs[l] + ' : ' + ST_WORD[st], lines));
+    return vals;
+  }
+  // sommaire et table des illustrations : champs Word préremplis (Word ajoute les numéros de page à l'ouverture)
+  function isaacIndex() {
+    const t = x => W.p(W.run(x, { b:true, sz:30, color:DOC_COLORS.accent }), { after:160 });
+    return t('Sommaire') + W.note('Dans Word, accepte la mise à jour des champs à l’ouverture (ou clic droit → Mettre à jour les champs) : le sommaire et la table des illustrations affichent alors les numéros de page.') + W.field('TOC \\o "1-2" \\h \\z \\u', toc.map(e => ({ t:e.t, style:'TOC' + e.l })), 'TOC1')
+      + W.p('', { pageBreak:true, after:0 }) + t('Table des illustrations')
+      + W.p(W.run('Figures', { b:true, color:GOLD }), { after:60 }) + W.field('TOC \\h \\z \\c "Figure"', figs.map((x, i) => ({ t:'Figure ' + (i + 1) + ' – ' + x })), 'TableofFigures')
+      + W.p(W.run('Tableaux', { b:true, color:GOLD }), { after:60 }) + W.field('TOC \\h \\z \\c "Tableau"', tabs.map((x, i) => ({ t:'Tableau ' + (i + 1) + ' – ' + x })), 'TableofFigures');
   }
 
   const introP = k => { const t = Wr.intro(k); if (t) body.push(W.p(W.run(t, { color:DOC_COLORS.ink2 }))); };
   let fig = 0;
-  const addChart = async (svg, caption) => {
+  const addChart = async (svg, caption, about) => {
     if (!opt.charts || !svg) return;
     try {
       const png = await svgToPng(svg, 1600);
@@ -2635,7 +2680,8 @@ async function buildReportDoc(opt, type) {
       const cx = 5400000, cy = Math.round(cx * png.h / png.w);
       fig++;
       body.push('<w:p><w:pPr><w:keepNext/><w:spacing w:after="0"/></w:pPr><w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0"><wp:extent cx="' + cx + '" cy="' + cy + '"/><wp:docPr id="' + id + '" name="Graphique ' + id + '"/><wp:cNvGraphicFramePr><a:graphicFrameLocks xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" noChangeAspect="1"/></wp:cNvGraphicFramePr><a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:nvPicPr><pic:cNvPr id="' + id + '" name="graphique' + id + '.png"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed="rIdImg' + id + '"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="' + cx + '" cy="' + cy + '"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p>');
-      body.push(W.p(W.run('Figure ' + fig + ' – ' + caption, { i:true, sz:17, color:DOC_COLORS.ink3 }), { after:160 }));
+      if (isaac) { figs.push(caption); body.push(W.caption('Figure', fig, caption)); if (about) desc(about); }
+      else body.push(W.p(W.run('Figure ' + fig + ' – ' + caption, { i:true, sz:17, color:DOC_COLORS.ink3 }), { after:160 }));
     } catch (e) { /* graphique ignoré si le navigateur refuse la conversion */ }
   };
   const fmtCell = (ind, v) => fmtBy(ind.fmt || 'pct', v);
@@ -2677,6 +2723,7 @@ async function buildReportDoc(opt, type) {
   const dynTables = async kinds => {
     for (const [kind, ttl] of [['actif', 'Actif'], ['passif', 'Passif'], ['cr', 'Compte de résultat']].filter(k => kinds.includes(k[0]))) {
       body.push(W.h(dynLevel, ttl));
+      if (isaac) { const tq = kind === 'cr' ? 'PNB' : 'TA', a0 = qv(tq, 0), z = qv(tq, n); tcap((kind === 'cr' ? 'Compte de résultat' : ttl) + ' de ' + b.name + ', ' + yrs[0] + '–' + yrs[n], 'Montants en millions FCFA ; les colonnes Δ% donnent la variation par rapport à l’exercice précédent. ' + (kind === 'cr' ? 'Le PNB' : 'Le total ' + (kind === 'actif' ? 'de l’actif' : 'du passif')) + ' passe de ' + fmtM(a0) + ' à ' + fmtM(z) + ' M (' + pctS(growth(a0, z)) + ').'); }
       const rows = dynRows(kind), header = ['Poste', ...yrs.map(String)];
       for (let i = 1; i < yrs.length; i++) header.push('Δ% ' + yrs[i]);
       const tbl = [header], bold = [];
@@ -2688,7 +2735,7 @@ async function buildReportDoc(opt, type) {
         tbl.push(line);
       });
       body.push(W.table(tbl, { boldRows:bold, firstCol:yrs.length > 3 ? 30 : 38 }));
-      if (lean) { leanAccounts(kind); continue; }
+      if (isaac) { isaacAccounts(kind); continue; }
       const hl = highlights(kind);
       if (hl) body.push(W.fromHtml(hl));
       if (kind !== 'cr') await addChart(printStack(kind), 'Structure ' + (kind === 'actif' ? 'de l’actif' : 'du passif') + ' par exercice');
@@ -2725,7 +2772,7 @@ async function buildReportDoc(opt, type) {
   };
   const bankSub = [b.country, 'Exercices ' + yrs[0] + (yrs.length > 1 ? ' à ' + yrs[n] : ''), 'Montants en ' + b.unit].filter(Boolean).join(' · ');
   let num = 0;
-  const section = (t, brk = true) => { num++; body.push(W.h(1, num + '. ' + t, { pageBreak:brk })); };
+  const section = (t, brk = true) => { num++; toc.push({ l:1, t:num + '. ' + t }); body.push(W.h(1, num + '. ' + t, { pageBreak:brk })); };
   const comment = () => { if (opt.comment) { body.push(W.h(2, 'Commentaire de l’analyste')); opt.comment.split(/\n+/).filter(Boolean).forEach(l => body.push(W.text(l))); } };
   const recoBlock = () => { body.push(W.h(2, 'Recommandations')); body.push(W.bullets(recommendations(n))); body.push(W.h(2, 'Conclusion')); body.push(W.fromHtml(Wr.conclusion(n))); };
 
@@ -2905,37 +2952,59 @@ async function buildReportDoc(opt, type) {
     methodGlossary();
     comment();
   } else if (type === 'recueil_td') {
-    // Option Isaac : pour chaque banque, les quatre questions du TD, calculées et commentées brièvement
+    // Option Isaac : pour chaque banque, les quatre questions du TD, puis la comparaison des banques à la fin
     const ids = (opt.banks || []).filter(id => state.banks[id]);
     if (!ids.length) throw new Error('Choisis au moins une banque à réunir dans le dossier.');
     const QS = ['Analyse du bilan et du compte de résultat : dynamique de chaque compte d’une année à l’autre.', 'Ratios de transformation, de liquidité, de levier et de solvabilité.', 'ROA et ROE de chaque année et leur dynamique.', 'Pertes qui mettraient la banque en faillite, puis niveau de PNB qui provoquerait cette perte.'];
-    cover(ids.length + ' banque' + (ids.length > 1 ? 's' : '') + ' · questions du TD');
-    section('Énoncé', false);
+    cover(ids.length + ' banque' + (ids.length > 1 ? 's' : '') + ' · questions du TD' + (ids.length > 1 ? ' · comparaison finale' : ''));
+    body.push(W.p('', { pageBreak:true, after:0 }));
+    const indexAt = body.length; body.push('');
+    section('Énoncé');
     body.push(W.p(W.run('Pour chaque banque (' + ids.map(id => state.banks[id].name).join(', ') + ') :')));
     QS.forEach((q, i) => body.push(W.p(W.run((i + 1) + '. ' + q), { ind:360, after:40 })));
     dynLevel = 3;
     await eachBank(ids, async () => {
-      body.push(W.h(2, '1. Bilan et compte de résultat'));
+      body.push(kpiRow(n));
+      isaacGlance();
+      ih2('1. Bilan et compte de résultat');
+      lede('Ce qui a bougé, compte par compte : d’abord les emplois, puis les ressources, enfin la cascade des résultats.');
       await dynTables(['actif', 'passif', 'cr']);
-      leanDynSummary();
-      body.push(W.h(2, '2. Transformation, liquidité, levier, solvabilité'));
-      for (const k of ['transfo', 'liq', 'levier', 'solva']) await leanRatio(I[k]);
-      body.push(W.h(2, '3. ROA et ROE'));
-      for (const k of ['roa', 'roe']) await leanRatio(I[k]);
-      const roa = series(I.roa), roe = series(I.roe), m = series(I.mult);
-      const dp = yrs.map((yr, i) => fin(roa[i]) && fin(m[i]) ? yr + ' : ' + fmtP(roa[i]) + ' × ' + nf(2).format(m[i]) + ' = ' + fmtP(roe[i]) : '').filter(Boolean);
-      if (dp.length) body.push(W.fromHtml('<b>ROE = ROA × multiplicateur</b> (total actif / capitaux propres) — ' + dp.join(' ; ') + '.' + (n > 0 && [roa[0], roa[n], m[0], m[n]].every(fin) ? ' Sur la période, le ROE varie surtout à cause ' + (Math.abs((roa[n] - roa[0]) * m[0]) >= Math.abs(roa[n] * (m[n] - m[0])) ? 'de la rentabilité des actifs (ROA).' : 'de l’effet de levier (multiplicateur).') : '')));
-      body.push(W.h(2, '4. Faillite et PNB critique'));
+      const ta = yrs.map((_, i) => qv('TA', i)), cr = yrs.map((_, i) => raw('A4', i) ?? NaN), dp = yrs.map((_, i) => raw('P3', i) ?? NaN);
+      await addChart(chartBilan(), 'Total du bilan, crédits et dépôts de ' + b.name, 'Le graphique compare, pour chaque exercice, la taille de la banque (total actif) à ses crédits et à ses dépôts clientèle. Total actif : ' + evo(ta, fmtM) + ' ; crédits : ' + pctS(growth(cr[0], cr[n])) + ' ; dépôts : ' + pctS(growth(dp[0], dp[n])) + ' sur la période.');
+      const pnb = yrs.map((_, i) => qv('PNB', i)), rn = yrs.map((_, i) => qv('RN', i));
+      await addChart(chartResultats(), 'PNB, RBE et résultat net de ' + b.name, 'Les trois soldes du compte de résultat par exercice : le PNB (richesse créée), le RBE (après frais de fonctionnement) et le résultat net. PNB : ' + evo(pnb, fmtM) + ' ; résultat net : ' + evo(rn, fmtM) + ' (millions FCFA).');
+      ih2('2. Transformation, liquidité, levier, solvabilité');
+      lede('Quatre équilibres à tenir : prêter sans s’assécher, rester liquide, ne pas trop s’endetter, couvrir ses risques.');
+      const R4 = ['transfo', 'liq', 'levier', 'solva'], rv = {};
+      for (const k of R4) rv[k] = await isaacRatio(I[k]);
+      tcap('Ratios de structure de ' + b.name + ', ' + yrs[0] + '–' + yrs[n], 'Valeur de chaque ratio par exercice, avec son seuil ; ✓ conforme, ! proche du seuil, ✕ hors seuil.');
+      body.push(W.table([['Ratio', 'Seuil', ...yrs.map(String)], ...R4.map(k => [I[k].n, thrTxt(I[k]), ...rv[k].map(v => valSt(I[k], v))])], { firstCol:30 }));
+      await addChart(printIndicator(I.solva, rv.solva), 'Ratio de solvabilité global de ' + b.name, 'Le ratio de solvabilité par exercice, face au minimum de ' + fmtP(thrVal(I.solva), 1) + ' (trait) : ' + evo(rv.solva, v => fmtP(v, 2)) + '.');
+      ih2('3. ROA et ROE');
+      lede('Ce que rapportent les actifs, puis ce que gagnent les actionnaires : l’écart entre les deux, c’est le levier.');
+      const roa = await isaacRatio(I.roa), roe = await isaacRatio(I.roe), m = series(I.mult);
+      tcap('Décomposition du ROE de ' + b.name + ' (Du Pont)', 'Pour chaque exercice : ROE = ROA × multiplicateur de fonds propres (total actif / capitaux propres).');
+      body.push(W.table([['', ...yrs.map(String)], ['ROA', ...roa.map(v => fmtP(v))], ['× Multiplicateur', ...m.map(fmtX)], ['= ROE', ...roe.map(v => fmtP(v))]], { boldRows:[3], firstCol:30 }));
+      if (n > 0 && [roa[0], roa[n], m[0], m[n]].every(fin)) body.push(W.fromHtml('<b>À lire :</b> sur la période, le ROE bouge surtout à cause ' + (Math.abs((roa[n] - roa[0]) * m[0]) >= Math.abs(roa[n] * (m[n] - m[0])) ? 'de la rentabilité des actifs (ROA ' + fmtPts(roa[n] - roa[0]) + ').' : 'de l’effet de levier (multiplicateur ' + fmtX(m[0]) + ' → ' + fmtX(m[n]) + ').')));
+      await addChart(chartRenta(), 'ROE et ROA de ' + b.name, 'ROE et ROA côte à côte pour chaque exercice ; plus l’écart est grand, plus la banque travaille avec des fonds empruntés. ROE : ' + evo(roe, v => fmtP(v, 2)) + '.');
+      ih2('4. Faillite et PNB critique');
+      lede('Jusqu’où la banque peut-elle perdre avant de disparaître ?');
       body.push(M.para(M.r('RN*') + M.r(' = ') + M.r('−') + M.r('Capitaux propres')));
       M.lines('PNB* = ', QTY.PNBC.node, 'sym').forEach(l => body.push(l));
+      tcap('Test de faillite de ' + b.name, 'Perte qui effacerait les capitaux propres (RN*), et PNB qui la provoquerait (PNB*), toutes charges égales par ailleurs ; en millions FCFA.');
       body.push(W.table([['', ...yrs.map(String)], ['Capitaux propres', ...yrs.map((_, i) => fmtM(qv('CP', i)))], ['Perte de faillite RN*', ...yrs.map((_, i) => fmtM(-qv('CP', i)))], ['PNB réel', ...yrs.map((_, i) => fmtM(qv('PNB', i)))], ['PNB critique PNB*', ...yrs.map((_, i) => fmtM(qv('PNBC', i)))], ['Baisse de PNB supportable', ...yrs.map((_, i) => fmtP(val(nodeOf(I.chute), i), 1))]], { boldRows:[2, 4], firstCol:34 }));
       const ch = val(nodeOf(I.chute), n);
-      if (fin(ch)) body.push(W.fromHtml('En ' + yrs[n] + ', la banque ferait faillite avec une perte de ' + fmtM(qv('CP', n)) + ' M, soit un PNB ramené de ' + fmtM(qv('PNB', n)) + ' à ' + fmtM(qv('PNBC', n)) + ' M (−' + fmtP(ch, 1) + '). ' + (ch >= 1 ? 'Même sans aucun PNB, elle ne perdrait pas tous ses fonds propres : marge très large.' : ch >= 0.5 ? 'Marge confortable.' : ch >= 0.2 ? 'Marge correcte.' : 'Marge faible : la banque est fragile.')));
-      body.push(W.h(2, 'Conclusion'));
-      body.push(W.fromHtml(Wr.conclusion(n)));
+      if (fin(ch)) body.push(W.fiche('−' + fmtP(ch, 0), ch >= 0.5 ? DOC_COLORS.ok : ch >= 0.2 ? DOC_COLORS.warn : DOC_COLORS.bad, 'Distance à la faillite ' + yrs[n] + ' : ' + (ch >= 1 ? 'très large' : ch >= 0.5 ? 'confortable' : ch >= 0.2 ? 'correcte' : 'faible'),
+        [['Perte fatale', fmtM(qv('CP', n)) + ' M (les capitaux propres).'], ['PNB critique', fmtM(qv('PNBC', n)) + ' M, contre ' + fmtM(qv('PNB', n)) + ' M réalisés.'], ['Lecture', ch >= 1 ? 'même sans aucun PNB, la banque ne perdrait pas tous ses fonds propres en un an.' : 'le PNB peut reculer de ' + fmtP(ch, 1) + ' avant que les fonds propres ne soient effacés.']]));
+      ih2('Verdict');
+      const sc = scoreCard(n), { good, watch } = synthLists(), reco = recommendations(n);
+      body.push(W.fiche(sc.grade, gradeColor(sc.grade), fin(sc.score) ? b.name + ' : ' + sc.label.toLowerCase() + ' (' + sc.score + '/100)' : b.name + ' : note non disponible',
+        [['Atout', good[0] || 'aucun ratio clairement au-dessus de son seuil.'], ['Fragilité', watch[0] || 'aucun signal d’alerte.'], ['Priorité', reco[0] || 'maintenir les équilibres actuels.']]));
     });
     dynLevel = 2;
+    if (ids.length > 1) { section('Comparaison des banques'); lede('Les banques côte à côte, sur leur dernier exercice : qui tient le mieux ?'); await comparisonSections(ids, false, true); }
     comment();
+    body[indexAt] = isaacIndex();
   }
 
   // Une partie par banque : la banque devient la banque « courante » le temps de sa partie, puis tout est rétabli
@@ -2959,7 +3028,8 @@ async function buildReportDoc(opt, type) {
     body.push(W.table([['Terme', 'Définition'], ...GLOSSARY.map(([t, d]) => [{ t, b:true }, { t:d, align:'left' }])], { firstCol:22 }));
   }
 
-  async function comparisonSections(ids, withCover) {
+  async function comparisonSections(ids, withCover, sub) {
+    const sec = (t, brk) => sub ? ih2(t) : section(t, brk);
     const rows = ids.map(id => withFull(() => {
       const bb = bank(), k = bb.years.length - 1, o = { name:bb.name, year:bb.years[k], unit:bb.unit, v:{}, sc:scoreCard(k) };
       ['TA', 'PNB', 'RN', 'CP'].forEach(q => { o.v[q] = qv(q, k); });
@@ -2967,23 +3037,26 @@ async function buildReportDoc(opt, type) {
       return o;
     }, state.banks[id]));
     if (withCover) cover(rows.length + ' banques comparées sur leur dernier exercice disponible');
-    section('Classement général', !withCover);
+    sec('Classement général', !withCover);
     const units = [...new Set(rows.map(r => r.unit))];
     if (units.length > 1) body.push(W.note('Attention : les banques ne sont pas saisies dans la même unité (' + units.join(', ') + ') ; les montants ne sont pas directement comparables, les ratios le sont.'));
     const ranked = rows.slice().sort((a, c) => (fin(c.sc.score) ? c.sc.score : -1) - (fin(a.sc.score) ? a.sc.score : -1));
+    tcap('Classement des banques par note globale', 'Note indicative sur 100 calculée sur les mêmes ratios pour chaque banque, sur son dernier exercice ; ' + ranked[0].name + ' arrive en tête.');
     body.push(W.table([['Rang', 'Banque', 'Exercice', 'Note', 'Score', 'Appréciation'], ...ranked.map((r, i) => [String(i + 1), { t:r.name, align:'left', b:i === 0 }, String(r.year), { t:r.sc.grade, b:true, color:gradeColor(r.sc.grade), align:'center' }, fin(r.sc.score) ? r.sc.score + '/100' : '—', { t:r.sc.label, align:'left' }])], { firstCol:8 }));
     body.push(W.note('Note indicative sur 100 calculée sur les mêmes ratios pour chaque banque (solvabilité, CET1, levier, liquidité, transformation, ROE, ROA, coefficient d’exploitation, coût du risque).'));
-    await addChart(printHBars({ title:'Note globale', subtitle:'Score indicatif sur 100', labels:ranked.map(r => r.name), values:ranked.map(r => fin(r.sc.score) ? r.sc.score : NaN), fmt:'score', bad:ranked.map(r => r.sc.score < 55) }), 'Note globale par banque');
-    section('Chiffres clés');
+    await addChart(printHBars({ title:'Note globale', subtitle:'Score indicatif sur 100', labels:ranked.map(r => r.name), values:ranked.map(r => fin(r.sc.score) ? r.sc.score : NaN), fmt:'score', bad:ranked.map(r => r.sc.score < 55) }), 'Note globale par banque', 'Une barre par banque : sa note sur 100. Les barres en rouge signalent une note inférieure à 55.');
+    sec('Chiffres clés');
+    tcap('Chiffres clés des banques', 'Total du bilan, PNB, résultat net et capitaux propres du dernier exercice, en millions FCFA.');
     body.push(W.table([['Banque', 'Exercice', 'Total bilan', 'PNB', 'Résultat net', 'Capitaux propres'], ...rows.map(r => [r.name, String(r.year), fmtM(r.v.TA), fmtM(r.v.PNB), fmtM(r.v.RN), fmtM(r.v.CP)])], { firstCol:30 }));
-    await addChart(printHBars({ title:'Total du bilan', subtitle:'Millions FCFA, dernier exercice', labels:rows.map(r => r.name), values:rows.map(r => r.v.TA), fmt:'m' }), 'Taille des banques (total du bilan)');
-    section('Ratios');
+    await addChart(printHBars({ title:'Total du bilan', subtitle:'Millions FCFA, dernier exercice', labels:rows.map(r => r.name), values:rows.map(r => r.v.TA), fmt:'m' }), 'Taille des banques (total du bilan)', 'Le total du bilan de chaque banque au dernier exercice : la longueur de la barre donne la taille relative.');
+    sec('Ratios');
+    tcap('Ratios des banques au dernier exercice', 'Chaque ratio avec son seuil et la valeur de chaque banque ; ✓ conforme, ! proche du seuil, ✕ hors seuil.');
     body.push(W.table([['Ratio', 'Seuil', ...rows.map(r => r.name)], ...COMPARE_IDS.map(id => [I[id].n, thrTxt(I[id]), ...rows.map(r => valSt(I[id], r.v[id]))])], { firstCol:28 }));
     for (const id of ['solva', 'liq', 'transfo', 'roe', 'coef']) {
       const ind = I[id], t = thrVal(ind);
-      await addChart(printHBars({ title:ind.n, subtitle:'Dernier exercice disponible de chaque banque', labels:rows.map(r => r.name), values:rows.map(r => r.v[id]), fmt:'pct', thr:ind.thr ? { value:t, label:(ind.thr.dir === 'min' ? 'minimum ' : 'plafond ') + fmtP(t, 1) } : null, bad:rows.map(r => status(ind, r.v[id]) === 'bad') }), ind.n + ' par banque');
+      await addChart(printHBars({ title:ind.n, subtitle:'Dernier exercice disponible de chaque banque', labels:rows.map(r => r.name), values:rows.map(r => r.v[id]), fmt:'pct', thr:ind.thr ? { value:t, label:(ind.thr.dir === 'min' ? 'minimum ' : 'plafond ') + fmtP(t, 1) } : null, bad:rows.map(r => status(ind, r.v[id]) === 'bad') }), ind.n + ' par banque', ind.n + ' de chaque banque au dernier exercice' + (ind.thr ? ', face au ' + (ind.thr.dir === 'min' ? 'minimum' : 'plafond') + ' de ' + fmtP(t, 1) + ' (trait).' : '.'));
     }
-    section('Lecture ratio par ratio');
+    sec('Lecture ratio par ratio');
     const lines = [];
     COMPARE_IDS.forEach(id => {
       const ind = I[id], ok = rows.filter(r => fin(r.v[id])); if (ok.length < 2) return;
@@ -2993,7 +3066,7 @@ async function buildReportDoc(opt, type) {
       lines.push('<b>' + ind.n + '</b> : meilleur niveau pour ' + s[0].name + ' (' + fmtCell(ind, s[0].v[id]) + '), le plus faible pour ' + s[s.length - 1].name + ' (' + fmtCell(ind, s[s.length - 1].v[id]) + ')' + (off.length ? ' ; hors seuil : ' + off.join(', ') : '') + '.');
     });
     body.push(lines.length ? W.bullets(lines) : W.note('Pas assez de données pour comparer les ratios.'));
-    section(withCover ? 'Conclusion' : 'Conclusion de la comparaison');
+    sec(withCover ? 'Conclusion' : 'Conclusion de la comparaison');
     const top = ranked[0], last = ranked[ranked.length - 1];
     body.push(W.fromHtml(fin(top.sc.score) ? '<b>' + top.name + '</b> présente le profil le plus solide (note ' + top.sc.grade + ', ' + top.sc.score + '/100)' + (last !== top && fin(last.sc.score) ? ', <b>' + last.name + '</b> le plus fragile (note ' + last.sc.grade + ', ' + last.sc.score + '/100).' : '.') + ' Le classement repose sur les états financiers saisis et sur des ratios Bâle estimés à partir du bilan lorsque les données réglementaires manquent.' : 'Les données saisies ne suffisent pas pour classer les banques.'));
   }
@@ -3045,6 +3118,9 @@ async function buildReportDoc(opt, type) {
     + '<w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/><w:qFormat/></w:style>'
     + '<w:style w:type="paragraph" w:styleId="Title"><w:name w:val="Title"/><w:basedOn w:val="Normal"/><w:qFormat/><w:pPr><w:spacing w:before="2400" w:after="240"/></w:pPr><w:rPr><w:b/><w:color w:val="' + DOC_COLORS.accent + '"/><w:sz w:val="52"/><w:szCs w:val="52"/></w:rPr></w:style>'
     + [1, 2, 3].map(l => '<w:style w:type="paragraph" w:styleId="Heading' + l + '"><w:name w:val="heading ' + l + '"/><w:basedOn w:val="Normal"/><w:next w:val="Normal"/><w:qFormat/><w:pPr><w:keepNext/>' + (l === 1 ? '<w:pBdr><w:bottom w:val="single" w:sz="8" w:space="4" w:color="' + DOC_COLORS.accent + '"/></w:pBdr>' : '') + '<w:spacing w:before="' + [0, 360, 280, 220][l] + '" w:after="' + [0, 200, 120, 80][l] + '"/><w:outlineLvl w:val="' + (l - 1) + '"/></w:pPr><w:rPr><w:b/><w:color w:val="' + (l === 3 ? '13201A' : DOC_COLORS.accent) + '"/><w:sz w:val="' + [0, 34, 27, 23][l] + '"/><w:szCs w:val="' + [0, 34, 27, 23][l] + '"/></w:rPr></w:style>').join('')
+    + '<w:style w:type="paragraph" w:styleId="Caption"><w:name w:val="caption"/><w:basedOn w:val="Normal"/><w:next w:val="Normal"/><w:qFormat/><w:pPr><w:spacing w:before="60" w:after="60"/></w:pPr><w:rPr><w:color w:val="' + DOC_COLORS.accent + '"/><w:sz w:val="19"/><w:szCs w:val="19"/></w:rPr></w:style>'
+    + [1, 2].map(l => '<w:style w:type="paragraph" w:styleId="TOC' + l + '"><w:name w:val="toc ' + l + '"/><w:basedOn w:val="Normal"/><w:next w:val="Normal"/><w:uiPriority w:val="39"/><w:pPr><w:tabs><w:tab w:val="right" w:leader="dot" w:pos="9628"/></w:tabs><w:spacing w:before="' + (l === 1 ? 100 : 0) + '" w:after="40"/><w:ind w:left="' + (l - 1) * 360 + '"/></w:pPr>' + (l === 1 ? '<w:rPr><w:b/></w:rPr>' : '') + '</w:style>').join('')
+    + '<w:style w:type="paragraph" w:styleId="TableofFigures"><w:name w:val="table of figures"/><w:basedOn w:val="Normal"/><w:next w:val="Normal"/><w:pPr><w:tabs><w:tab w:val="right" w:leader="dot" w:pos="9628"/></w:tabs><w:spacing w:after="40"/></w:pPr></w:style>'
     + '<w:style w:type="paragraph" w:styleId="Note"><w:name w:val="Note"/><w:basedOn w:val="Normal"/><w:rPr><w:i/><w:color w:val="' + DOC_COLORS.ink3 + '"/><w:sz w:val="18"/></w:rPr></w:style>'
     + '<w:style w:type="table" w:styleId="Grille"><w:name w:val="Grille"/><w:tblPr><w:tblBorders><w:top w:val="single" w:sz="4" w:color="C9D2CC"/><w:left w:val="single" w:sz="4" w:color="C9D2CC"/><w:bottom w:val="single" w:sz="4" w:color="C9D2CC"/><w:right w:val="single" w:sz="4" w:color="C9D2CC"/><w:insideH w:val="single" w:sz="4" w:color="C9D2CC"/><w:insideV w:val="single" w:sz="4" w:color="C9D2CC"/></w:tblBorders><w:tblCellMar><w:top w:w="40" w:type="dxa"/><w:left w:w="90" w:type="dxa"/><w:bottom w:w="40" w:type="dxa"/><w:right w:w="90" w:type="dxa"/></w:tblCellMar></w:tblPr></w:style>'
     + '</w:styles>';
@@ -3055,13 +3131,15 @@ async function buildReportDoc(opt, type) {
   const header = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:hdr ' + WNS + '><w:p><w:pPr><w:pBdr><w:bottom w:val="single" w:sz="4" w:space="4" w:color="' + DOC_COLORS.accent + '"/></w:pBdr><w:tabs><w:tab w:val="right" w:pos="9638"/></w:tabs></w:pPr><w:r><w:rPr><w:b/><w:color w:val="' + DOC_COLORS.accent + '"/><w:sz w:val="16"/></w:rPr><w:t xml:space="preserve">' + XE(typeLabel.toUpperCase()) + '</w:t></w:r><w:r>' + small + '<w:tab/><w:t xml:space="preserve">' + XE(headRight) + '</w:t></w:r></w:p></w:hdr>';
   const emptyHdr = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:hdr ' + WNS + '><w:p/></w:hdr>', emptyFtr = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:ftr ' + WNS + '><w:p/></w:ftr>';
   const REL = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/';
-  const rels = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rIdStyles" Type="' + REL + 'styles" Target="styles.xml"/><Relationship Id="rIdFooter" Type="' + REL + 'footer" Target="footer1.xml"/><Relationship Id="rIdFooterFirst" Type="' + REL + 'footer" Target="footer2.xml"/><Relationship Id="rIdHeader" Type="' + REL + 'header" Target="header1.xml"/><Relationship Id="rIdHeaderFirst" Type="' + REL + 'header" Target="header2.xml"/>'
+  const rels = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rIdStyles" Type="' + REL + 'styles" Target="styles.xml"/><Relationship Id="rIdFooter" Type="' + REL + 'footer" Target="footer1.xml"/><Relationship Id="rIdFooterFirst" Type="' + REL + 'footer" Target="footer2.xml"/><Relationship Id="rIdHeader" Type="' + REL + 'header" Target="header1.xml"/><Relationship Id="rIdHeaderFirst" Type="' + REL + 'header" Target="header2.xml"/>' + (isaac ? '<Relationship Id="rIdSettings" Type="' + REL + 'settings" Target="settings.xml"/>' : '')
     + media.map((_, i) => '<Relationship Id="rIdImg' + (i + 1) + '" Type="' + REL + 'image" Target="media/graphique' + (i + 1) + '.png"/>').join('') + '</Relationships>';
   const now = new Date().toISOString().replace(/\.\d+Z$/, 'Z');
   const core = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"><dc:title>' + XE(title) + '</dc:title><dc:subject>' + XE(typeLabel) + '</dc:subject><dc:creator>' + XE(opt.author || 'Analyste Bancaire UMOA') + '</dc:creator><dc:language>fr-FR</dc:language><dcterms:created xsi:type="dcterms:W3CDTF">' + now + '</dcterms:created></cp:coreProperties>';
   const zip = new JSZip();
   const WML = 'application/vnd.openxmlformats-officedocument.wordprocessingml.';
-  zip.file('[Content_Types].xml', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Default Extension="png" ContentType="image/png"/><Override PartName="/word/document.xml" ContentType="' + WML + 'document.main+xml"/><Override PartName="/word/styles.xml" ContentType="' + WML + 'styles+xml"/><Override PartName="/word/footer1.xml" ContentType="' + WML + 'footer+xml"/><Override PartName="/word/footer2.xml" ContentType="' + WML + 'footer+xml"/><Override PartName="/word/header1.xml" ContentType="' + WML + 'header+xml"/><Override PartName="/word/header2.xml" ContentType="' + WML + 'header+xml"/><Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/></Types>');
+  zip.file('[Content_Types].xml', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Default Extension="png" ContentType="image/png"/><Override PartName="/word/document.xml" ContentType="' + WML + 'document.main+xml"/><Override PartName="/word/styles.xml" ContentType="' + WML + 'styles+xml"/><Override PartName="/word/footer1.xml" ContentType="' + WML + 'footer+xml"/><Override PartName="/word/footer2.xml" ContentType="' + WML + 'footer+xml"/><Override PartName="/word/header1.xml" ContentType="' + WML + 'header+xml"/><Override PartName="/word/header2.xml" ContentType="' + WML + 'header+xml"/><Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>' + (isaac ? '<Override PartName="/word/settings.xml" ContentType="' + WML + 'settings+xml"/>' : '') + '</Types>');
+  // Option Isaac : Word met à jour le sommaire et la table des illustrations à l'ouverture (numéros de page)
+  if (isaac) zip.file('word/settings.xml', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:settings ' + WNS + '><w:updateFields w:val="true"/></w:settings>');
   zip.file('_rels/.rels', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/></Relationships>');
   zip.file('docProps/core.xml', core);
   zip.file('word/document.xml', doc);
@@ -3086,6 +3164,8 @@ function vRapport() {
   const b = bank(), o = state.report || {}, type = REPORT_TYPES.some(t => t[0] === o.type) ? o.type : 'complet';
   const secs = o.sections || REPORT_SECTIONS.map(([k]) => k);
   const allBanks = Object.values(state.banks), chosen = o.banks || allBanks.map(x => x.id);
+  // l'Option Isaac prend d'office ses couleurs (bleu nuit et or) ; les autres modèles, le jeu classique
+  const themeSel = type === 'recueil_td' ? (!o.theme || o.theme === 'classique' ? 'isaac' : o.theme) : (!o.theme || o.theme === 'isaac' ? 'classique' : o.theme);
   let h = head('Export', 'Rapport Word', 'Génère un document Word (.docx) prêt à rendre ou à présenter. Choisis le modèle selon le lecteur : cours, direction, contrôle prudentiel ou comparaison. Tu peux ensuite le modifier dans Word, Pages ou Google Docs.');
   h += exampleBanner();
   h += '<div class="card"><h3>1. Modèle de rapport</h3><div class="rtypes" role="radiogroup" aria-label="Modèle de rapport">' + REPORT_TYPES.map(([k, l, d, p]) => '<label class="rtype' + (k === type ? ' on' : '') + '" for="rt-' + k + '"><input type="radio" name="rtype" id="rt-' + k + '" value="' + k + '"' + (k === type ? ' checked' : '') + '><span class="rtype-h"><b>' + (optionLocked(k) ? '🔒 ' : '') + l + '</b><span class="tag">' + p + '</span></span><span class="note">' + d + '</span></label>').join('') + '</div></div>';
@@ -3100,7 +3180,7 @@ function vRapport() {
     + '<label>Titre<input type="text" id="rTitle" maxlength="150" value="' + esc(o.title || '') + '" placeholder="' + esc(reportTitle(type, b)) + '"></label>'
     + '<label>Auteur (facultatif)<input type="text" id="rAuthor" maxlength="80" value="' + esc(o.author || '') + '"></label>'
     + '<label>Style de rédaction<select id="rWrite">' + WRITING_STYLES.map(([k, l]) => '<option value="' + k + '"' + ((o.writing || 'auto') === k ? ' selected' : '') + '>' + (k === 'auto' ? 'Automatique (' + WRITING_STYLES.find(w => w[0] === STYLE_BY_TYPE[type])[1].split(' :')[0].toLowerCase() + ')' : k === 'perso' && !hasMyStyle() ? l + ' (à régler plus bas)' : l) + '</option>').join('') + '</select></label>'
-    + '<label>Couleurs<select id="rTheme">' + Object.entries(DOC_THEMES).map(([k, t]) => '<option value="' + k + '"' + ((o.theme || 'classique') === k ? ' selected' : '') + '>' + t.n + '</option>').join('') + '</select></label></div>';
+    + '<label>Couleurs<select id="rTheme">' + Object.entries(DOC_THEMES).map(([k, t]) => '<option value="' + k + '"' + (themeSel === k ? ' selected' : '') + '>' + t.n + '</option>').join('') + '</select></label></div>';
   if (type === 'complet') h += '<p class="eyebrow" style="margin:6px 0 0">Parties</p><div class="checks">' + REPORT_SECTIONS.map(([k, l]) => '<label class="check" for="rs-' + k + '"><input type="checkbox" id="rs-' + k + '" data-rsec="' + k + '"' + (secs.includes(k) ? ' checked' : '') + '> ' + l + '</label>').join('') + '</div>';
   if (type === 'recueil') h += '<label class="note" for="rDepth" style="display:grid;gap:4px;margin-top:6px;max-width:420px">Partie consacrée à chaque banque<select id="rDepth"><option value="synthese"' + (o.depth === 'detaillee' ? '' : ' selected') + '>Synthèse : chiffres clés, note, graphiques, recommandations</option><option value="detaillee"' + (o.depth === 'detaillee' ? ' selected' : '') + '>Analyse détaillée : en plus, les tableaux et chaque ratio expliqué</option></select></label>';
   if (type === 'comparaison' || MULTI_TYPES.includes(type)) h += '<p class="eyebrow" style="margin:6px 0 0">' + (MULTI_TYPES.includes(type) ? 'Banques à réunir dans le dossier (' + allBanks.length + ' traitée' + (allBanks.length > 1 ? 's' : '') + ')' : 'Banques à comparer (2 au moins)') + '</p>'

@@ -820,15 +820,20 @@ else {
     ok(!rt.startsWith('ERR'), 'dossier TD : généré sans erreur', rt.slice(0, 200));
     if (!rt.startsWith('ERR')) {
       if (process.env.DUMP_ISAAC) writeFileSync(process.env.DUMP_ISAAC, Buffer.from(rt, 'base64'));
-      const res = await checkDocx(Buffer.from(rt, 'base64'), 'dossier TD', ['OPTION ISAAC', 'Énoncé', 'Banque Atlantique', 'Banque Test Sénégal', 'Petite Banque du Mali', '1. Bilan et compte de résultat', '2. Transformation, liquidité, levier, solvabilité', '3. ROA et ROE', '4. Faillite et PNB critique', 'À retenir.', 'ROE = ROA × multiplicateur', 'Perte de faillite RN*', 'PNB critique PNB*']);
-      const d = (await (await JSZip.loadAsync(Buffer.from(rt, 'base64'))).file('word/document.xml').async('string'));
-      const cnt = re => (d.match(re) || []).length;
-      ok(cnt(/>4\. Faillite et PNB critique</g) === 3 && cnt(/>2\. Transformation, liquidité, levier, solvabilité</g) === 3 && cnt(/>Conclusion</g) === 3, 'Option Isaac : les quatre parties pour chacune des trois banques');
-      ok(['Ratio de transformation', 'Ratio de liquidité \\(bilan\\)', 'Ratio de levier \\(bilan\\)', 'Ratio de solvabilité global', 'ROA', 'ROE'].every(k => cnt(new RegExp('>' + k + '<', 'g')) >= 3) && /créances clientèle \+/.test(d) && /Plafond 100,00 % : respecté chaque année/.test(d), 'Option Isaac : chaque ratio calculé et commenté brièvement (dont la raison de son évolution)');
-      ok(!/undefined|NaN|\[object/.test(d.replace(/<[^>]+>/g, '')), 'dossier TD : pas de « undefined » ni « NaN »');
-      ok(!/Vue d’ensemble comparée|Lecture compte par compte|Lecture année par année|À retenir<|Glossaire|Ce que l’on cherche/.test(d) && cnt(/<pic:pic/g) === 0, 'Option Isaac : allégé (sans vue comparée, encadrés, glossaire ni graphiques)');
-      ok(/Créances sur la clientèle|Créances clientèle/.test(d) && /du bilan\) : /.test(d) && /effet de ciseaux/.test(d) && /ferait faillite avec une perte de/.test(d), 'Option Isaac : comptes principaux, effet de ciseaux et faillite résumés');
-      if (res.pages) ok(res.pages >= 10 && res.pages <= 24, 'dossier TD : longueur adaptée (' + res.pages + ' pages)', res.pages);
+      const res = await checkDocx(Buffer.from(rt, 'base64'), 'dossier TD', ['OPTION ISAAC', 'Sommaire', 'Table des illustrations', 'Énoncé', 'Banque Atlantique', 'Banque Test Sénégal', 'Petite Banque du Mali', 'EN UN COUP D’ŒIL', '1. Bilan et compte de résultat', '2. Transformation, liquidité, levier, solvabilité', '3. ROA et ROE', '4. Faillite et PNB critique', 'Verdict', 'Distance à la faillite', 'Comparaison des banques', 'Classement général', 'Tableau 1 –', 'Figure 1 –', 'Moteur ·', 'Seuil ·']);
+      const z = await JSZip.loadAsync(Buffer.from(rt, 'base64')), d = await z.file('word/document.xml').async('string');
+      const cnt = re => (d.match(re) || []).length, txt = d.replace(/<[^>]+>/g, '');
+      const nFig = cnt(/SEQ Figure/g), nTab = cnt(/SEQ Tableau/g);
+      ok(nFig >= 3 * 4 + 6 && nTab >= 3 * 6 + 3 && cnt(/<pic:pic/g) === nFig, 'Option Isaac : chaque graphique et chaque tableau a une légende numérotée', [nFig, nTab, cnt(/<pic:pic/g)]);
+      ok(cnt(/w:pStyle w:val="Caption"/g) === nFig + nTab && /Montants en millions FCFA ; les colonnes Δ%/.test(txt) && /Le graphique compare, pour chaque exercice/.test(txt), 'Option Isaac : une description sous chaque légende');
+      ok(/TOC \\o "1-2"/.test(d) && /TOC \\h \\z \\c "Figure"/.test(d) && /TOC \\h \\z \\c "Tableau"/.test(d) && cnt(/w:pStyle w:val="TOC1"/g) >= 5 && cnt(/w:pStyle w:val="TableofFigures"/g) === nFig + nTab && /updateFields w:val="true"/.test(await z.file('word/settings.xml').async('string')), 'Option Isaac : sommaire et table des illustrations automatiques (champs Word mis à jour à l’ouverture)');
+      ok(txt.lastIndexOf('Verdict') < txt.lastIndexOf('Comparaison des banques') && txt.lastIndexOf('Classement général') > txt.lastIndexOf('Distance à la faillite'), 'Option Isaac : la comparaison des banques arrive à la fin du document');
+      ok(/w:fill="1B2A4A"/.test(d) && /B8902F/.test(d), 'Option Isaac : identité visuelle propre (bleu nuit et or)');
+      ok(['Ratio de transformation', 'Ratio de liquidité \\(bilan\\)', 'Ratio de levier \\(bilan\\)', 'Ratio de solvabilité global', 'ROA', 'ROE'].every(k => cnt(new RegExp('>' + k + '<', 'g')) >= 3) && /Créances clientèle \+15,0 %, dépôts clientèle −10,2 % : le numérateur l’emporte/.test(txt) && /plafond 100,00 % \(repère\) · respecté chaque année/.test(txt), 'Option Isaac : fiche verdict par ratio (évolution, moteur, portée, seuil)');
+      ok(!/undefined|NaN|\[object/.test(txt), 'dossier TD : pas de « undefined » ni « NaN »');
+      ok(!/Ce que l’on observe|Comment l’interpréter|Que retenir \?|Nous observons/.test(txt), 'Option Isaac : rédaction différente des autres modèles');
+      ok(/Créances clientèle · 51 % du bilan/.test(txt) && /effet de ciseaux/.test(txt), 'Option Isaac : comptes principaux et coup d’œil');
+      if (res.pages) ok(res.pages >= 25 && res.pages <= 70, 'dossier TD : longueur adaptée (' + res.pages + ' pages)', res.pages);
     }
     ok((await gen({ type: 'recueil_td', banks: [], charts: false })).startsWith('ERR Choisis au moins une banque'), 'dossier TD : une banque au moins');
     const one = await gen({ type: 'recueil', banks: [ids[1]], charts: false });
@@ -1537,8 +1542,8 @@ else {
     await Ad3.page.click('[data-atab="verrous"]');
     await Ad3.page.waitForSelector('#lkOptCode', { timeout: 15000 });
     ok(/Options réservées/.test(await Ad3.page.innerText('#adminBox')) && /L’app est ouverte/.test(await Ad3.page.innerText('#adminBox')), 'console verrous : état des options et de l’app');
-    await Ad3.page.fill('#lkOptCode', 'Code-Isaac'); await Ad3.page.click('#lkOptCodeOk');
-    await Ad3.page.waitForFunction(() => /défini/.test(document.querySelector('#adminBox').innerText), null, { timeout: 15000 });
+    await Ad3.page.evaluate(() => { document.querySelector('#lkOptCode').value = 'Code-Isaac'; document.querySelector('#lkOptCodeOk').click(); });
+    await Ad3.page.waitForFunction(() => adm.verrous && adm.verrous.options.code && /défini/i.test(document.querySelector('#adminBox').innerText), null, { timeout: 15000 });
     await Us3.page.click('[data-tab="rapport"]'); await Us3.page.click('label[for="rt-recueil_td"]');
     ok(await Us3.page.isVisible('#rUnlockCode') && !(await Us3.page.$('#rGo')) && /🔒/.test(await Us3.page.innerText('label[for="rt-recueil_td"]')), 'options réservées : Option Isaac fermée sans le code');
     await Us3.page.fill('#rUnlockCode', 'pas-le-bon'); await Us3.page.click('#rUnlock');
@@ -1547,10 +1552,9 @@ else {
     await Us3.page.fill('#rUnlockCode', 'code-isaac'); await Us3.page.click('#rUnlock');
     await Us3.page.waitForSelector('[data-rbank]', { timeout: 15000 });
     ok(await Us3.page.isVisible('#rGo') && !/🔒/.test(await Us3.page.innerText('label[for="rt-recueil"]')), 'options réservées : le bon code ouvre les deux options');
-    await Ad3.page.fill('#lkMsg', 'Maintenance : retour à 18 h.');
-    await Ad3.page.click('#lkApp');
+    await Ad3.page.evaluate(() => { document.querySelector('#lkMsg').value = 'Maintenance : retour à 18 h.'; document.querySelector('#lkApp').click(); });
     await Ad3.page.waitForFunction(() => /L’app est verrouillée/.test(document.querySelector('#adminBox').innerText), null, { timeout: 15000 });
-    await Ad3.page.fill('#lkAppCode', 'Entree-1234'); await Ad3.page.click('#lkAppCodeOk');
+    await Ad3.page.evaluate(() => { document.querySelector('#lkAppCode').value = 'Entree-1234'; document.querySelector('#lkAppCodeOk').click(); });
     await Ad3.page.waitForFunction(() => /entrer avec le code/.test(document.querySelector('#adminBox').innerText), null, { timeout: 15000 });
     await Us3.page.evaluate(() => refreshAccess());
     await Us3.page.waitForSelector('#lockScreen', { timeout: 15000 });
