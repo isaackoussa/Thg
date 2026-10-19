@@ -2119,9 +2119,11 @@ const REPORT_TYPES = [
   ['prudentiel', 'Conformité prudentielle', 'Normes BCEAO et Bâle III par exercice, excédent ou déficit de fonds propres, stress tests (PNB, coût du risque, défauts de crédits), résistance à la faillite.', '5 à 8 pages'],
   ['corrige', 'Corrigé de TD', 'Format exercice : énoncé puis chaque question du cours résolue (formule, application numérique pour chaque année, réponse, à retenir).', '10 à 25 pages'],
   ['comparaison', 'Comparaison de banques', 'Plusieurs banques côte à côte sur leur dernier exercice : classement, chiffres clés, ratios, graphiques et lecture ratio par ratio.', '4 à 8 pages'],
-  ['recueil', 'Dossier multi-banques', 'Toutes les banques choisies réunies dans un seul document : vue d’ensemble comparée, puis la synthèse (ou l’analyse détaillée) de chaque banque.', '3 à 6 pages par banque']
+  ['recueil', 'Dossier multi-banques', 'Toutes les banques choisies réunies dans un seul document : vue d’ensemble comparée, puis la synthèse (ou l’analyse détaillée) de chaque banque.', '3 à 6 pages par banque'],
+  ['recueil_td', 'Dossier multi-banques : questions du TD', 'Pour chaque banque choisie, les questions du TD résolues : dynamique du bilan et du compte de résultat compte par compte, transformation, liquidité, levier, solvabilité, ROA et ROE de chaque année, pertes de faillite et PNB critique.', '8 à 15 pages par banque']
 ];
-const REPORT_FILE = { complet:'Analyse', synthese:'Note_synthese', prudentiel:'Conformite', corrige:'Corrige', comparaison:'Comparaison', recueil:'Dossier_banques' };
+const MULTI_TYPES = ['recueil', 'recueil_td'];
+const REPORT_FILE = { complet:'Analyse', synthese:'Note_synthese', prudentiel:'Conformite', corrige:'Corrige', comparaison:'Comparaison', recueil:'Dossier_banques', recueil_td:'Dossier_TD_banques' };
 const DOC_THEMES = {
   classique: { n:'Vert et bleu (classique)', accent:'0C5A48', head:'E8EDE8', zebra:'F5F7F5', chart:'#2a78d6', soft:'#9cc3f1' },
   marine: { n:'Bleu marine', accent:'1F3B73', head:'E3E9F4', zebra:'F4F6FB', chart:'#2a5bb8', soft:'#a8bfe8' },
@@ -2129,7 +2131,7 @@ const DOC_THEMES = {
   anthracite: { n:'Anthracite et or', accent:'2E3A44', head:'ECE9E1', zebra:'F7F6F2', chart:'#b8862b', soft:'#e2cc9c' }
 };
 function reportTitle(type, b) {
-  return ({ synthese:'Note de synthèse : ' + b.name, prudentiel:'Conformité prudentielle : ' + b.name, corrige:'Corrigé : analyse financière de ' + b.name, comparaison:'Comparaison de banques UMOA', recueil:'Dossier de synthèse des banques UMOA' })[type] || 'Analyse financière de ' + b.name;
+  return ({ synthese:'Note de synthèse : ' + b.name, prudentiel:'Conformité prudentielle : ' + b.name, corrige:'Corrigé : analyse financière de ' + b.name, comparaison:'Comparaison de banques UMOA', recueil:'Dossier de synthèse des banques UMOA', recueil_td:'Analyse financière des banques UMOA : questions du TD' })[type] || 'Analyse financière de ' + b.name;
 }
 
 /* Note globale indicative : chaque ratio suivi rapporte ses points s'il est conforme, la moitié avec une marge faible, rien hors seuil */
@@ -2248,7 +2250,7 @@ const WRITING_STYLES = [
   ['synthetique', 'Synthétique : l’essentiel en puces'],
   ['perso', 'Mon style personnel']
 ];
-const STYLE_BY_TYPE = { complet:'academique', synthese:'professionnel', prudentiel:'professionnel', corrige:'pedagogique', comparaison:'professionnel', recueil:'professionnel' };
+const STYLE_BY_TYPE = { complet:'academique', synthese:'professionnel', prudentiel:'professionnel', corrige:'pedagogique', comparaison:'professionnel', recueil:'professionnel', recueil_td:'pedagogique' };
 /* Nom de chaque indicateur dans une phrase (avec son article) */
 const IND_PHRASE = { transfo:'le ratio de transformation', couv_mlt:'la couverture des emplois à moyen et long terme', liq:'le ratio de liquidité', coefliq:'le coefficient de liquidité', lcr:'le LCR', levier:'le ratio de levier (bilan)', levier_b:'le ratio de levier Bâle III', mult:'le multiplicateur de fonds propres', solva_s:'la solvabilité bilan', cet1:'le ratio CET1', t1:'le ratio Tier 1', solva:'le ratio de solvabilité global', souv:'le poids des titres publics', roa:'le ROA', roe:'le ROE', coef:'le coefficient d’exploitation', cdr:'le coût du risque rapporté aux crédits', mi_pnb:'la part de la marge d’intérêts dans le PNB', com_pnb:'la part des commissions dans le PNB', marge:'la marge nette', pnb_ta:'le rendement brut des actifs', perte:'la perte critique', pnbc:'le PNB critique', chute:'la baisse de PNB tolérable avant faillite', cdrc:'le coût du risque critique', cdr_mult:'le multiple du coût du risque menant à la faillite', abs_a:'la part de l’actif pouvant être perdue', abs_c:'la part des crédits pouvant faire défaut', lmax:'la perte absorbable avant le seuil de solvabilité' };
 const capFirst = s => s ? s[0].toUpperCase() + s.slice(1) : s;
@@ -2573,9 +2575,22 @@ async function buildReportDoc(opt, type) {
     if (vals.some(fin)) { await addChart(printIndicator(ind, vals), ind.n + ' par exercice'); body.push(W.fromHtml(Wr.interp(ind, vals))); }
     return vals;
   };
+  // Questions du TD (corrigé et dossier multi-banques « questions du TD ») : énoncé, résolution, à retenir
+  const tdQuestions = () => [
+    ['Analysez la dynamique du bilan (actif et passif).', async () => { await dynTables(['actif', 'passif']); }, 'Le total du bilan mesure la taille de la banque ; on regarde quels postes portent sa croissance (crédits, titres, dépôts) et si les fonds propres suivent.'],
+    ['Analysez la dynamique du compte de résultat.', async () => { await dynTables(['cr']); }, 'On descend la cascade : marge d’intérêts, PNB, RBE, résultat d’exploitation, résultat net. Un PNB qui progresse moins vite que les charges dégrade le RBE.'],
+    ['Calculez et commentez le ratio de transformation.', async () => { await indicator(I.transfo, 3, true); }, I.transfo.about],
+    ['Calculez et commentez le ratio de liquidité.', async () => { await indicator(I.liq, 3, true); }, I.liq.about],
+    ['Calculez et commentez le ratio de levier.', async () => { await indicator(I.levier, 3, true); await indicator(I.mult, 3, true); }, 'Levier et multiplicateur sont inverses l’un de l’autre : plus la banque est endettée, plus le multiplicateur est grand.'],
+    ['Calculez et commentez le ratio de solvabilité.', async () => { await indicator(I.solva_s, 3, true); await indicator(I.solva, 3, true); }, 'La version bilan ne pondère pas les risques ; la version Bâle rapporte les fonds propres effectifs aux actifs pondérés (minimum ' + fmtP(thrVal(I.solva), 1) + ').'],
+    ['Calculez le ROA et le ROE de chaque année et expliquez l’évolution du ROE.', async () => { await indicator(I.roa, 3, true); await indicator(I.roe, 3, true); dupontBlock(3); }, 'ROE = ROA × multiplicateur : le ROE varie soit parce que les actifs rapportent plus ou moins, soit parce que la banque est plus ou moins endettée.'],
+    ['Quel niveau de pertes provoquerait la faillite de la banque ?', async () => { await indicator(I.perte, 3, true); await indicator(I.abs_a, 3, true); await indicator(I.abs_c, 3, true); }, 'La faillite comptable survient quand les pertes effacent les capitaux propres : RN* = −Capitaux propres.'],
+    ['Quel niveau de PNB provoquerait ces pertes ?', async () => { await failliteBlock(false); await indicator(I.pnbc, 3, true); await indicator(I.chute, 3, true); }, 'On remonte la cascade du compte de résultat à partir de RN* (impôt nul en cas de perte) pour trouver le PNB critique PNB*.']
+  ];
+  let dynLevel = 2;
   const dynTables = async kinds => {
     for (const [kind, ttl] of [['actif', 'Actif'], ['passif', 'Passif'], ['cr', 'Compte de résultat']].filter(k => kinds.includes(k[0]))) {
-      body.push(W.h(2, ttl));
+      body.push(W.h(dynLevel, ttl));
       const rows = dynRows(kind), header = ['Poste', ...yrs.map(String)];
       for (let i = 1; i < yrs.length; i++) header.push('Δ% ' + yrs[i]);
       const tbl = [header], bold = [];
@@ -2619,7 +2634,7 @@ async function buildReportDoc(opt, type) {
     body.push(W.band([{ t:typeLabel.toUpperCase(), sz:18, b:true, after:120 }, { t:title, sz:44, b:true, after:120 }, { t:sub, sz:22, after:0 }]));
     if (opt.author) body.push(W.p(W.run('Réalisé par ' + opt.author, { color:DOC_COLORS.ink2 })));
     body.push(W.p(W.run('Document généré le ' + new Date().toLocaleDateString('fr-FR', { day:'numeric', month:'long', year:'numeric' }) + ' avec Analyste Bancaire UMOA (référentiel PCB révisé, dispositif prudentiel BCEAO).', { i:true, sz:18, color:DOC_COLORS.ink3 })));
-    if (b.source && type !== 'comparaison' && type !== 'recueil') body.push(W.p(W.run('Source des données : ' + b.source, { i:true, sz:18, color:DOC_COLORS.ink3 })));
+    if (b.source && type !== 'comparaison' && !MULTI_TYPES.includes(type)) body.push(W.p(W.run('Source des données : ' + b.source, { i:true, sz:18, color:DOC_COLORS.ink3 })));
   };
   const bankSub = [b.country, 'Exercices ' + yrs[0] + (yrs.length > 1 ? ' à ' + yrs[n] : ''), 'Montants en ' + b.unit].filter(Boolean).join(' · ');
   let num = 0;
@@ -2748,17 +2763,7 @@ async function buildReportDoc(opt, type) {
     cover(bankSub);
     section('Énoncé', false);
     body.push(W.p(W.run('À partir des bilans et comptes de résultat de ' + b.name + ' (' + (yrs.length > 1 ? 'exercices ' + yrs[0] + ' à ' + yrs[n] : 'exercice ' + yrs[0]) + ', montants en ' + b.unit + '), on demande :')));
-    const QS = [
-      ['Analysez la dynamique du bilan (actif et passif).', async () => { await dynTables(['actif', 'passif']); }, 'Le total du bilan mesure la taille de la banque ; on regarde quels postes portent sa croissance (crédits, titres, dépôts) et si les fonds propres suivent.'],
-      ['Analysez la dynamique du compte de résultat.', async () => { await dynTables(['cr']); }, 'On descend la cascade : marge d’intérêts, PNB, RBE, résultat d’exploitation, résultat net. Un PNB qui progresse moins vite que les charges dégrade le RBE.'],
-      ['Calculez et commentez le ratio de transformation.', async () => { await indicator(I.transfo, 3, true); }, I.transfo.about],
-      ['Calculez et commentez le ratio de liquidité.', async () => { await indicator(I.liq, 3, true); }, I.liq.about],
-      ['Calculez et commentez le ratio de levier.', async () => { await indicator(I.levier, 3, true); await indicator(I.mult, 3, true); }, 'Levier et multiplicateur sont inverses l’un de l’autre : plus la banque est endettée, plus le multiplicateur est grand.'],
-      ['Calculez et commentez le ratio de solvabilité.', async () => { await indicator(I.solva_s, 3, true); await indicator(I.solva, 3, true); }, 'La version bilan ne pondère pas les risques ; la version Bâle rapporte les fonds propres effectifs aux actifs pondérés (minimum ' + fmtP(thrVal(I.solva), 1) + ').'],
-      ['Calculez le ROA et le ROE de chaque année et expliquez l’évolution du ROE.', async () => { await indicator(I.roa, 3, true); await indicator(I.roe, 3, true); dupontBlock(3); }, 'ROE = ROA × multiplicateur : le ROE varie soit parce que les actifs rapportent plus ou moins, soit parce que la banque est plus ou moins endettée.'],
-      ['Quel niveau de pertes provoquerait la faillite de la banque ?', async () => { await indicator(I.perte, 3, true); await indicator(I.abs_a, 3, true); await indicator(I.abs_c, 3, true); }, 'La faillite comptable survient quand les pertes effacent les capitaux propres : RN* = −Capitaux propres.'],
-      ['Quel niveau de PNB provoquerait ces pertes ?', async () => { await failliteBlock(false); await indicator(I.pnbc, 3, true); await indicator(I.chute, 3, true); }, 'On remonte la cascade du compte de résultat à partir de RN* (impôt nul en cas de perte) pour trouver le PNB critique PNB*.']
-    ];
+    const QS = tdQuestions();
     QS.forEach(([q], i) => body.push(W.p(W.run((i + 1) + '. ' + q), { ind:360, after:40 })));
     body.push(W.note('Convention : les ratios de rentabilité sont calculés sur ' + (state.base === 'moy' ? 'la moyenne des exercices N et N−1' : 'les montants de fin d’exercice') + '. Seuils de la BCEAO et repères d’analyse rappelés à chaque question.'));
     for (let i = 0; i < QS.length; i++) {
@@ -2781,47 +2786,96 @@ async function buildReportDoc(opt, type) {
     // Dossier multi-banques : vue d'ensemble comparée puis une partie par banque, dans un seul document
     const ids = (opt.banks || []).filter(id => state.banks[id]);
     if (!ids.length) throw new Error('Choisis au moins une banque à réunir dans le dossier.');
-    const detail = opt.depth === 'detaillee', prevCur = state.cur, prevYi = state.yi;
+    const detail = opt.depth === 'detaillee';
     cover(ids.length + ' banque' + (ids.length > 1 ? 's réunies' : '') + ' dans un seul document' + (detail ? ' · analyse détaillée de chaque banque' : ' · synthèse de chaque banque'));
     body.push(W.h(2, 'Sommaire'));
     [...(ids.length > 1 ? ['Vue d’ensemble comparée'] : []), ...ids.map(id => state.banks[id].name), 'Méthodologie et glossaire'].forEach((l, i) => body.push(W.p(W.run((i + 1) + '. ' + l), { after:40 })));
     if (ids.length > 1) await comparisonSections(ids, false);
+    await eachBank(ids, async () => {
+      body.push(kpiRow(n));
+      gradeBlock(n);
+      body.push(W.fromHtml(Wr.conclusion(n)));
+      body.push(W.h(2, 'Tableau de bord ' + yrs[n]));
+      body.push(dashboard(n));
+      await addChart(chartBilan(), b.name + ' : total du bilan, crédits et dépôts');
+      await addChart(chartResultats(), b.name + ' : PNB, RBE et résultat net');
+      await addChart(printIndicator(I.solva, series(I.solva)), b.name + ' : ratio de solvabilité global');
+      await addChart(chartRenta(), b.name + ' : ROE et ROA');
+      if (detail) {
+        body.push(W.h(2, 'Dynamique des comptes'));
+        await dynTables(['actif', 'passif', 'cr']);
+        body.push(W.h(2, 'Ratios détaillés'));
+        for (const k of ['transfo', 'liq', 'levier', 'solva', 'cet1', 'roa', 'roe', 'coef', 'cdr', 'pnbc', 'chute']) await indicator(I[k], 3, false);
+      }
+      const { good, watch } = synthLists();
+      body.push(W.h(2, 'Points forts'));
+      body.push(good.length ? W.bullets(good) : W.note('Aucun point fort identifié avec les données saisies.'));
+      body.push(W.h(2, 'Points de vigilance'));
+      body.push(watch.length ? W.bullets(watch) : W.note('Aucun signal d’alerte avec les données saisies.'));
+      body.push(W.h(2, 'Recommandations'));
+      body.push(W.bullets(recommendations(n)));
+    });
+    methodGlossary();
+    comment();
+  } else if (type === 'recueil_td') {
+    // Dossier multi-banques « questions du TD » : pour chaque banque, les quatre parties du TD résolues
+    const ids = (opt.banks || []).filter(id => state.banks[id]);
+    if (!ids.length) throw new Error('Choisis au moins une banque à réunir dans le dossier.');
+    const QS = tdQuestions();
+    const PARTS = [
+      ['Analyse du bilan et du compte de résultat', 'Analysez le bilan et le compte de résultat sur la période : dynamique de chaque compte d’une année à l’autre et indicateurs à calculer.', [0, 1]],
+      ['Ratios de transformation, de liquidité, de levier et de solvabilité', 'Calculez et analysez le ratio de transformation, le ratio de liquidité, le ratio de levier et le ratio de solvabilité.', [2, 3, 4, 5]],
+      ['ROA et ROE', 'Calculez et analysez le ROA et le ROE de chaque année, puis la dynamique d’une année à l’autre.', [6]],
+      ['Pertes de faillite et PNB critique', 'Déterminez le montant des pertes (résultat net) qui mettrait la banque en faillite, puis le niveau de PNB qui provoquerait cette perte.', [7, 8]]
+    ];
+    cover(ids.length + ' banque' + (ids.length > 1 ? 's' : '') + ' · les questions du TD résolues pour chacune');
+    body.push(W.h(2, 'Sommaire'));
+    ['Énoncé', ...(ids.length > 1 ? ['Vue d’ensemble comparée'] : []), ...ids.map(id => state.banks[id].name), 'Méthodologie et glossaire'].forEach((l, i) => body.push(W.p(W.run((i + 1) + '. ' + l), { after:40 })));
+    section('Énoncé');
+    body.push(W.p(W.run('Pour chacune des banques suivantes, à partir de ses bilans et comptes de résultat :')));
+    body.push(W.bullets(ids.map(id => { const x = state.banks[id]; return x.name + ' (' + (x.years.length > 1 ? x.years[0] + ' à ' + x.years[x.years.length - 1] : x.years[0]) + ')'; })));
+    PARTS.forEach(([, q], i) => body.push(W.p(W.run((i + 1) + '. ' + q), { ind:360, after:40 })));
+    body.push(W.note('Chaque ratio est donné avec sa formule, l’application numérique pour chaque année, sa dynamique d’une année à l’autre et sa lecture par rapport au seuil de la BCEAO ou au repère d’analyse. Les ratios de rentabilité sont calculés sur ' + (state.base === 'moy' ? 'la moyenne des exercices N et N−1' : 'les montants de fin d’exercice') + '.'));
+    if (ids.length > 1) await comparisonSections(ids, false);
+    dynLevel = 3;
+    await eachBank(ids, async () => {
+      for (let i = 0; i < PARTS.length; i++) {
+        const [t, , qi] = PARTS[i];
+        body.push(W.h(2, (i + 1) + '. ' + t));
+        for (const k of qi) {
+          body.push(W.p(W.run(QS[k][0], { b:true, i:true }), { keep:true }));
+          await QS[k][1]();
+          body.push(W.box('À retenir', QS[k][2]));
+        }
+        if (i === 2) await addChart(chartRenta(), b.name + ' : ROE et ROA');
+      }
+      body.push(W.h(2, 'Conclusion'));
+      body.push(W.fromHtml(Wr.conclusion(n)));
+    });
+    dynLevel = 2;
+    methodGlossary();
+    comment();
+  }
+
+  // Une partie par banque : la banque devient la banque « courante » le temps de sa partie, puis tout est rétabli
+  async function eachBank(ids, fn) {
+    const prevCur = state.cur, prevYi = state.yi;
     try {
       for (const id of ids) {
         state.cur = id; yrs = Y(); n = yrs.length - 1; state.yi = y = n; b = bank();
         Wr = makeWriter(writing);
         section(b.name);
         body.push(W.p(W.run([b.country, 'Exercices ' + yrs[0] + (yrs.length > 1 ? ' à ' + yrs[n] : ''), 'Montants en ' + b.unit].filter(Boolean).join(' · '), { color:DOC_COLORS.ink2, i:true })));
-        body.push(kpiRow(n));
-        gradeBlock(n);
-        body.push(W.fromHtml(Wr.conclusion(n)));
-        body.push(W.h(2, 'Tableau de bord ' + yrs[n]));
-        body.push(dashboard(n));
-        await addChart(chartBilan(), b.name + ' : total du bilan, crédits et dépôts');
-        await addChart(chartResultats(), b.name + ' : PNB, RBE et résultat net');
-        await addChart(printIndicator(I.solva, series(I.solva)), b.name + ' : ratio de solvabilité global');
-        await addChart(chartRenta(), b.name + ' : ROE et ROA');
-        if (detail) {
-          body.push(W.h(2, 'Dynamique des comptes'));
-          await dynTables(['actif', 'passif', 'cr']);
-          body.push(W.h(2, 'Ratios détaillés'));
-          for (const k of ['transfo', 'liq', 'levier', 'solva', 'cet1', 'roa', 'roe', 'coef', 'cdr', 'pnbc', 'chute']) await indicator(I[k], 3, false);
-        }
-        const { good, watch } = synthLists();
-        body.push(W.h(2, 'Points forts'));
-        body.push(good.length ? W.bullets(good) : W.note('Aucun point fort identifié avec les données saisies.'));
-        body.push(W.h(2, 'Points de vigilance'));
-        body.push(watch.length ? W.bullets(watch) : W.note('Aucun signal d’alerte avec les données saisies.'));
-        body.push(W.h(2, 'Recommandations'));
-        body.push(W.bullets(recommendations(n)));
+        await fn();
       }
-    } finally { state.cur = prevCur; state.yi = prevYi; }
+    } finally { state.cur = prevCur; state.yi = prevYi; yrs = Y(); n = yrs.length - 1; y = state.yi; b = bank(); Wr = makeWriter(writing); }
+  }
+  function methodGlossary() {
     section('Méthodologie et glossaire');
     body.push(W.p(W.run('Chaque banque est analysée sur la période choisie pour elle dans l’app, selon le plan comptable bancaire révisé de l’UMOA et le dispositif prudentiel de la BCEAO. Les ratios Bâle III sont estimés à partir du bilan lorsque les états réglementaires ne sont pas saisis. La note globale est indicative : ce n’est pas une notation officielle.')));
     paramsTable();
     body.push(W.h(2, 'Glossaire'));
     body.push(W.table([['Terme', 'Définition'], ...GLOSSARY.map(([t, d]) => [{ t, b:true }, { t:d, align:'left' }])], { firstCol:22 }));
-    comment();
   }
 
   async function comparisonSections(ids, withCover) {
@@ -2901,7 +2955,7 @@ async function buildReportDoc(opt, type) {
     body.push(missAll.size ? W.p(W.run('Les postes suivants ne sont pas saisis pour au moins un exercice ; les indicateurs qui en dépendent sont marqués « Non calculé » : ' + [...missAll].map(k => F[k].l).join(', ') + '.')) : W.p(W.run('Toutes les données utilisées par les indicateurs sont renseignées.')));
   }
 
-  const headRight = type === 'comparaison' ? 'Comparaison de banques' : type === 'recueil' ? 'Dossier multi-banques' : b.name;
+  const headRight = type === 'comparaison' ? 'Comparaison de banques' : MULTI_TYPES.includes(type) ? 'Dossier multi-banques' : b.name;
   const NS = 'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"';
   const doc = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document ' + NS + '><w:body>' + body.join('')
     + '<w:sectPr><w:headerReference w:type="default" r:id="rIdHeader"/><w:headerReference w:type="first" r:id="rIdHeaderFirst"/><w:footerReference w:type="default" r:id="rIdFooter"/><w:footerReference w:type="first" r:id="rIdFooterFirst"/><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1247" w:right="1134" w:bottom="1247" w:left="1134" w:header="567" w:footer="567" w:gutter="0"/><w:titlePg/></w:sectPr></w:body></w:document>';
@@ -2961,13 +3015,13 @@ function vRapport() {
     + '<label>Couleurs<select id="rTheme">' + Object.entries(DOC_THEMES).map(([k, t]) => '<option value="' + k + '"' + ((o.theme || 'classique') === k ? ' selected' : '') + '>' + t.n + '</option>').join('') + '</select></label></div>';
   if (type === 'complet') h += '<p class="eyebrow" style="margin:6px 0 0">Parties</p><div class="checks">' + REPORT_SECTIONS.map(([k, l]) => '<label class="check" for="rs-' + k + '"><input type="checkbox" id="rs-' + k + '" data-rsec="' + k + '"' + (secs.includes(k) ? ' checked' : '') + '> ' + l + '</label>').join('') + '</div>';
   if (type === 'recueil') h += '<label class="note" for="rDepth" style="display:grid;gap:4px;margin-top:6px;max-width:420px">Partie consacrée à chaque banque<select id="rDepth"><option value="synthese"' + (o.depth === 'detaillee' ? '' : ' selected') + '>Synthèse : chiffres clés, note, graphiques, recommandations</option><option value="detaillee"' + (o.depth === 'detaillee' ? ' selected' : '') + '>Analyse détaillée : en plus, les tableaux et chaque ratio expliqué</option></select></label>';
-  if (type === 'comparaison' || type === 'recueil') h += '<p class="eyebrow" style="margin:6px 0 0">' + (type === 'recueil' ? 'Banques à réunir dans le dossier (' + allBanks.length + ' traitée' + (allBanks.length > 1 ? 's' : '') + ')' : 'Banques à comparer (2 au moins)') + '</p>'
+  if (type === 'comparaison' || MULTI_TYPES.includes(type)) h += '<p class="eyebrow" style="margin:6px 0 0">' + (MULTI_TYPES.includes(type) ? 'Banques à réunir dans le dossier (' + allBanks.length + ' traitée' + (allBanks.length > 1 ? 's' : '') + ')' : 'Banques à comparer (2 au moins)') + '</p>'
     + (allBanks.length > 1 ? '<div class="row" style="margin:4px 0"><button type="button" class="btn sm" id="rbAll">Tout cocher</button><button type="button" class="btn sm" id="rbNone">Tout décocher</button></div>' : '') + '<div class="checks">' + allBanks.map(x => '<label class="check" for="rb-' + esc(x.id) + '"><input type="checkbox" id="rb-' + esc(x.id) + '" data-rbank="' + esc(x.id) + '"' + (chosen.includes(x.id) ? ' checked' : '') + '> ' + esc(x.name) + ' <span class="note">(' + esc(x.years[0] + (x.years.length > 1 ? '–' + x.years[x.years.length - 1] : '')) + ')</span></label>').join('') + '</div>'
-    + (allBanks.length < 2 ? '<p class="miss">' + (type === 'recueil' ? 'Il n’y a qu’une banque : le dossier ne contiendra qu’elle. Ajoute ou importe d’autres banques pour les réunir et les comparer.' : 'Il n’y a qu’une banque : ajoute ou importe d’autres banques pour les comparer.') + '</p>' : '');
+    + (allBanks.length < 2 ? '<p class="miss">' + (MULTI_TYPES.includes(type) ? 'Il n’y a qu’une banque : le dossier ne contiendra qu’elle. Ajoute ou importe d’autres banques pour les réunir et les comparer.' : 'Il n’y a qu’une banque : ajoute ou importe d’autres banques pour les comparer.') + '</p>' : '');
   h += '<div class="checks" style="margin-top:6px"><label class="check" for="rCharts"><input type="checkbox" id="rCharts"' + (o.charts === false ? '' : ' checked') + '> Inclure les graphiques</label>'
     + (type === 'complet' ? '<label class="check" for="rAll"><input type="checkbox" id="rAll"' + (o.allYears ? ' checked' : '') + '> Application numérique pour chaque exercice (sinon seulement ' + Y()[state.yi] + ', l’année détaillée)</label>' : '') + '</div>'
     + '<label class="note" for="rComment" style="display:grid;gap:4px;margin-top:6px">Commentaire de l’analyste, ajouté au rapport (facultatif)<textarea id="rComment" maxlength="4000" style="min-height:80px;font-family:inherit;font-size:.9rem">' + esc(o.comment || '') + '</textarea></label>'
-    + '<div class="row" style="margin-top:8px"><button class="btn pri" id="rGo">Générer : ' + REPORT_TYPES.find(t => t[0] === type)[1] + '</button><span class="note">' + (type === 'comparaison' ? 'Dernier exercice de chaque banque' : type === 'recueil' ? 'Toute la période de chaque banque · comparaison sur le dernier exercice' : 'Période ' + Y()[0] + '–' + Y()[Y().length - 1] + ' · ' + esc(b.name)) + '</span></div><div id="rStatus" class="file-status" hidden></div></div>';
+    + '<div class="row" style="margin-top:8px"><button class="btn pri" id="rGo">Générer : ' + REPORT_TYPES.find(t => t[0] === type)[1] + '</button><span class="note">' + (type === 'comparaison' ? 'Dernier exercice de chaque banque' : type === 'recueil_td' ? 'Toute la période de chaque banque · chaque question résolue pour chaque banque' : type === 'recueil' ? 'Toute la période de chaque banque · comparaison sur le dernier exercice' : 'Période ' + Y()[0] + '–' + Y()[Y().length - 1] + ' · ' + esc(b.name)) + '</span></div><div id="rStatus" class="file-status" hidden></div></div>';
   h += myStyleCard();
   return h;
 }
@@ -2992,13 +3046,13 @@ function bindRapport() {
     const fail = m => { st.hidden = false; st.className = 'file-status err'; st.textContent = m; };
     if (o.type === 'complet' && !o.sections.length) return fail('Coche au moins une partie.');
     if (o.type === 'comparaison' && (o.banks || []).filter(id => state.banks[id]).length < 2) return fail('Coche au moins deux banques à comparer.');
-    if (o.type === 'recueil' && !(o.banks || []).filter(id => state.banks[id]).length) return fail('Coche au moins une banque à réunir dans le dossier.');
+    if (MULTI_TYPES.includes(o.type) && !(o.banks || []).filter(id => state.banks[id]).length) return fail('Coche au moins une banque à réunir dans le dossier.');
     $('#rGo').disabled = true; st.hidden = false; st.className = 'file-status'; st.textContent = 'Préparation du rapport…';
     try {
       const blob = await buildReport(o);
-      track('rapport', REPORT_TYPES.find(t => t[0] === (o.type || 'complet'))[1] + ' · style ' + (o.writing === 'perso' ? 'personnel' : o.writing && o.writing !== 'auto' ? o.writing : STYLE_BY_TYPE[o.type || 'complet']) + ' · ' + (o.type === 'comparaison' || o.type === 'recueil' ? (o.banks || []).filter(id => state.banks[id]).length + ' banques' : bank().name));
+      track('rapport', REPORT_TYPES.find(t => t[0] === (o.type || 'complet'))[1] + ' · style ' + (o.writing === 'perso' ? 'personnel' : o.writing && o.writing !== 'auto' ? o.writing : STYLE_BY_TYPE[o.type || 'complet']) + ' · ' + (o.type === 'comparaison' || MULTI_TYPES.includes(o.type) ? (o.banks || []).filter(id => state.banks[id]).length + ' banques' : bank().name));
       st.textContent = 'Rapport prêt (' + Math.max(1, Math.round(blob.size / 1024)) + ' Ko).';
-      const name = o.type === 'comparaison' || o.type === 'recueil' ? (o.type === 'recueil' ? 'Dossier_banques_' : 'Comparaison_banques_') + new Date().toISOString().slice(0, 10) + '.docx' : (REPORT_FILE[o.type] || 'Analyse') + '_' + fileBase() + '_' + Y()[0] + '-' + Y()[Y().length - 1] + '.docx';
+      const name = o.type === 'comparaison' || MULTI_TYPES.includes(o.type) ? (REPORT_FILE[o.type] === 'Comparaison' ? 'Comparaison_banques' : REPORT_FILE[o.type]) + '_' + new Date().toISOString().slice(0, 10) + '.docx' : (REPORT_FILE[o.type] || 'Analyse') + '_' + fileBase() + '_' + Y()[0] + '-' + Y()[Y().length - 1] + '.docx';
       await saveFile(name, blob, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
     } catch (e) { st.className = 'file-status err'; st.textContent = e && /chargé|banque/.test(e.message || '') ? e.message : 'Le rapport n’a pas pu être généré. Réessaie ; si le problème persiste, décoche les graphiques.'; }
     finally { $('#rGo').disabled = false; }

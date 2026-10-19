@@ -811,6 +811,19 @@ else {
       const z = await JSZip.loadAsync(Buffer.from(rd, 'base64')), d = await z.file('word/document.xml').async('string');
       ok(d.length > synthLen && (d.match(/>Ratios détaillés</g) || []).length === 3 && (d.match(/Ratio de transformation/g) || []).length >= 3, 'dossier détaillé : tableaux et ratios expliqués pour chaque banque', d.length);
     }
+    // dossier « questions du TD » : chaque question résolue pour chaque banque
+    const rt = await gen({ type: 'recueil_td', banks: ids, charts: true });
+    ok(!rt.startsWith('ERR'), 'dossier TD : généré sans erreur', rt.slice(0, 200));
+    if (!rt.startsWith('ERR')) {
+      const res = await checkDocx(Buffer.from(rt, 'base64'), 'dossier TD', ['DOSSIER MULTI-BANQUES', 'Énoncé', 'Vue d’ensemble comparée', 'Banque Atlantique', 'Banque Test Sénégal', 'Petite Banque du Mali', 'Analyse du bilan et du compte de résultat', 'Ratios de transformation, de liquidité, de levier et de solvabilité', 'ROA et ROE', 'Pertes de faillite et PNB critique', 'À retenir', /ROE\s*=/]);
+      const d = (await (await JSZip.loadAsync(Buffer.from(rt, 'base64'))).file('word/document.xml').async('string'));
+      const cnt = re => (d.match(re) || []).length;
+      ok(cnt(/>\d\. Pertes de faillite et PNB critique</g) === 3 && cnt(/>\d\. Ratios de transformation, de liquidité, de levier et de solvabilité</g) === 3 && cnt(/>Compte de résultat</g) >= 3 && cnt(/>Conclusion</g) >= 3, 'dossier TD : les quatre parties pour chacune des trois banques', [cnt(/>\d\. Pertes de faillite et PNB critique</g), cnt(/>Compte de résultat</g)]);
+      ok(['Ratio de transformation', 'Ratio de liquidité', 'Ratio de levier', 'ROA', 'ROE', 'PNB critique'].every(k => cnt(new RegExp(k, 'g')) >= 3) && cnt(/Application numérique 202[123]/g) >= 3 * 3 * 8, 'dossier TD : chaque ratio avec application numérique de chaque année, pour chaque banque', cnt(/Application numérique 202[123]/g));
+      ok(!/undefined|NaN|\[object/.test(d.replace(/<[^>]+>/g, '')), 'dossier TD : pas de « undefined » ni « NaN »');
+      if (res.pages) ok(res.pages >= 20, 'dossier TD : longueur adaptée (' + res.pages + ' pages)', res.pages);
+    }
+    ok((await gen({ type: 'recueil_td', banks: [], charts: false })).startsWith('ERR Choisis au moins une banque'), 'dossier TD : une banque au moins');
     const one = await gen({ type: 'recueil', banks: [ids[1]], charts: false });
     if (!one.startsWith('ERR')) { const d = await (await JSZip.loadAsync(Buffer.from(one, 'base64'))).file('word/document.xml').async('string'); ok(!/Classement général/.test(d) && /Banque Test Sénégal/.test(d) && !/Petite Banque du Mali/.test(d), 'dossier multi-banques : une seule banque cochée, sans comparaison'); }
     else ok(false, 'dossier multi-banques : une seule banque', one.slice(0, 200));
@@ -836,7 +849,7 @@ else {
   }
   // bouton : téléchargement réel sur le site
   await page.click('[data-tab="rapport"]');
-  ok(await page.$$eval('[name="rtype"]', x => x.length) === 6 && !!(await page.$('[data-rsec]')), 'rapport : 6 modèles proposés, parties pour le rapport complet');
+  ok(await page.$$eval('[name="rtype"]', x => x.length) === 7 && !!(await page.$('[data-rsec]')), 'rapport : 7 modèles proposés, parties pour le rapport complet');
   await page.click('label[for="rt-comparaison"]');
   ok(!(await page.$('[data-rsec]')) && !!(await page.$('[data-rbank]')) && /Comparaison de banques UMOA/.test(await page.getAttribute('#rTitle', 'placeholder')), 'rapport : choix des banques pour la comparaison');
   await page.click('#rGo');
@@ -847,6 +860,8 @@ else {
   await page.uncheck('[data-rbank]');
   await page.click('#rGo');
   ok(/au moins une banque/.test(await page.innerText('#rStatus')) && await page.evaluate(() => state.report.depth === 'detaillee'), 'rapport : dossier sans banque cochée signalé, niveau de détail mémorisé');
+  await page.click('label[for="rt-recueil_td"]');
+  ok(!(await page.$('#rDepth')) && !!(await page.$('[data-rbank]')) && /questions du TD/.test(await page.getAttribute('#rTitle', 'placeholder')), 'rapport : dossier questions du TD avec choix des banques');
   await page.click('label[for="rt-synthese"]');
   ok(/professionnel/.test(await page.$eval('#rWrite option[value="auto"]', o => o.textContent)) && await page.$$eval('#rWrite option', o => o.length) === 6, 'rapport : choix du style de rédaction (automatique selon le modèle, ou mon style)');
   await page.selectOption('#rWrite', 'pedagogique');
