@@ -790,6 +790,33 @@ else {
     const auto = await docText(await gen({ type: 'corrige', writing: 'auto', charts: false }));
     ok(/Ce que l’on observe\./.test(auto), 'rédaction automatique : le corrigé de TD est pédagogique');
   }
+  // dossier multi-banques : vue d'ensemble comparée puis une partie par banque
+  {
+    const ids = Object.keys(await page.evaluate(() => state.banks));
+    const before = await page.evaluate(() => [state.cur, state.yi]);
+    const rs = await gen({ type: 'recueil', theme: 'classique', banks: ids, depth: 'synthese', charts: true, comment: 'Avis dossier.' });
+    ok(!rs.startsWith('ERR'), 'dossier multi-banques : généré sans erreur', rs.slice(0, 200));
+    let synthPages = 0, synthLen = 0;
+    if (!rs.startsWith('ERR')) {
+      const res = await checkDocx(Buffer.from(rs, 'base64'), 'dossier multi-banques', ['DOSSIER MULTI-BANQUES', 'Sommaire', 'Vue d’ensemble comparée', 'Classement général', 'Conclusion de la comparaison', 'Banque Atlantique', 'Banque Test Sénégal', 'Petite Banque du Mali', 'Tableau de bord', 'Méthodologie et glossaire', 'Avis dossier.']);
+      const z = await JSZip.loadAsync(Buffer.from(rs, 'base64')), d = await z.file('word/document.xml').async('string');
+      ok((d.match(/>Recommandations</g) || []).length === 3 && (d.match(/>Points forts</g) || []).length === 3, 'dossier multi-banques : points forts et recommandations pour chaque banque', (d.match(/>Recommandations</g) || []).length);
+      ok(!/undefined|NaN|\[object/.test(d.replace(/<[^>]+>/g, '')), 'dossier multi-banques : pas de « undefined » ni « NaN »');
+      synthPages = res.pages || 0; synthLen = d.length;
+      if (synthPages) ok(synthPages >= 6 && synthPages <= 30, 'dossier multi-banques : longueur adaptée (' + synthPages + ' pages)', synthPages);
+    }
+    const rd = await gen({ type: 'recueil', banks: ids, depth: 'detaillee', charts: false });
+    ok(!rd.startsWith('ERR'), 'dossier détaillé : généré sans erreur', rd.slice(0, 200));
+    if (!rd.startsWith('ERR')) {
+      const z = await JSZip.loadAsync(Buffer.from(rd, 'base64')), d = await z.file('word/document.xml').async('string');
+      ok(d.length > synthLen && (d.match(/>Ratios détaillés</g) || []).length === 3 && (d.match(/Ratio de transformation/g) || []).length >= 3, 'dossier détaillé : tableaux et ratios expliqués pour chaque banque', d.length);
+    }
+    const one = await gen({ type: 'recueil', banks: [ids[1]], charts: false });
+    if (!one.startsWith('ERR')) { const d = await (await JSZip.loadAsync(Buffer.from(one, 'base64'))).file('word/document.xml').async('string'); ok(!/Classement général/.test(d) && /Banque Test Sénégal/.test(d) && !/Petite Banque du Mali/.test(d), 'dossier multi-banques : une seule banque cochée, sans comparaison'); }
+    else ok(false, 'dossier multi-banques : une seule banque', one.slice(0, 200));
+    ok((await gen({ type: 'recueil', banks: ['a-inconnue'], charts: false })).startsWith('ERR Choisis au moins une banque'), 'dossier multi-banques : une banque au moins');
+    ok(JSON.stringify(await page.evaluate(() => [state.cur, state.yi])) === JSON.stringify(before), 'dossier multi-banques : banque et exercice affichés inchangés après génération');
+  }
   ok((await gen({ type: 'comparaison', banks: ['a-inconnue', Object.keys(await page.evaluate(() => state.banks))[0]], charts: false })).startsWith('ERR Choisis au moins deux banques'), 'comparaison : deux banques au moins');
   ok(await page.evaluate(() => { const b = bank(); const st = stressTests(Y().length - 1); return st.length === 7 && Math.abs(st[0].solva - val(nodeOf(I.solva), Y().length - 1)) < 1e-12 && st[2].solva < st[1].solva && st[6].solva < st[5].solva; }), 'stress tests : situation actuelle = ratio de solvabilité, chocs croissants');
   ok(await page.evaluate(() => { const s = scoreCard(Y().length - 1); return s.score >= 0 && s.score <= 100 && 'ABCDE'.includes(s.grade) && s.rows.length === SCORE_W.length; }), 'note globale : score entre 0 et 100 et lettre A à E');
@@ -809,11 +836,17 @@ else {
   }
   // bouton : téléchargement réel sur le site
   await page.click('[data-tab="rapport"]');
-  ok(await page.$$eval('[name="rtype"]', x => x.length) === 5 && !!(await page.$('[data-rsec]')), 'rapport : 5 modèles proposés, parties pour le rapport complet');
+  ok(await page.$$eval('[name="rtype"]', x => x.length) === 6 && !!(await page.$('[data-rsec]')), 'rapport : 6 modèles proposés, parties pour le rapport complet');
   await page.click('label[for="rt-comparaison"]');
   ok(!(await page.$('[data-rsec]')) && !!(await page.$('[data-rbank]')) && /Comparaison de banques UMOA/.test(await page.getAttribute('#rTitle', 'placeholder')), 'rapport : choix des banques pour la comparaison');
   await page.click('#rGo');
   ok(/deux banques/.test(await page.innerText('#rStatus')), 'rapport : comparaison avec une seule banque signalée');
+  await page.click('label[for="rt-recueil"]');
+  ok(!!(await page.$('#rDepth')) && !!(await page.$('[data-rbank]')) && /Dossier de synthèse des banques/.test(await page.getAttribute('#rTitle', 'placeholder')), 'rapport : dossier multi-banques avec choix des banques et du niveau de détail');
+  await page.selectOption('#rDepth', 'detaillee');
+  await page.uncheck('[data-rbank]');
+  await page.click('#rGo');
+  ok(/au moins une banque/.test(await page.innerText('#rStatus')) && await page.evaluate(() => state.report.depth === 'detaillee'), 'rapport : dossier sans banque cochée signalé, niveau de détail mémorisé');
   await page.click('label[for="rt-synthese"]');
   ok(/professionnel/.test(await page.$eval('#rWrite option[value="auto"]', o => o.textContent)) && await page.$$eval('#rWrite option', o => o.length) === 6, 'rapport : choix du style de rédaction (automatique selon le modèle, ou mon style)');
   await page.selectOption('#rWrite', 'pedagogique');

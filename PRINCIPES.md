@@ -159,12 +159,13 @@ Sur le site Netlify, **l'app demande une adresse e-mail à l'ouverture**, comme 
 - Journal d'activité : fonction `/api/activite` (server/activite.mjs), lots d'actions et présence (signal chaque minute) dans Netlify Blobs (store `activite`), conservés 30 jours. Aucune adresse IP. L'écran d'entrée indique que l'activité est enregistrée.
 
 ## 6 quater. Rapport Word
-L'onglet « Rapport Word » génère un .docx selon **cinq modèles**, au choix du lecteur visé :
+L'onglet « Rapport Word » génère un .docx selon **six modèles**, au choix du lecteur visé :
 1. **Rapport complet** : couverture, sommaire, synthèse (chiffres clés, note globale, tableau de bord, points forts et de vigilance), dynamique des comptes, ratios de structure, rentabilité et Du Pont, test de faillite, Bâle III, conclusion et recommandations, méthodologie et glossaire. Formules en vraies équations Word (formule puis application numérique), tableaux, graphiques et interprétations ; parties au choix.
 2. **Note de synthèse** (3 à 5 pages, sans formules) pour un décideur : l'essentiel en une page, tableau de bord, quatre graphiques, analyse, recommandations.
 3. **Conformité prudentielle** : verdict, normes BCEAO / Bâle III et repères par exercice, excédent ou déficit de fonds propres (CET1, Tier 1, solvabilité, levier) et actifs pondérés encore finançables, stress tests (PNB −20 % / −50 %, coût du risque ×2 / ×3, défaut de 5 % / 10 % des crédits), résistance à la faillite.
 4. **Corrigé de TD** : énoncé puis les neuf questions du cours (dynamique du bilan et du compte de résultat, transformation, liquidité, levier, solvabilité, ROA/ROE, pertes et PNB de faillite), chacune avec formule, application numérique pour chaque année, réponse et encadré « À retenir ».
 5. **Comparaison de banques** : plusieurs banques sur leur dernier exercice, classement par note globale, chiffres clés, ratios avec statut, graphiques, lecture ratio par ratio.
+6. **Dossier multi-banques** : toutes les banques traitées (ou celles cochées, boutons « Tout cocher / Tout décocher ») réunies dans un seul document. Couverture et sommaire, vue d'ensemble comparée (classement, chiffres clés, ratios — dès deux banques), puis une partie par banque sur sa propre période : chiffres clés, note globale, avis, tableau de bord, quatre graphiques, points forts, points de vigilance et recommandations. Niveau de détail au choix : *synthèse* ou *analyse détaillée* (en plus, dynamique des comptes et chaque ratio expliqué). Méthodologie et glossaire communs à la fin. La banque et l'exercice affichés dans l'app ne changent pas.
 
 **Style de rédaction**, au choix ou automatique selon le modèle :
 - *Académique* (mémoire, rapport de stage) : phrases rédigées, « nous observons », introduction de chaque partie et conclusion argumentée ;
