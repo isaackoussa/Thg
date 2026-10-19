@@ -1894,7 +1894,10 @@ const W = {
   },
   p(runs, o = {}) {
     const pr = (o.style ? '<w:pStyle w:val="' + o.style + '"/>' : '') + (o.keep ? '<w:keepNext/>' : '') + (o.pageBreak ? '<w:pageBreakBefore/>' : '') + (o.after != null ? '<w:spacing w:after="' + o.after + '"/>' : '') + (o.ind ? '<w:ind w:left="' + o.ind + '" w:hanging="220"/>' : '') + (o.align ? '<w:jc w:val="' + o.align + '"/>' : '');
-    return '<w:p>' + (pr ? '<w:pPr>' + pr + '</w:pPr>' : '') + (typeof runs === 'string' ? runs : runs.join('')) + '</w:p>';
+    let r = typeof runs === 'string' ? runs : runs.join('');
+    // signet (cible des liens du sommaire et de la table des illustrations)
+    if (o.bm) r = '<w:bookmarkStart w:id="' + o.bm.id + '" w:name="' + o.bm.name + '"/>' + r + '<w:bookmarkEnd w:id="' + o.bm.id + '"/>';
+    return '<w:p>' + (pr ? '<w:pPr>' + pr + '</w:pPr>' : '') + r + '</w:p>';
   },
   text(t, o) { return W.p(W.run(t, o), o); },
   h(level, t, o = {}) { return W.p(W.run(t), Object.assign({ style:'Heading' + level, keep:true }, o)); },
@@ -1945,13 +1948,15 @@ const W = {
       + '<w:tc><w:tcPr><w:tcW w:w="' + (tw - a) + '" w:type="dxa"/><w:vAlign w:val="center"/></w:tcPr>' + W.p(W.run(title, { b:true, sz:24, color }), { after:60 }) + W.p(W.run(text, { sz:18, color:DOC_COLORS.ink2 }), { after:0 }) + '</w:tc></w:tr></w:tbl>' + W.p('', { after:160 });
   },
   /* Légende numérotée (champ SEQ) : alimente la table des illustrations de Word */
-  caption(kind, n, text, keep) {
-    return '<w:p><w:pPr><w:pStyle w:val="Caption"/>' + (keep ? '<w:keepNext/>' : '') + '</w:pPr>' + W.run(kind + ' ', { b:true }) + '<w:fldSimple w:instr=" SEQ ' + kind + ' \\* ARABIC "><w:r><w:rPr><w:b/></w:rPr><w:t>' + n + '</w:t></w:r></w:fldSimple>' + W.run(' – ' + text) + '</w:p>';
+  caption(kind, n, text, keep, bm) {
+    return W.p(W.run(kind + ' ', { b:true }) + '<w:fldSimple w:instr=" SEQ ' + kind + ' \\* ARABIC "><w:r><w:rPr><w:b/></w:rPr><w:t>' + n + '</w:t></w:r></w:fldSimple>' + W.run(' – ' + text), { style:'Caption', keep, bm });
   },
   /* Champ Word (sommaire, table des illustrations) : contenu prérempli, mis à jour par Word à l'ouverture (numéros de page) */
   field(instr, entries, style) {
-    const beg = '<w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve"> ' + instr + ' </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r>';
-    const ps = entries.map(e => '<w:p><w:pPr><w:pStyle w:val="' + (e.style || style) + '"/></w:pPr>' + W.run(e.t) + '</w:p>');
+    const fc = (t, dirty) => '<w:r><w:fldChar w:fldCharType="' + t + '"' + (dirty ? ' w:dirty="true"' : '') + '/></w:r>', it = x => '<w:r><w:instrText xml:space="preserve"> ' + x + ' </w:instrText></w:r>';
+    const beg = fc('begin', true) + it(instr) + fc('separate');
+    // chaque ligne : lien vers le signet du titre ou de la légende, puis son numéro de page (champ PAGEREF)
+    const ps = entries.map(e => '<w:p><w:pPr><w:pStyle w:val="' + (e.style || style) + '"/></w:pPr>' + (e.bm ? '<w:hyperlink w:anchor="' + e.bm + '" w:history="1">' + W.run(e.t) + '<w:r><w:tab/></w:r>' + fc('begin') + it('PAGEREF ' + e.bm + ' \\h') + fc('separate') + W.run(e.page || '') + fc('end') + '</w:hyperlink>' : W.run(e.t)) + '</w:p>');
     if (!ps.length) ps.push('<w:p>' + W.run('(vide)', { i:true }) + '</w:p>');
     ps[0] = ps[0].replace(/(<\/w:pPr>|<w:p>)/, '$1' + beg);
     ps[ps.length - 1] = ps[ps.length - 1].replace(/<\/w:p>$/, '<w:r><w:fldChar w:fldCharType="end"/></w:r></w:p>');
@@ -2572,7 +2577,7 @@ async function buildReportDoc(opt, type) {
   let Wr = makeWriter(writing);
   // Option Isaac : sa propre rédaction (fiches verdict, lecture courte et directe), légendes et descriptions
   // sous chaque tableau et graphique, sommaire et table des illustrations automatiques
-  const isaac = type === 'recueil_td', toc = [], figs = [], tabs = [];
+  const isaac = type === 'recueil_td', toc = [], figs = [], tabs = [], figsBm = [], tabsBm = [];
   let tabN = 0;
   const GOLD = 'B8902F';
   // sens d'un compte : [ce que c'est, s'il monte, s'il baisse]
@@ -2608,11 +2613,13 @@ async function buildReportDoc(opt, type) {
   };
   const pctS = p => fin(p) ? (p >= 0 ? '+' : '−') + fmtP(Math.abs(p), 1) : '—';
   const growth = (a, z) => fin(a) && fin(z) && a ? (z - a) / Math.abs(a) : NaN;
-  const ih2 = t => { toc.push({ l:2, t }); body.push(W.h(2, t)); };
+  let bmN = 0;
+  const newBm = () => { bmN++; return { id:bmN, name:'_Toc' + String(10000000 + bmN) }; };
+  const ih2 = t => { const bm = isaac ? newBm() : null; toc.push({ l:2, t, bm:bm && bm.name }); body.push(W.h(2, t, { bm })); };
   const lede = t => body.push(W.p(W.run(t, { i:true, color:GOLD, sz:21 }), { after:140 }));
   const desc = t => body.push(W.p(W.run(t, { i:true, sz:18, color:DOC_COLORS.ink2 }), { after:160 }));
   // légende au-dessus d'un tableau (Option Isaac seulement), suivie de sa description
-  const tcap = (title, d) => { if (!isaac) return; tabN++; tabs.push(title); body.push(W.caption('Tableau', tabN, title, true)); if (d) body.push(W.p(W.run(d, { i:true, sz:18, color:DOC_COLORS.ink2 }), { keep:true, after:80 })); };
+  const tcap = (title, d) => { if (!isaac) return; tabN++; tabs.push(title); const bm = newBm(); tabsBm.push(bm.name); body.push(W.caption('Tableau', tabN, title, true, bm)); if (d) body.push(W.p(W.run(d, { i:true, sz:18, color:DOC_COLORS.ink2 }), { keep:true, after:80 })); };
   const evo = (vals, f) => yrs.map((yr, i) => fin(vals[i]) ? f(vals[i]) + ' (' + yr + ')' : '').filter(Boolean).join(' → ');
   // les comptes qui comptent (≥ 5 % du total, ou les soldes du compte de résultat), une ligne chacun
   function isaacAccounts(kind) {
@@ -2665,10 +2672,10 @@ async function buildReportDoc(opt, type) {
   // sommaire et table des illustrations : champs Word préremplis (Word ajoute les numéros de page à l'ouverture)
   function isaacIndex() {
     const t = x => W.p(W.run(x, { b:true, sz:30, color:DOC_COLORS.accent }), { after:160 });
-    return t('Sommaire') + W.note('Dans Word, accepte la mise à jour des champs à l’ouverture (ou clic droit → Mettre à jour les champs) : le sommaire et la table des illustrations affichent alors les numéros de page.') + W.field('TOC \\o "1-2" \\h \\z \\u', toc.map(e => ({ t:e.t, style:'TOC' + e.l })), 'TOC1')
+    return t('Sommaire') + W.note('Table des matières Word : clique sur une ligne (Ctrl + clic sur ordinateur) pour aller à la page. Si Word demande de mettre à jour les champs à l’ouverture, réponds Oui ; sinon clic droit → Mettre à jour les champs.') + W.field('TOC \\o "1-2" \\h \\z \\u', toc.map(e => ({ t:e.t, style:'TOC' + e.l, bm:e.bm })), 'TOC1')
       + W.p('', { pageBreak:true, after:0 }) + t('Table des illustrations')
-      + W.p(W.run('Figures', { b:true, color:GOLD }), { after:60 }) + W.field('TOC \\h \\z \\c "Figure"', figs.map((x, i) => ({ t:'Figure ' + (i + 1) + ' – ' + x })), 'TableofFigures')
-      + W.p(W.run('Tableaux', { b:true, color:GOLD }), { after:60 }) + W.field('TOC \\h \\z \\c "Tableau"', tabs.map((x, i) => ({ t:'Tableau ' + (i + 1) + ' – ' + x })), 'TableofFigures');
+      + W.p(W.run('Figures', { b:true, color:GOLD }), { after:60 }) + W.field('TOC \\h \\z \\c "Figure"', figs.map((x, i) => ({ t:'Figure ' + (i + 1) + ' – ' + x, bm:figsBm[i] })), 'TableofFigures')
+      + W.p(W.run('Tableaux', { b:true, color:GOLD }), { after:60 }) + W.field('TOC \\h \\z \\c "Tableau"', tabs.map((x, i) => ({ t:'Tableau ' + (i + 1) + ' – ' + x, bm:tabsBm[i] })), 'TableofFigures');
   }
 
   const introP = k => { const t = Wr.intro(k); if (t) body.push(W.p(W.run(t, { color:DOC_COLORS.ink2 }))); };
@@ -2681,7 +2688,7 @@ async function buildReportDoc(opt, type) {
       const cx = 5400000, cy = Math.round(cx * png.h / png.w);
       fig++;
       body.push('<w:p><w:pPr><w:keepNext/><w:spacing w:after="0"/></w:pPr><w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0"><wp:extent cx="' + cx + '" cy="' + cy + '"/><wp:docPr id="' + id + '" name="Graphique ' + id + '"/><wp:cNvGraphicFramePr><a:graphicFrameLocks xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" noChangeAspect="1"/></wp:cNvGraphicFramePr><a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:nvPicPr><pic:cNvPr id="' + id + '" name="graphique' + id + '.png"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed="rIdImg' + id + '"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="' + cx + '" cy="' + cy + '"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p>');
-      if (isaac) { figs.push(caption); body.push(W.caption('Figure', fig, caption)); if (about) desc(about); }
+      if (isaac) { const bm = newBm(); figs.push(caption); figsBm.push(bm.name); body.push(W.caption('Figure', fig, caption, false, bm)); if (about) desc(about); }
       else body.push(W.p(W.run('Figure ' + fig + ' – ' + caption, { i:true, sz:17, color:DOC_COLORS.ink3 }), { after:160 }));
     } catch (e) { /* graphique ignoré si le navigateur refuse la conversion */ }
   };
@@ -2773,7 +2780,7 @@ async function buildReportDoc(opt, type) {
   };
   const bankSub = [b.country, 'Exercices ' + yrs[0] + (yrs.length > 1 ? ' à ' + yrs[n] : ''), 'Montants en ' + b.unit].filter(Boolean).join(' · ');
   let num = 0;
-  const section = (t, brk = true) => { num++; toc.push({ l:1, t:num + '. ' + t }); body.push(W.h(1, num + '. ' + t, { pageBreak:brk })); };
+  const section = (t, brk = true) => { num++; const bm = isaac ? newBm() : null; toc.push({ l:1, t:num + '. ' + t, bm:bm && bm.name }); body.push(W.h(1, num + '. ' + t, { pageBreak:brk, bm })); };
   const comment = () => { if (opt.comment) { body.push(W.h(2, 'Commentaire de l’analyste')); opt.comment.split(/\n+/).filter(Boolean).forEach(l => body.push(W.text(l))); } };
   const recoBlock = () => { body.push(W.h(2, 'Recommandations')); body.push(W.bullets(recommendations(n))); body.push(W.h(2, 'Conclusion')); body.push(W.fromHtml(Wr.conclusion(n))); };
 
