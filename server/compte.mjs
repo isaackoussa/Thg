@@ -101,6 +101,32 @@ export function codeEmail(code) {
 export const DEFAULT_ADMINS = 'koussaisaac199@gmail.com';
 export const adminList = env => String(env || DEFAULT_ADMINS).split(',').map(normEmail).filter(Boolean);
 export const ALERT_DEFAULTS = { inscription: true, appareil: false, connexion: false };
+
+/* ---- Verrous réglés depuis la console admin ----
+   options : les dossiers multi-banques (« Dossier multi-banques », « Option Isaac ») sont réservés aux comptes
+   qui ont saisi le code d'accès (ou à qui l'admin a ouvert l'accès) ; verrouillé par défaut.
+   app : l'admin peut verrouiller toute l'app ; seuls les comptes qui saisissent le code (s'il y en a un) entrent.
+   Chaque déblocage est lié à une version : changer le code ou reverrouiller retire les accès déjà donnés.
+   Les codes sont hachés (scrypt + sel) ; les administrateurs ne sont jamais bloqués. */
+export const LOCKED_REPORTS = ['recueil', 'recueil_td'];
+const UNLOCK_TRIES = 5, UNLOCK_LOCK_MIN = 15;
+export async function getVerrous(store) {
+  const v = (await store.get('verrous', { type: 'json' })) || {};
+  return { app: { actif: false, message: '', v: 1, ...(v.app || {}) }, options: { actif: true, v: 1, ...(v.options || {}) } };
+}
+export const lockCode = code => { const salt = randomBytes(16).toString('hex'); return { salt, hash: hashPw(String(code).trim().toUpperCase(), salt) }; };
+const codeOk = (code, rec) => !!(rec && rec.hash && rec.salt) && timingSafeEqual(Buffer.from(hashPw(String(code).trim().toUpperCase(), rec.salt), 'hex'), Buffer.from(rec.hash, 'hex'));
+export function accessFor(user, ver, isAdmin) {
+  const un = (user && user.unlocks) || {};
+  return { app: !!isAdmin || !ver.app.actif || un.app === ver.app.v, options: !!isAdmin || !ver.options.actif || un.options === ver.options.v };
+}
+export async function appBlocked(store, u, adminEmails) {
+  const ver = await getVerrous(store);
+  if (!ver.app.actif) return false;
+  return !accessFor(await store.get(userKeyOf(u.email), { type: 'json' }), ver, adminList(adminEmails).includes(normEmail(u.email))).app;
+}
+// ce que l'app peut savoir du verrou (jamais le code)
+export const publicVerrous = ver => ({ app: { actif: !!ver.app.actif, message: ver.app.message || '', code: !!ver.app.hash }, options: { actif: !!ver.options.actif, code: !!ver.options.hash } });
 const escH = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 async function alertAdmins(kind, user, req, geo, deps) {
   try {
@@ -160,18 +186,45 @@ export async function userFromRequest(req, store) {
 export async function handleCompte(req, action, deps) {
   const { store, geo, env = () => undefined, gate = false, send } = deps;
   // l'app demande si l'entrée exige un e-mail et si l'envoi de codes est possible
-  if (action === 'config' && req.method === 'GET') return json({ gate: !!gate, mail: mailReady(env) || !!send });
+  // app verrouillée : l'entrée par e-mail devient obligatoire, même si l'accès libre est réglé
+  if (action === 'config' && req.method === 'GET') { const ver = await getVerrous(store); return json({ gate: !!gate || !!ver.app.actif, mail: mailReady(env) || !!send, verrouApp: !!ver.app.actif }); }
   if (action === 'moi' && req.method === 'GET') {
     const u = await userFromRequest(req, store);
     if (!u) return json({ error: 'Non connecté' }, 401);
+    let full = null;
     // ouverture de l'app avec une session : appareil noté au plus une fois par heure
-    try { const key = userKeyOf(u.email), full = await store.get(key, { type: 'json' }); if (full && recordDevice(full, req, geo, 'visite')) await store.setJSON(key, full); } catch (e) {}
-    return json({ email: u.email });
+    try { const key = userKeyOf(u.email); full = await store.get(key, { type: 'json' }); if (full && recordDevice(full, req, geo, 'visite')) await store.setJSON(key, full); } catch (e) {}
+    const ver = await getVerrous(store), isAdmin = adminList(deps.adminEmails).includes(normEmail(u.email));
+    return json({ email: u.email, admin: isAdmin, acces: accessFor(full, ver, isAdmin), verrous: publicVerrous(ver) });
   }
   if (req.method !== 'POST') return json({ error: 'Méthode non autorisée' }, 405);
   const origin = req.headers.get('origin');
   if (!origin || origin !== new URL(req.url).origin) return json({ error: 'Origine refusée' }, 403);
   if (action === 'deconnexion') return json({ ok: true }, 200, { 'Set-Cookie': sessionCookie(req, '', 0) });
+  // saisie du code d'accès (options réservées ou app verrouillée), 5 essais puis 15 minutes d'attente
+  if (action === 'deverrouiller') {
+    const u = await userFromRequest(req, store);
+    if (!u) return json({ error: 'Connecte-toi d’abord avec ton e-mail.' }, 401);
+    let b; try { b = JSON.parse((await req.text()).slice(0, 2000)); } catch (e) { return json({ error: 'Requête invalide' }, 400); }
+    const cible = b && b.cible === 'app' ? 'app' : 'options', code = String((b && b.code) || '').trim().slice(0, 100);
+    const key = userKeyOf(u.email), full = await store.get(key, { type: 'json' });
+    if (!full) return json({ error: 'Compte introuvable' }, 404);
+    const ver = await getVerrous(store), isAdmin = adminList(deps.adminEmails).includes(normEmail(u.email));
+    if (accessFor(full, ver, isAdmin)[cible]) return json({ ok: true, acces: accessFor(full, ver, isAdmin) });
+    const uf = full.unlockFails || { n: 0, until: 0 };
+    if (uf.until > Date.now()) return json({ error: 'Trop d’essais : réessaie dans ' + Math.ceil((uf.until - Date.now()) / 60000) + ' minute(s).', code: 'locked' }, 429);
+    if (!ver[cible].hash) return json({ error: cible === 'app' ? 'L’app est verrouillée par l’administrateur, sans code d’accès pour le moment.' : 'Aucun code d’accès n’est encore défini : demande l’accès à l’administrateur.', code: 'no_code' }, 403);
+    if (!code || !codeOk(code, ver[cible])) {
+      uf.n = (uf.n || 0) + 1; if (uf.n >= UNLOCK_TRIES) { uf.n = 0; uf.until = Date.now() + UNLOCK_LOCK_MIN * 60000; }
+      await store.setJSON(key, { ...full, unlockFails: uf });
+      return json({ error: uf.until > Date.now() ? 'Code incorrect. Trop d’essais : réessaie dans ' + UNLOCK_LOCK_MIN + ' minutes.' : 'Code incorrect (' + (UNLOCK_TRIES - uf.n) + ' essai(s) restant(s)).', code: 'wrong_code' }, 400);
+    }
+    full.unlocks = { ...(full.unlocks || {}), [cible]: ver[cible].v }; full.unlockFails = { n: 0, until: 0 };
+    const dv = parseDevice(req.headers.get('user-agent'), req.headers.get('x-appareil'));
+    full.journal = [{ at: new Date().toISOString(), event: cible === 'app' ? 'deverrouillage_app' : 'deverrouillage_options', appareil: dv.label, type: dv.type, lieu: placeOf(geo) }, ...(full.journal || [])].slice(0, MAX_JOURNAL);
+    await store.setJSON(key, full);
+    return json({ ok: true, acces: accessFor(full, ver, isAdmin) });
+  }
   if (!['inscription', 'connexion', 'code', 'verifier'].includes(action)) return json({ error: 'Action inconnue' }, 404);
 
   let body;

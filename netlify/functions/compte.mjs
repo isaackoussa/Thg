@@ -1,4 +1,4 @@
-// Comptes : /api/compte/code, /api/compte/verifier (connexion par code e-mail), /api/compte/inscription, /api/compte/connexion, /api/compte/deconnexion (POST), /api/compte/moi, /api/compte/config (GET)
+// Comptes : /api/compte/code, /api/compte/verifier (connexion par code e-mail), /api/compte/inscription, /api/compte/connexion, /api/compte/deconnexion, /api/compte/deverrouiller (POST), /api/compte/moi, /api/compte/config (GET)
 import { getStore } from '@netlify/blobs';
 import { handleCompte } from '../../server/compte.mjs';
 

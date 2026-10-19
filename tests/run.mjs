@@ -791,6 +791,9 @@ else {
     const auto = await docText(await gen({ type: 'corrige', writing: 'auto', charts: false }));
     ok(/Ce que l’on observe\./.test(auto), 'rédaction automatique : le corrigé de TD est pédagogique');
   }
+  // options réservées : sans code d'accès, les dossiers multi-banques sont refusés
+  ok((await gen({ type: 'recueil_td', banks: Object.keys(await page.evaluate(() => state.banks)), charts: false })).startsWith('ERR Option verrouillée'), 'options réservées : Option Isaac refusée sans code');
+  await page.evaluate(() => { acct.acces = { app: true, options: true }; });
   // dossier multi-banques : vue d'ensemble comparée puis une partie par banque
   {
     const ids = Object.keys(await page.evaluate(() => state.banks));
@@ -858,6 +861,10 @@ else {
   ok(!(await page.$('[data-rsec]')) && !!(await page.$('[data-rbank]')) && /Comparaison de banques UMOA/.test(await page.getAttribute('#rTitle', 'placeholder')), 'rapport : choix des banques pour la comparaison');
   await page.click('#rGo');
   ok(/deux banques/.test(await page.innerText('#rStatus')), 'rapport : comparaison avec une seule banque signalée');
+  await page.evaluate(() => { acct.acces = null; renderAll(); });
+  await page.click('label[for="rt-recueil"]');
+  ok(!!(await page.$('#rLocked')) && !(await page.$('#rGo')) && /🔒/.test(await page.innerText('label[for="rt-recueil_td"]')) && !/🔒/.test(await page.innerText('label[for="rt-synthese"]')), 'rapport : options réservées marquées 🔒 et fermées sans code');
+  await page.evaluate(() => { acct.acces = { app: true, options: true }; renderAll(); });
   await page.click('label[for="rt-recueil"]');
   ok(!!(await page.$('#rDepth')) && !!(await page.$('[data-rbank]')) && /Dossier de synthèse des banques/.test(await page.getAttribute('#rTitle', 'placeholder')), 'rapport : dossier multi-banques avec choix des banques et du niveau de détail');
   await page.selectOption('#rDepth', 'detaillee');
@@ -968,7 +975,7 @@ else {
     ok(r.status === 400, 'banques : format invalide refusé', r.status);
   }
   // Comptes : fonction serveur seule
-  const { handleCompte, userFromRequest } = await import('../server/compte.mjs');
+  const { handleCompte, userFromRequest, appBlocked } = await import('../server/compte.mjs');
   const { handleAdmin, adminList } = await import('../server/admin.mjs');
   const kv = () => { const m = new Map(); return { m,
     async get(k, o = {}) { if (!m.has(k)) return null; return o.type === 'json' ? JSON.parse(m.get(k)) : m.get(k); },
@@ -1110,6 +1117,61 @@ else {
   ok(A.errors.length === 0 && B.errors.length === 0, 'compte : aucune erreur JavaScript', [...A.errors, ...B.errors].slice(0, 3));
   ok(await A.page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), 'compte : pas de débordement sur téléphone');
   await A.ctx.close(); await B.ctx.close();
+  // ---------- Verrous : options réservées et app verrouillée ----------
+  {
+    const cs = kv(), hs = memStore();
+    const po = (action, body, ck) => handleCompte(new Request('https://app.test/api/compte/' + action, { method: 'POST', headers: { origin: 'https://app.test', cookie: ck || '' }, body: JSON.stringify(body) }), action, { store: cs, adminEmails: 'chef@test.sn' });
+    const moi = async ck => (await handleCompte(new Request('https://app.test/api/compte/moi', { headers: { cookie: ck } }), 'moi', { store: cs, adminEmails: 'chef@test.sn' })).json();
+    const ckOf = r => (r.headers.get('set-cookie') || '').split(';')[0];
+    const KEY = 'Cle-Verrous-2026';
+    const adK = async (action, body) => handleAdmin(new Request('https://app.test/api/admin/' + action, body === undefined ? { headers: { 'x-admin-key': KEY } } : { method: 'POST', headers: { origin: 'https://app.test', 'x-admin-key': KEY }, body: JSON.stringify(body) }), action, { comptes: cs, historiques: hs, adminEmails: 'chef@test.sn', adminKey: KEY });
+    const u1 = ckOf(await po('inscription', { email: 'eleve@test.ci', password: 'motdepasse1' }));
+    const u2 = ckOf(await po('inscription', { email: 'autre@test.sn', password: 'motdepasse2' }));
+    const chef = ckOf(await po('inscription', { email: 'chef@test.sn', password: 'motdepasse3' }));
+    let m = await moi(u1);
+    ok(m.acces && m.acces.app === true && m.acces.options === false && m.verrous.options.actif === true && m.verrous.options.code === false, 'verrous : options réservées par défaut, app ouverte', m);
+    ok((await moi(chef)).acces.options === true, 'verrous : l’administrateur n’est jamais bloqué');
+    let r = await po('deverrouiller', { cible: 'options', code: 'XXXX' }, u1);
+    ok(r.status === 403 && (await r.json()).code === 'no_code', 'verrous : sans code défini, déblocage impossible');
+    ok((await adK('verrous', { options: { code: 'ab' } })).status === 400, 'verrous : code trop court refusé');
+    let v = await (await adK('verrous', { options: { code: 'Isaac-2026' } })).json();
+    ok(v.options.code === true && !JSON.stringify(v).includes('Isaac-2026') && !JSON.stringify(await cs.get('verrous')).includes('Isaac-2026'), 'verrous : code des options enregistré chiffré, jamais renvoyé');
+    r = await po('deverrouiller', { cible: 'options', code: 'mauvais' }, u1);
+    ok(r.status === 400 && /essai/.test((await r.json()).error), 'verrous : mauvais code refusé');
+    ok((await po('deverrouiller', { cible: 'options', code: 'isaac-2026' })).status === 401, 'verrous : déblocage impossible sans être connecté');
+    r = await po('deverrouiller', { cible: 'options', code: ' isaac-2026 ' }, u1);
+    ok(r.status === 200 && (await r.json()).acces.options === true && (await moi(u1)).acces.options === true && (await moi(u2)).acces.options === false, 'verrous : bon code (majuscules et espaces ignorés), accès lié au seul compte qui l’a saisi');
+    let cps = (await (await adK('comptes')).json()).comptes;
+    ok(cps.find(c => c.email === 'eleve@test.ci').acces.options === true && cps.find(c => c.email === 'autre@test.sn').acces.options === false && (await (await adK('verrous')).json()).options.debloques === 1, 'verrous : la console voit qui a débloqué les options');
+    await adK('acces', { email: 'autre@test.sn', options: true });
+    ok((await moi(u2)).acces.options === true, 'verrous : l’admin ouvre les options à un compte sans code');
+    await adK('verrous', { options: { code: 'Nouveau-code' } });
+    ok((await moi(u1)).acces.options === false && (await moi(u2)).acces.options === false, 'verrous : un nouveau code retire les accès donnés avec l’ancien');
+    await adK('verrous', { options: { actif: false } });
+    ok((await moi(u2)).acces.options === true, 'verrous : options ouvertes à tous quand l’admin lève le verrou');
+    await adK('verrous', { options: { actif: true } });
+    for (let i = 0; i < 5; i++) await po('deverrouiller', { cible: 'options', code: 'faux' + i }, u2);
+    r = await po('deverrouiller', { cible: 'options', code: 'Nouveau-code' }, u2);
+    ok(r.status === 429, 'verrous : 5 mauvais codes puis attente de 15 minutes', r.status);
+    // app verrouillée
+    const cfg = async () => (await handleCompte(new Request('https://app.test/api/compte/config'), 'config', { store: cs })).json();
+    ok((await cfg()).verrouApp === false && (await cfg()).gate === false, 'verrou app : ouverte par défaut');
+    v = await (await adK('verrous', { app: { actif: true, message: 'Maintenance jusqu’à 18 h' } })).json();
+    ok(v.app.actif && (await cfg()).gate === true && (await cfg()).verrouApp === true, 'verrou app : l’entrée par e-mail devient obligatoire');
+    m = await moi(u1);
+    ok(m.acces.app === false && m.verrous.app.message === 'Maintenance jusqu’à 18 h' && m.verrous.app.code === false && (await moi(chef)).acces.app === true, 'verrou app : comptes bloqués avec le message, administrateur épargné');
+    const put = ck => handleHistorique(new Request('https://app.test/api/historique', { method: 'PUT', headers: { origin: 'https://app.test', cookie: ck }, body: JSON.stringify({ history: [] }) }), { getUser: () => userFromRequest(new Request('https://app.test/', { headers: { cookie: ck } }), cs), store: hs, blocked: u => appBlocked(cs, u, 'chef@test.sn') });
+    ok((await put(u1)).status === 423 && (await put(chef)).status === 200, 'verrou app : synchronisation refusée côté serveur tant que le compte est bloqué');
+    ok((await po('deverrouiller', { cible: 'app', code: 'quelquechose' }, u1)).status === 403, 'verrou app : sans code, personne n’entre');
+    await adK('verrous', { app: { code: 'Entree-2026' } });
+    ok((await po('deverrouiller', { cible: 'app', code: 'Entree-2026' }, u1)).status === 200 && (await moi(u1)).acces.app === true && (await put(u1)).status === 200, 'verrou app : le code fait entrer le compte');
+    await adK('verrous', { app: { actif: false } });
+    await adK('verrous', { app: { actif: true } });
+    ok((await moi(u1)).acces.app === false, 'verrou app : un nouveau verrouillage oblige à ressaisir le code');
+    await adK('verrous', { app: { actif: false } });
+    ok((await moi(u1)).acces.app === true && (await moi(u2)).acces.app === true && (await put(u1)).status === 200, 'verrou app : déverrouillée, tout le monde rentre');
+    ok((await handleAdmin(new Request('https://app.test/api/admin/verrous', { method: 'POST', headers: { origin: 'https://app.test', cookie: u1 }, body: '{"app":{"actif":true}}' }), 'verrous', { comptes: cs, historiques: hs, adminEmails: 'chef@test.sn', adminKey: KEY })).status === 401, 'verrous : seul l’admin peut verrouiller');
+  }
   // ---------- Admin : serveur ----------
   {
     const cs = kv(), hs = memStore();
@@ -1264,7 +1326,7 @@ else {
     const UA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 Version/17.5 Mobile/15E148 Safari/604.1';
     const po = (action, body, deps = {}) => handleCompte(new Request('https://app.test/api/compte/' + action, { method: 'POST', headers: { origin: 'https://app.test', 'user-agent': UA }, body: JSON.stringify(body) }), action, { store: cs, send, ...deps });
     const cfg = async deps => (await handleCompte(new Request('https://app.test/api/compte/config'), 'config', { store: cs, ...deps })).json();
-    ok(JSON.stringify(await cfg({})) === '{"gate":false,"mail":false}' && JSON.stringify(await cfg({ gate: true, env: k => ({ BREVO_API_KEY: 'k', MAIL_FROM: 'a@b.sn' })[k] })) === '{"gate":true,"mail":true}', 'entrée : configuration (accès, envoi des codes)');
+    ok(JSON.stringify(await cfg({})) === '{"gate":false,"mail":false,"verrouApp":false}' && JSON.stringify(await cfg({ gate: true, env: k => ({ BREVO_API_KEY: 'k', MAIL_FROM: 'a@b.sn' })[k] })) === '{"gate":true,"mail":true,"verrouApp":false}', 'entrée : configuration (accès, envoi des codes)');
     ok((await handleCompte(new Request('https://app.test/api/compte/code', { method: 'POST', headers: { origin: 'https://app.test' }, body: '{"email":"a@b.sn"}' }), 'code', { store: cs })).status === 503, 'entrée : sans Brevo configuré, code refusé clairement');
     let r = await po('code', { email: ' Nouveau@Test.SN ' });
     ok(r.status === 200 && sent.length === 1 && sent[0].to === 'nouveau@test.sn' && /^\d{6}$/.test(sent[0].code) && sent[0].subject.startsWith(sent[0].code) && sent[0].html.includes(sent[0].code), 'entrée : code à 6 chiffres envoyé par e-mail');
@@ -1470,6 +1532,37 @@ else {
     await Ad3.page.check('[data-alert="connexion"]');
     await Ad3.page.waitForFunction(() => /enregistré/.test(document.querySelector('#admAlertMsg').innerText), null, { timeout: 15000 });
     ok(JSON.parse(cs3.m.get('reglages-admin')).alertes.connexion === true, 'réglages : alerte à chaque connexion activée');
+    // verrous depuis la console : code des options, puis app verrouillée
+    Ad3.page.on('dialog', d => d.accept());
+    await Ad3.page.click('[data-atab="verrous"]');
+    await Ad3.page.waitForSelector('#lkOptCode', { timeout: 15000 });
+    ok(/Options réservées/.test(await Ad3.page.innerText('#adminBox')) && /L’app est ouverte/.test(await Ad3.page.innerText('#adminBox')), 'console verrous : état des options et de l’app');
+    await Ad3.page.fill('#lkOptCode', 'Code-Isaac'); await Ad3.page.click('#lkOptCodeOk');
+    await Ad3.page.waitForFunction(() => /défini/.test(document.querySelector('#adminBox').innerText), null, { timeout: 15000 });
+    await Us3.page.click('[data-tab="rapport"]'); await Us3.page.click('label[for="rt-recueil_td"]');
+    ok(await Us3.page.isVisible('#rUnlockCode') && !(await Us3.page.$('#rGo')) && /🔒/.test(await Us3.page.innerText('label[for="rt-recueil_td"]')), 'options réservées : Option Isaac fermée sans le code');
+    await Us3.page.fill('#rUnlockCode', 'pas-le-bon'); await Us3.page.click('#rUnlock');
+    await Us3.page.waitForFunction(() => /incorrect/i.test(document.querySelector('#rStatus').innerText), null, { timeout: 15000 });
+    ok(!(await Us3.page.$('[data-rbank]')), 'options réservées : mauvais code refusé');
+    await Us3.page.fill('#rUnlockCode', 'code-isaac'); await Us3.page.click('#rUnlock');
+    await Us3.page.waitForSelector('[data-rbank]', { timeout: 15000 });
+    ok(await Us3.page.isVisible('#rGo') && !/🔒/.test(await Us3.page.innerText('label[for="rt-recueil"]')), 'options réservées : le bon code ouvre les deux options');
+    await Ad3.page.fill('#lkMsg', 'Maintenance : retour à 18 h.');
+    await Ad3.page.click('#lkApp');
+    await Ad3.page.waitForFunction(() => /L’app est verrouillée/.test(document.querySelector('#adminBox').innerText), null, { timeout: 15000 });
+    await Ad3.page.fill('#lkAppCode', 'Entree-1234'); await Ad3.page.click('#lkAppCodeOk');
+    await Ad3.page.waitForFunction(() => /entrer avec le code/.test(document.querySelector('#adminBox').innerText), null, { timeout: 15000 });
+    await Us3.page.evaluate(() => refreshAccess());
+    await Us3.page.waitForSelector('#lockScreen', { timeout: 15000 });
+    ok(/Maintenance : retour à 18 h\./.test(await Us3.page.innerText('#lockScreen')) && await Us3.page.evaluate(() => document.body.classList.contains('gated')), 'app verrouillée : écran de verrouillage avec le message de l’admin, même déjà connecté');
+    await Us3.page.fill('#lkCode', 'faux'); await Us3.page.click('#lkGo');
+    await Us3.page.waitForFunction(() => /incorrect/i.test(document.querySelector('#lkErr').innerText), null, { timeout: 15000 });
+    await Us3.page.fill('#lkCode', 'entree-1234'); await Us3.page.click('#lkGo');
+    await Us3.page.waitForFunction(() => !document.querySelector('#lockScreen'), null, { timeout: 15000 });
+    ok(true, 'app verrouillée : le code donné par l’admin fait entrer');
+    await Ad3.page.click('#lkApp');
+    await Ad3.page.waitForFunction(() => /L’app est ouverte/.test(document.querySelector('#adminBox').innerText), null, { timeout: 15000 });
+    ok(JSON.parse(cs3.m.get('verrous')).app.actif === false, 'console verrous : app déverrouillée');
     ok(await Ad3.page.isVisible('#admLogout'), 'console : bouton « Se déconnecter » visible');
     await Ad3.page.click('#admLogout');
     await Ad3.page.waitForSelector('#agKey:visible', { timeout: 15000 });

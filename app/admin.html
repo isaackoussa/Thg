@@ -101,7 +101,7 @@ async function loadAdmin() {
 const fmtD = iso => { if (!iso) return '—'; const d = new Date(iso); return isNaN(d) ? '—' : d.toLocaleDateString('fr-FR', { day:'2-digit', month:'2-digit', year:'numeric' }); };
 const fmtDT = iso => { if (!iso) return '—'; const d = new Date(iso); return isNaN(d) ? '—' : fmtD(iso) + ' ' + d.toLocaleTimeString('fr-FR', { hour:'2-digit', minute:'2-digit' }); };
 /* ---- Console d'administration : un espace à part (En direct, Tableau de bord, Comptes, Réglages) ---- */
-const ADM_VIEWS = [['direct', 'En direct'], ['tableau', 'Tableau de bord'], ['comptes', 'Comptes'], ['reglages', 'Réglages']];
+const ADM_VIEWS = [['direct', 'En direct'], ['tableau', 'Tableau de bord'], ['comptes', 'Comptes'], ['verrous', '🔒 Verrous'], ['reglages', 'Réglages']];
 const EV_INFO = {
   ouverture:['🚪', 'ouvre l’app'], connexion:['🔑', 'se connecte'], deconnexion:['👋', 'se déconnecte'], onglet:['👁', 'consulte'], banque:['🏦', 'passe sur la banque'],
   nouvelle_banque:['➕', 'crée la banque'], saisie:['✏️', 'modifie les données de'], import:['📥', 'importe'], rapport:['📄', 'génère un rapport Word :'], code_r:['📊', 'code R :'],
@@ -118,20 +118,20 @@ const evKey = e => e.at + '|' + e.uid + '|' + e.type + '|' + e.d;
 function vAdmin() {
   setTimeout(() => { if (!adm.stats && !adm.loading) loadAdmin(); if (!adm.live) adminPoll(true); }, 0);
   const v = ADM_VIEWS.find(x => x[0] === (adm.view || 'direct'));
-  const sub = { direct:'Qui est connecté et ce qu’il fait, mis à jour toutes les 10 secondes.', tableau:'Statistiques d’utilisation : comptes, activité, heures d’affluence, banques les plus analysées.', comptes:'Tous les comptes, leurs appareils, leurs connexions, leurs actions et leurs analyses.', reglages:'Alertes par e-mail et notifications du navigateur.' }[v[0]];
+  const sub = { direct:'Qui est connecté et ce qu’il fait, mis à jour toutes les 10 secondes.', tableau:'Statistiques d’utilisation : comptes, activité, heures d’affluence, banques les plus analysées.', comptes:'Tous les comptes, leurs appareils, leurs connexions, leurs actions et leurs analyses.', verrous:'Verrouille toute l’app, ou réserve les options Dossier multi-banques et Option Isaac aux personnes qui ont le code.', reglages:'Alertes par e-mail et notifications du navigateur.' }[v[0]];
   return head('Console d’administration', v[1], sub) + '<div id="adminBox"></div>';
 }
 function renderAdmin() {
   const box = document.getElementById('adminBox'); if (!box) return;
   const v = adm.view || 'direct';
-  if (v !== 'direct' && v !== 'reglages') {
+  if (v !== 'direct' && v !== 'reglages' && v !== 'verrous') {
     if (adm.loading && !adm.stats) { box.innerHTML = '<div class="card"><p class="note">Chargement…</p></div>'; return; }
     if (adm.err && !adm.stats) { box.innerHTML = '<div class="banner warn"><b>Impossible de charger l’administration</b><span class="note">' + esc(adm.err) + '</span><div class="row"><button class="btn sm" id="admReload">Réessayer</button></div></div>'; bindAdmin(); return; }
   }
   const keepFeed = $('#admFeed') ? $('#admFeed').scrollTop : 0;
   let h = '';
   if (adm.msg) h += '<div class="row"><span class="note" id="admMsg">' + esc(adm.msg) + '</span></div>';
-  h += v === 'direct' ? adminLive() : v === 'tableau' ? adminBoard() : v === 'comptes' ? adminAccounts() : adminSettings();
+  h += v === 'direct' ? adminLive() : v === 'tableau' ? adminBoard() : v === 'comptes' ? adminAccounts() : v === 'verrous' ? adminLocks() : adminSettings();
   box.innerHTML = h;
   if ($('#admFeed')) $('#admFeed').scrollTop = keepFeed;
   bindAdmin();
@@ -199,15 +199,38 @@ function adminAccounts() {
   const cps = adm.comptes || [], online = new Set(adm.live ? adm.live.enLigne.map(p => p.email) : []), me = acct.user && acct.user.email;
   const f = (adm.filter || '').toLowerCase(), list = cps.filter(c => !f || c.email.includes(f));
   let h = '<div class="row"><button class="btn sm" id="admReload">Actualiser</button></div><div class="card"><h3>Comptes (' + cps.length + ')</h3><label class="note" for="admFilter">Rechercher <input type="text" id="admFilter" placeholder="adresse e-mail" value="' + esc(adm.filter || '') + '" style="min-width:200px"></label>'
-    + (list.length ? '<div class="accs">' + list.map(c => '<div class="acc" data-acc="' + esc(c.email) + '"><div class="acc-h">' + (online.has(c.email) ? '<span class="live-dot sm" title="En ligne"></span>' : '') + '<b>' + esc(c.email) + '</b>' + (c.email === me ? ' <span class="tag">toi</span>' : '') + (c.locked ? ' <span class="chip st-warn"><i>!</i>Bloqué</span>' : '') + '</div>'
+    + (list.length ? '<div class="accs">' + list.map(c => '<div class="acc" data-acc="' + esc(c.email) + '"><div class="acc-h">' + (online.has(c.email) ? '<span class="live-dot sm" title="En ligne"></span>' : '') + '<b>' + esc(c.email) + '</b>' + (c.email === me ? ' <span class="tag">toi</span>' : '') + (c.locked ? ' <span class="chip st-warn"><i>!</i>Bloqué</span>' : '') + (c.acces && c.acces.options && !c.admin ? ' <span class="chip st-ok"><i>🔓</i>Options</span>' : '') + (c.acces && !c.acces.app ? ' <span class="chip st-bad"><i>🔒</i>App verrouillée</span>' : '') + '</div>'
       + '<div class="note">Inscrit le ' + fmtD(c.createdAt) + ' · dernière connexion ' + fmtDT(c.lastLogin) + '</div>'
       + '<div class="note">' + (c.device ? devIcon(c.device.type) + ' ' + esc(c.device.label) + (c.device.lieu ? ' · ' + esc(c.device.lieu) : '') + (c.nDevices > 1 ? ' · ' + c.nDevices + ' appareils' : '') : 'Aucun appareil noté') + '</div>'
       + '<div class="note">' + c.banks + ' banque(s) · ' + c.analyses + ' analyse(s)</div>'
-      + '<div class="row acc-btns"><button class="btn sm" data-av="' + esc(c.id) + '">Voir</button><button class="btn sm" data-apw="' + esc(c.email) + '">Mot de passe</button>' + (c.locked ? '<button class="btn sm" data-aun="' + esc(c.email) + '">Débloquer</button>' : '') + (c.email !== me ? '<button class="btn sm danger" data-adel="' + esc(c.email) + '">Supprimer</button>' : '') + '</div>'
+      + '<div class="row acc-btns"><button class="btn sm" data-av="' + esc(c.id) + '">Voir</button><button class="btn sm" data-apw="' + esc(c.email) + '">Mot de passe</button>' + (c.locked ? '<button class="btn sm" data-aun="' + esc(c.email) + '">Débloquer</button>' : '') + (c.admin ? '' : '<button class="btn sm" data-aopt="' + esc(c.email) + '" data-on="' + (c.acces && c.acces.options ? '0' : '1') + '">' + (c.acces && c.acces.options ? 'Retirer les options' : 'Ouvrir les options') + '</button>') + (c.email !== me ? '<button class="btn sm danger" data-adel="' + esc(c.email) + '">Supprimer</button>' : '') + '</div>'
       + '<div class="acc-act"></div></div>').join('') + '</div>' : '<p class="note">Aucun compte ne correspond.</p>')
     + '<p class="note">Le point vert indique un compte en ligne. Ton propre compte administrateur ne peut pas être supprimé.</p></div>';
   h += '<div id="admDetail">' + (adm.detail ? adminDetail(adm.detail) : '') + '</div>';
   return h;
+}
+/* Verrous : toute l'app, et les options réservées (Dossier multi-banques, Option Isaac) */
+function adminLocks() {
+  const r = adm.verrous;
+  if (!r) return '<div class="card"><p class="note">' + (adm.verErr ? esc(adm.verErr) : 'Chargement des verrous…') + '</p></div>';
+  const a = r.app, o = r.options;
+  const codeRow = (id, ph) => '<div class="row"><input type="text" id="' + id + '" maxlength="60" placeholder="' + ph + '" autocomplete="off" style="min-width:180px"><button class="btn sm" data-gen="' + id + '">Générer</button><button class="btn sm pri" id="' + id + 'Ok">Enregistrer le code</button></div>';
+  return '<div class="card lock-card"><h3>' + (a.actif ? '🔒 L’app est verrouillée' : '🔓 L’app est ouverte') + '</h3>'
+    + '<p class="note">' + (a.actif ? 'Depuis le ' + fmtDT(a.depuis) + '. Les utilisateurs voient un écran de verrouillage avec ton message' + (a.code ? ' et peuvent entrer avec le code (' + a.debloques + ' compte(s) entré(s) avec le code).' : ', sans pouvoir entrer (aucun code défini).') : 'Tout le monde peut utiliser l’app normalement.') + ' Les administrateurs ne sont jamais bloqués. Le verrou s’applique en moins d’une minute, même aux personnes déjà connectées.</p>'
+    + '<div class="row"><button class="btn ' + (a.actif ? '' : 'danger') + '" id="lkApp">' + (a.actif ? 'Déverrouiller l’app' : 'Verrouiller l’app maintenant') + '</button></div>'
+    + '<label class="note" for="lkMsg" style="display:grid;gap:4px;margin-top:8px">Message affiché sur l’écran de verrouillage<textarea id="lkMsg" maxlength="300" style="min-height:60px;font-family:inherit" placeholder="Ex. : maintenance en cours, l’app revient ce soir.">' + esc(a.message || '') + '</textarea></label>'
+    + '<div class="row"><button class="btn sm" id="lkMsgOk">Enregistrer le message</button></div>'
+    + '<p class="eyebrow" style="margin-top:10px">Code pour entrer malgré le verrou ' + (a.code ? '<span class="chip st-ok"><i>✓</i>défini</span>' : '<span class="chip st-na"><i>–</i>aucun</span>') + '</p>'
+    + codeRow('lkAppCode', a.code ? 'nouveau code' : 'code (4 caractères minimum)') + (a.code ? '<div class="row"><button class="btn sm" id="lkAppNoCode">Retirer le code (personne n’entre)</button></div>' : '')
+    + '<p class="note">Chaque nouveau verrouillage ou nouveau code oblige à ressaisir le code.</p></div>'
+    + '<div class="card lock-card"><h3>' + (o.actif ? '🔒 Options réservées' : '🔓 Options ouvertes à tous') + '</h3>'
+    + '<p class="note">Rapport Word → <b>Dossier multi-banques</b> et <b>Option Isaac</b>. ' + (o.actif ? (o.code ? o.debloques + ' compte(s) ont débloqué les options avec le code.' : '<b>Aucun code défini :</b> personne ne peut encore les débloquer (sauf les comptes à qui tu ouvres l’accès dans « Comptes »).') : 'Tous les comptes peuvent les utiliser sans code.') + '</p>'
+    + '<div class="row"><button class="btn" id="lkOpt">' + (o.actif ? 'Ouvrir les options à tous' : 'Réserver les options (code obligatoire)') + '</button></div>'
+    + '<p class="eyebrow" style="margin-top:10px">Code d’accès aux options ' + (o.code ? '<span class="chip st-ok"><i>✓</i>défini</span>' : '<span class="chip st-na"><i>–</i>aucun</span>') + '</p>'
+    + codeRow('lkOptCode', o.code ? 'nouveau code' : 'code (4 caractères minimum)')
+    + '<p class="note">Le code n’est jamais affiché ensuite (il est stocké chiffré) : note-le avant d’enregistrer. Un nouveau code retire l’accès aux comptes qui avaient l’ancien.</p>'
+    + (o.debloques ? '<div class="row"><button class="btn sm danger" id="lkOptRevoke">Retirer l’accès à tous (' + o.debloques + ')</button></div>' : '') + '</div>'
+    + '<div id="lkNote" class="note"></div>';
 }
 /* Réglages */
 function adminSettings() {
@@ -267,7 +290,7 @@ setInterval(() => {
   else if (state.tab === 'admin' && $('#admLiveAt') && adm.liveAt) $('#admLiveAt').textContent = 'mis à jour ' + ago(adm.liveAt);
 }, 10000);
 const devIcon = t => t === 'Téléphone' ? '📱' : t === 'Tablette' ? '📲' : '💻';
-const JOURNAL_LBL = { connexion:'Connexion', inscription:'Inscription', visite:'Ouverture de l’app', echec:'Mot de passe incorrect' };
+const JOURNAL_LBL = { connexion:'Connexion', inscription:'Inscription', visite:'Ouverture de l’app', echec:'Mot de passe incorrect', deverrouillage_options:'🔓 Code des options saisi', deverrouillage_app:'🔓 Code de l’app saisi' };
 function adminDevices(d) {
   const dv = d.devices || [], jr = d.journal || [];
   return '<p class="eyebrow">Appareils (' + dv.length + ')</p>' + (dv.length ? '<div class="tbl-wrap"><table><thead><tr><th>Appareil</th><th>Type</th><th>Lieu</th><th>Première fois</th><th>Dernière fois</th><th>Connexions</th></tr></thead><tbody>'
@@ -303,6 +326,28 @@ function bindAdmin() {
   view.querySelectorAll('[data-alert]').forEach(c => c.onchange = async () => {
     const alertes = {}; view.querySelectorAll('[data-alert]').forEach(x => { alertes[x.dataset.alert] = x.checked; });
     try { adm.reglages = await adminApi('reglages', { alertes }); $('#admAlertMsg').textContent = 'Réglage enregistré.'; } catch (e) { $('#admAlertMsg').textContent = e.message; }
+  });
+  if ((adm.view || 'direct') === 'verrous' && !adm.verrous && !adm.verLoading) { adm.verLoading = true; adminApi('verrous').then(r => { adm.verrous = r; adm.verErr = ''; }).catch(e => { adm.verErr = e.message; }).finally(() => { adm.verLoading = false; renderAdmin(); }); }
+  const setLocks = async (body, msg) => {
+    try { adm.verrous = await adminApi('verrous', body); renderAdmin(); toast(msg); adm.comptes = null; adm.stats = null; }
+    catch (e) { if ($('#lkNote')) $('#lkNote').textContent = e.message; toast(e.message); }
+  };
+  view.querySelectorAll('[data-gen]').forEach(b => b.onclick = () => { const al = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789', r = new Uint32Array(8); crypto.getRandomValues(r); $('#' + b.dataset.gen).value = [...r].map(x => al[x % al.length]).join(''); });
+  if ($('#lkApp')) $('#lkApp').onclick = () => {
+    const on = !adm.verrous.app.actif;
+    if (on && !confirm('Verrouiller l’app pour tous les utilisateurs (sauf les administrateurs) ?')) return;
+    setLocks({ app:{ actif:on, message:$('#lkMsg').value } }, on ? 'App verrouillée' : 'App déverrouillée');
+  };
+  if ($('#lkMsgOk')) $('#lkMsgOk').onclick = () => setLocks({ app:{ message:$('#lkMsg').value } }, 'Message enregistré');
+  const saveCode = (id, part, msg) => { const c = $('#' + id).value.trim(); if (c.length < 4) { toast('4 caractères minimum'); return; } setLocks({ [part]:{ code:c } }, msg + ' : ' + c); };
+  if ($('#lkAppCodeOk')) $('#lkAppCodeOk').onclick = () => saveCode('lkAppCode', 'app', 'Code de l’app enregistré');
+  if ($('#lkAppNoCode')) $('#lkAppNoCode').onclick = () => setLocks({ app:{ retirerCode:true } }, 'Code retiré');
+  if ($('#lkOpt')) $('#lkOpt').onclick = () => setLocks({ options:{ actif:!adm.verrous.options.actif } }, adm.verrous.options.actif ? 'Options ouvertes à tous' : 'Options réservées');
+  if ($('#lkOptCodeOk')) $('#lkOptCodeOk').onclick = () => saveCode('lkOptCode', 'options', 'Code des options enregistré');
+  if ($('#lkOptRevoke')) $('#lkOptRevoke').onclick = () => { if (confirm('Retirer l’accès aux options à tous les comptes qui l’ont débloqué ?')) setLocks({ options:{ revoquer:true } }, 'Accès retirés'); };
+  view.querySelectorAll('[data-aopt]').forEach(b => b.onclick = async () => {
+    try { await adminApi('acces', { email:b.dataset.aopt, id:idOf(b.dataset.aopt), options:b.dataset.on === '1' }); toast(b.dataset.on === '1' ? 'Options ouvertes pour ' + b.dataset.aopt : 'Options retirées pour ' + b.dataset.aopt); adm.verrous = null; loadAdmin(); }
+    catch (e) { toast(e.message); }
   });
   if ($('#admReload')) $('#admReload').onclick = () => { adm.msg = ''; loadAdmin(); };
   if ($('#admFilter')) $('#admFilter').oninput = e => { adm.filter = e.target.value; const pos = e.target.selectionStart; renderAdmin(); const el = $('#admFilter'); el.focus(); el.setSelectionRange(pos, pos); };
@@ -383,12 +428,12 @@ $('#agForm').addEventListener('submit', async e => {
   $('#agGo').disabled = false; $('#agGo').textContent = 'Entrer'; if (ok) $('#agKey').value = '';
 });
 $('#admLogout').addEventListener('click', () => {
-    forgetKey(); Object.assign(adm, { stats:null, comptes:null, detail:null, live:null, liveSince:'', reglages:null, msg:'', view:'direct', filter:'', feedUser:'' });
+    forgetKey(); Object.assign(adm, { stats:null, comptes:null, detail:null, live:null, liveSince:'', reglages:null, verrous:null, msg:'', view:'direct', filter:'', feedUser:'' });
     view.innerHTML = ''; showGate(''); toast('Déconnecté de la console');
 });
 $('#atabs').addEventListener('click', e => {
   if (false) {
-    forgetKey(); Object.assign(adm, { stats:null, comptes:null, detail:null, live:null, liveSince:'', reglages:null, msg:'', view:'direct', filter:'', feedUser:'' });
+    forgetKey(); Object.assign(adm, { stats:null, comptes:null, detail:null, live:null, liveSince:'', reglages:null, verrous:null, msg:'', view:'direct', filter:'', feedUser:'' });
     view.innerHTML = ''; showGate(''); toast('Déconnecté de la console'); return;
   }
   const a = e.target.closest('[data-atab]'); if (!a) return;

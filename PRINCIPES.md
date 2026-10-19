@@ -158,6 +158,12 @@ Sur le site Netlify, **l'app demande une adresse e-mail à l'ouverture**, comme 
 - **Réglages** : alertes par e-mail à l'admin (nouvelle inscription — activée par défaut —, nouvel appareil, chaque connexion), même console fermée ; notifications du navigateur.
 - Journal d'activité : fonction `/api/activite` (server/activite.mjs), lots d'actions et présence (signal chaque minute) dans Netlify Blobs (store `activite`), conservés 30 jours. Aucune adresse IP. L'écran d'entrée indique que l'activité est enregistrée.
 
+## 6 septies. Verrous (console admin → onglet « 🔒 Verrous »)
+- **Options réservées** : *Dossier multi-banques* et *Option Isaac* sont fermées par défaut (🔒 dans la liste des modèles). L'utilisateur saisit le code d'accès dans l'onglet Rapport Word ; le serveur le vérifie et ouvre l'accès **sur son compte** (tous ses appareils). L'admin définit le code (stocké haché, jamais réaffiché), peut ouvrir l'accès à un compte précis sans code, retirer tous les accès, ou ouvrir les options à tous. Un nouveau code retire les accès donnés avec l'ancien.
+- **Verrouiller l'app** : un bouton dans la console ; chaque utilisateur (même déjà connecté, en moins d'une minute) voit un écran de verrouillage avec le message de l'admin. Avec un code d'entrée défini, il peut entrer en le saisissant ; sans code, personne n'entre. Pendant le verrou, l'entrée par e-mail est obligatoire et le serveur refuse la synchronisation des comptes bloqués (423). Chaque nouveau verrouillage oblige à ressaisir le code.
+- Les administrateurs (ADMIN_EMAILS) ne sont jamais bloqués. 5 mauvais codes → 15 minutes d'attente. Les déblocages apparaissent dans le journal du compte et dans « Comptes » (🔓 Options).
+- Limite : le rapport est fabriqué dans le navigateur ; le verrou est contrôlé par le serveur et lié au compte, ce qui suffit pour un utilisateur normal, mais ce n'est pas une protection contre une personne qui modifierait le code de la page.
+
 ## 6 quater. Rapport Word
 L'onglet « Rapport Word » génère un .docx selon **sept modèles**, au choix du lecteur visé :
 1. **Rapport complet** : couverture, sommaire, synthèse (chiffres clés, note globale, tableau de bord, points forts et de vigilance), dynamique des comptes, ratios de structure, rentabilité et Du Pont, test de faillite, Bâle III, conclusion et recommandations, méthodologie et glossaire. Formules en vraies équations Word (formule puis application numérique), tableaux, graphiques et interprétations ; parties au choix.

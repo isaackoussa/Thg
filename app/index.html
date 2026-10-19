@@ -120,7 +120,7 @@ main { max-width: 1180px; margin: 0 auto; padding: 18px 16px 60px; display: grid
 @keyframes flash { from { background: var(--accent-soft); } to { background: transparent; } }
 /* Entrée de l'app par e-mail */
 body.gated { overflow: hidden; }
-#gate { position: fixed; inset: 0; z-index: 100; overflow-y: auto; background: radial-gradient(ellipse at top, var(--accent-soft), var(--bg) 60%); display: flex; justify-content: center; padding: 28px 16px; }
+#gate, #lockScreen { position: fixed; inset: 0; z-index: 100; overflow-y: auto; background: radial-gradient(ellipse at top, var(--accent-soft), var(--bg) 60%); display: flex; justify-content: center; padding: 28px 16px; }
 .g-wrap { width: 100%; max-width: 440px; display: grid; gap: 18px; align-content: start; margin: auto 0; }
 .g-brand { display: flex; gap: 12px; align-items: center; }
 .g-brand b { display: block; font-family: var(--f-display); font-size: 1.15rem; }
@@ -2523,8 +2523,9 @@ function bindMyStyle() {
   if ($('#msReset')) $('#msReset').onclick = () => { state.myStyle = Object.assign({}, STYLE_DEFAULT, { mod:Date.now(), vide:true }); scheduleSync(); if (state.report && state.report.writing === 'perso') state.report.writing = 'auto'; save(); renderAll(true); toast('Style personnel effacé'); };
 }
 async function buildReport(opt) {
-  await lib('jszip');
   const type = REPORT_TYPES.some(t => t[0] === opt.type) ? opt.type : 'complet';
+  if (optionLocked(type)) throw new Error('Option verrouillée : saisis le code d’accès dans l’onglet Rapport Word.');
+  await lib('jszip');
   const theme = DOC_THEMES[opt.theme] || DOC_THEMES.classique;
   const saved = { c:Object.assign({}, DOC_COLORS), s0:PC.s[0], soft:PC.soft };
   Object.assign(DOC_COLORS, { accent:theme.accent, head:theme.head, zebra:theme.zebra }); PC.s[0] = theme.chart; PC.soft = theme.soft;
@@ -3160,7 +3161,14 @@ function vRapport() {
   const allBanks = Object.values(state.banks), chosen = o.banks || allBanks.map(x => x.id);
   let h = head('Export', 'Rapport Word', 'Génère un document Word (.docx) prêt à rendre ou à présenter. Choisis le modèle selon le lecteur : cours, direction, contrôle prudentiel ou comparaison. Tu peux ensuite le modifier dans Word, Pages ou Google Docs.');
   h += exampleBanner();
-  h += '<div class="card"><h3>1. Modèle de rapport</h3><div class="rtypes" role="radiogroup" aria-label="Modèle de rapport">' + REPORT_TYPES.map(([k, l, d, p]) => '<label class="rtype' + (k === type ? ' on' : '') + '" for="rt-' + k + '"><input type="radio" name="rtype" id="rt-' + k + '" value="' + k + '"' + (k === type ? ' checked' : '') + '><span class="rtype-h"><b>' + l + '</b><span class="tag">' + p + '</span></span><span class="note">' + d + '</span></label>').join('') + '</div></div>';
+  h += '<div class="card"><h3>1. Modèle de rapport</h3><div class="rtypes" role="radiogroup" aria-label="Modèle de rapport">' + REPORT_TYPES.map(([k, l, d, p]) => '<label class="rtype' + (k === type ? ' on' : '') + '" for="rt-' + k + '"><input type="radio" name="rtype" id="rt-' + k + '" value="' + k + '"' + (k === type ? ' checked' : '') + '><span class="rtype-h"><b>' + (optionLocked(k) ? '🔒 ' : '') + l + '</b><span class="tag">' + p + '</span></span><span class="note">' + d + '</span></label>').join('') + '</div></div>';
+  if (optionLocked(type)) {
+    const can = acct.user && accountsPossible(), hasCode = acct.verrous && acct.verrous.options && acct.verrous.options.code;
+    return h + '<div class="card lock-opt" id="rLocked"><h3>🔒 Option réservée</h3><p class="note">« ' + esc(REPORT_TYPES.find(t => t[0] === type)[1]) + ' » est réservé aux personnes qui ont le code d’accès donné par l’administrateur. Une fois le code saisi, l’option reste ouverte sur ton compte, sur tous tes appareils.</p>'
+      + (can ? '<div class="row"><input type="text" id="rUnlockCode" maxlength="60" autocomplete="off" autocapitalize="characters" placeholder="Code d’accès" aria-label="Code d’accès" style="min-width:180px"><button class="btn pri" id="rUnlock">Débloquer</button></div>' + (hasCode === false ? '<p class="note">Aucun code n’est encore disponible : demande l’accès à l’administrateur.</p>' : '')
+        : '<p class="miss">' + (accountsPossible() ? 'Connecte-toi avec ton e-mail pour saisir le code.' : 'Ces options demandent une connexion au site en ligne.') + '</p>')
+      + '<div id="rStatus" class="file-status" hidden></div></div>';
+  }
   h += '<div class="card"><h3>2. Contenu</h3><div class="meta-grid">'
     + '<label>Titre<input type="text" id="rTitle" maxlength="150" value="' + esc(o.title || '') + '" placeholder="' + esc(reportTitle(type, b)) + '"></label>'
     + '<label>Auteur (facultatif)<input type="text" id="rAuthor" maxlength="80" value="' + esc(o.author || '') + '"></label>'
@@ -3179,6 +3187,19 @@ function vRapport() {
   return h;
 }
 function bindRapport() {
+  if ($('#rLocked')) {
+    view.querySelectorAll('[name="rtype"]').forEach(r => r.addEventListener('change', () => { state.report = Object.assign({}, state.report || {}, { type:r.value }); renderAll(); }));
+    const go = async () => {
+      const code = $('#rUnlockCode').value.trim(), st = $('#rStatus');
+      st.hidden = false;
+      if (!code) { st.className = 'file-status err'; st.textContent = 'Saisis le code d’accès.'; return; }
+      $('#rUnlock').disabled = true; st.className = 'file-status'; st.textContent = 'Vérification…';
+      try { const r = await api('deverrouiller', { cible:'options', code }); acct.acces = r.acces; lockCache({ owner:state.owner, acces:acct.acces, verrous:acct.verrous }); track('rapport', 'options réservées débloquées'); toast('Options débloquées'); renderAll(true); }
+      catch (e) { st.className = 'file-status err'; st.textContent = e.message; $('#rUnlock').disabled = false; }
+    };
+    if ($('#rUnlock')) { $('#rUnlock').onclick = go; $('#rUnlockCode').addEventListener('keydown', e => { if (e.key === 'Enter') go(); }); }
+    return;
+  }
   bindMyStyle();
   const prev = () => state.report || {};
   const read = () => {
@@ -3282,7 +3303,57 @@ function histDetail(e) {
 }
 /* ---- Compte par adresse e-mail (comptes de l'app, sans e-mail de vérification) et synchronisation de l'historique ---- */
 const ACC_KEY = 'umoa-compte-v1';
-const acct = { user:null, status:'', err:false, syncing:false, lastSync:null, pending:false, mode:'login' };
+const acct = { user:null, status:'', err:false, syncing:false, lastSync:null, pending:false, mode:'login', acces:null, verrous:null };
+/* ---- Verrous réglés dans la console admin ----
+   Les options Dossier multi-banques et Option Isaac demandent un code d'accès (vérifié par le serveur, lié au compte) ;
+   l'admin peut aussi verrouiller toute l'app. Sans réponse du serveur, on reprend le dernier état connu de ce compte ;
+   à défaut, les options restent fermées. */
+const LOCK_KEY = 'umoa-acces-v1', LOCKED_REPORTS = ['recueil', 'recueil_td'];
+function optionLocked(type) { return LOCKED_REPORTS.includes(type) && !(acct.acces && acct.acces.options); }
+function lockCache(v) {
+  try {
+    if (v === undefined) { const c = JSON.parse(localStorage.getItem(LOCK_KEY) || 'null'); return c && c.owner && c.owner === state.owner ? c : null; }
+    if (v) localStorage.setItem(LOCK_KEY, JSON.stringify(v)); else localStorage.removeItem(LOCK_KEY);
+  } catch (e) { return null; }
+}
+function setAccess(me) {
+  const before = JSON.stringify([acct.acces, acct.verrous]);
+  acct.acces = me.acces || null; acct.verrous = me.verrous || null; acct.isAdmin = !!me.admin;
+  lockCache({ owner:state.owner, acces:acct.acces, verrous:acct.verrous });
+  renderLock();
+  if (before !== JSON.stringify([acct.acces, acct.verrous]) && state.tab === 'rapport' && !(document.activeElement && /^(INPUT|TEXTAREA)$/.test(document.activeElement.tagName))) renderAll(true);
+}
+async function refreshAccess() {
+  if (!acct.user || !accountsPossible()) return;
+  try { setAccess(await api('moi')); }
+  catch (e) { if (e.status === 401) { acct.user = null; accRemember(false); renderGate(); } }
+}
+function renderLock() {
+  let el = document.getElementById('lockScreen');
+  const v = acct.verrous && acct.verrous.app, show = !!(acct.user && acct.acces && !acct.acces.app);
+  document.body.classList.toggle('locked', show);
+  if (!show) { if (el) { el.remove(); if (!document.getElementById('gate')) document.body.classList.remove('gated'); } return; }
+  document.body.classList.add('gated');
+  if (!el) { el = document.createElement('div'); el.id = 'lockScreen'; el.setAttribute('role', 'dialog'); el.setAttribute('aria-modal', 'true'); el.setAttribute('aria-labelledby', 'lkTitle'); document.body.appendChild(el); }
+  else if (el.contains(document.activeElement)) return;
+  el.innerHTML = '<div class="g-wrap"><div class="g-brand"><span class="mark">UMOA</span><div><b>Analyste Bancaire</b><small>Analyse financière des banques de l’UEMOA</small></div></div><div class="g-card"><form id="lkForm" class="g-form" novalidate>'
+    + '<h1 id="lkTitle">🔒 App verrouillée</h1><p class="note">' + esc(v && v.message ? v.message : 'L’administrateur a verrouillé l’app pour le moment.') + '</p>'
+    + (v && v.code ? '<label>Code d’accès<input type="text" id="lkCode" autocomplete="off" autocapitalize="characters" maxlength="60" placeholder="Code donné par l’administrateur"></label><div class="g-err" id="lkErr" role="alert" hidden></div><button class="btn pri g-big" id="lkGo" type="submit">Entrer</button>' : '<p class="note">Réessaie plus tard : l’app se rouvrira automatiquement dès que l’administrateur la déverrouille.</p>')
+    + '<button type="button" class="btn sm" id="lkOut">Se déconnecter (' + esc(acct.user.email) + ')</button></form></div></div>';
+  $('#lkForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    const code = ($('#lkCode') && $('#lkCode').value || '').trim(), er = $('#lkErr');
+    if (!code) { er.hidden = false; er.textContent = 'Saisis le code.'; return; }
+    $('#lkGo').disabled = true; $('#lkGo').textContent = 'Vérification…';
+    try { const r = await api('deverrouiller', { cible:'app', code }); acct.acces = r.acces; $('#lkCode').blur(); renderLock(); await refreshAccess(); toast('Bienvenue'); syncHistory(true); }
+    catch (x) { er.hidden = false; er.textContent = x.message; $('#lkGo').disabled = false; $('#lkGo').textContent = 'Entrer'; }
+  });
+  $('#lkOut').onclick = async () => {
+    try { await api('deconnexion', {}); } catch (x) {}
+    acct.user = null; acct.acces = acct.verrous = null; lockCache(null); accRemember(false); resetLocalData(); state.owner = null; save({ silent:true });
+    renderLock(); renderAll(true); renderGate();
+  };
+}
 function accountsPossible() { try { return CAN_DOWNLOAD && /^https?:$/.test(location.protocol); } catch (e) { return false; } }
 function accRemember(on) { try { if (on) localStorage.setItem(ACC_KEY, '1'); else localStorage.removeItem(ACC_KEY); } catch (e) {} }
 function accRemembered() { try { return localStorage.getItem(ACC_KEY) === '1'; } catch (e) { return false; } }
@@ -3319,13 +3390,13 @@ async function accountBoot() {
   gate.on = !!(cfg && cfg.gate); gate.mail = !!(cfg && cfg.mail); gate.pw = !gate.mail;
   if (gate.on) gateSeen(true);
   if (gate.on || accRemembered()) {
-    try { const me = await api('moi'); adoptAccount(me.email); acct.user = { email:me.email }; accRemember(true); }
-    catch (e) { if (e.status === 401) { accRemember(false); acct.user = null; } }
+    try { const me = await api('moi'); adoptAccount(me.email); acct.user = { email:me.email }; accRemember(true); setAccess(me); }
+    catch (e) { if (e.status === 401) { accRemember(false); acct.user = null; } else { const c = lockCache(); if (c) { acct.acces = c.acces; acct.verrous = c.verrous; } } }
   }
   // hors ligne : on garde l'accès si l'appareil était connecté ; sinon la première connexion demande internet
   if (offline && !accRemembered() && gateSeen()) { gate.on = true; gate.err = 'Pas de connexion internet : la première connexion demande internet.'; }
-  gate.loading = false; renderGate();
-  if (acct.user) { track('ouverture', (bank() || {}).name || ''); await syncHistory(true); }
+  gate.loading = false; renderGate(); renderLock();
+  if (acct.user) { track('ouverture', (bank() || {}).name || ''); if (!acct.acces || acct.acces.app) await syncHistory(true); }
   renderAccount();
 }
 function renderGate() {
@@ -3372,8 +3443,8 @@ function bindGate() {
     adoptAccount(me.email);
     acct.user = { email:me.email }; accRemember(true); gate.busy = false; gate.err = gate.info = ''; gate.step = 'email';
     track('connexion', me.isNew ? 'première connexion (nouveau compte)' : '');
-    renderGate(); renderAll(true);
-    await syncHistory(true); renderAccount();
+    renderGate(); await refreshAccess(); renderAll(true);
+    if (!acct.acces || acct.acces.app) await syncHistory(true); renderAccount();
     toast(msg || 'Bienvenue ' + me.email);
   };
   const sendCode = async () => {
@@ -3420,6 +3491,7 @@ async function syncHistory(quiet) {
   try {
     const res = await fetch('/api/historique', { method:'PUT', credentials:'same-origin', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify({ history:state.history, deleted:state.histDeleted, banks:state.banks, banksDeleted:state.banksDeleted, style:state.myStyle && state.myStyle.mod ? state.myStyle : undefined }) });
     if (res.status === 401) { acct.user = null; accRemember(false); renderGate(); throw new Error('Session expirée : reconnecte-toi.'); }
+    if (res.status === 423) { refreshAccess(); throw new Error('L’app est verrouillée par l’administrateur.'); }
     if (!res.ok) { let m = ''; try { m = (await res.json()).error; } catch (e) {} throw new Error(m || 'Synchronisation refusée (' + res.status + ').'); }
     const doc = await res.json();
     state.history = cleanHistory(doc.history);
@@ -3474,7 +3546,7 @@ async function flushTrack() {
     if (r.status >= 500) trk.q.unshift(...events.slice(-20));
   } catch (e) { trk.q.unshift(...events.slice(-20)); }
 }
-setInterval(() => { if (acct.user && document.visibilityState === 'visible') flushTrack(); }, 60000);
+setInterval(() => { if (acct.user && document.visibilityState === 'visible') { flushTrack(); refreshAccess(); } }, 60000);
 document.addEventListener('visibilitychange', () => { if (acct.user) flushTrack(); });
 let syncTimer = null;
 function scheduleSync() { if (!acct.user) return; clearTimeout(syncTimer); syncTimer = setTimeout(() => syncHistory(true), 1500); }
@@ -3516,6 +3588,7 @@ function bindAccount() {
       adoptAccount(me.email);
       acct.user = { email:me.email }; accRemember(true); acct.mode = 'login';
       track('connexion', signup ? 'première connexion (nouveau compte)' : '');
+      await refreshAccess();
       await syncHistory(true);
       const nb = Object.keys(state.banks).length;
       accSet(signup ? 'Compte créé, tu es connecté. Tes banques et ton historique sont enregistrés sur ce compte.' : 'Connecté : ' + nb + ' banque' + (nb > 1 ? 's' : '') + ' et ' + state.history.length + ' analyse' + (state.history.length > 1 ? 's' : '') + ' retrouvée' + (nb + state.history.length > 1 ? 's' : '') + '.');
@@ -3526,7 +3599,7 @@ function bindAccount() {
   const logout = wipe => run(async () => {
     track('deconnexion', wipe ? 'avec effacement des données de l’appareil' : ''); await flushTrack();
     try { await api('deconnexion', {}); } catch (e) {}
-    acct.user = null; accRemember(false); acct.lastSync = null;
+    acct.user = null; accRemember(false); acct.lastSync = null; acct.acces = acct.verrous = null; lockCache(null);
     resetLocalData(); state.owner = null; save({ silent:true });
     acct.status = 'Déconnecté. Tes banques et ton historique ont été retirés de cet appareil ; ils restent sur ton compte et reviendront à ta prochaine connexion.';
     acct.err = false;

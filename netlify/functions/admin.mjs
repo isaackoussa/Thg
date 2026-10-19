@@ -1,4 +1,4 @@
-// Partie admin : /api/admin/moi|comptes|stats|analyses|direct|reglages (GET), /api/admin/motdepasse|debloquer|supprimer|reglages (POST)
+// Partie admin : /api/admin/moi|comptes|stats|analyses|direct|reglages|verrous (GET), /api/admin/motdepasse|debloquer|supprimer|reglages|verrous|acces (POST)
 import { getStore } from '@netlify/blobs';
 import { handleAdmin } from '../../server/admin.mjs';
 

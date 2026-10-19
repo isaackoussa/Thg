@@ -1,6 +1,6 @@
 // Partie admin : réservée aux adresses de ADMIN_EMAILS (réglage Netlify, séparées par des virgules).
 // Sans réglage, l'administrateur est le compte du propriétaire de l'app.
-import { userFromRequest, hashPassword, userKeyOf, normEmail, DEFAULT_ADMINS, adminList, ALERT_DEFAULTS, mailReady } from './compte.mjs';
+import { userFromRequest, hashPassword, userKeyOf, normEmail, DEFAULT_ADMINS, adminList, ALERT_DEFAULTS, mailReady, getVerrous, lockCode, accessFor } from './compte.mjs';
 import { liveFeed, userActivity, activityStats } from './activite.mjs';
 import { createHash, timingSafeEqual } from 'node:crypto';
 export { DEFAULT_ADMINS, adminList };
@@ -57,15 +57,48 @@ export async function handleAdmin(req, action, { comptes, historiques, activite,
     return json({ alertes });
   }
 
-  if ((action === 'comptes' || action === 'stats') && req.method === 'GET') {
+  // Verrous : options réservées (dossiers multi-banques) et verrouillage de l'app
+  const verView = async ver => {
     const users = await allUsers(comptes);
+    return { app: { actif: !!ver.app.actif, message: ver.app.message || '', code: !!ver.app.hash, depuis: ver.app.depuis || null, debloques: users.filter(u => (u.unlocks || {}).app === ver.app.v).length },
+      options: { actif: !!ver.options.actif, code: !!ver.options.hash, debloques: users.filter(u => (u.unlocks || {}).options === ver.options.v).length } };
+  };
+  if (action === 'verrous' && req.method === 'GET') return json(await verView(await getVerrous(comptes)));
+  if (action === 'verrous' && req.method === 'POST') {
+    let b; try { b = JSON.parse((await req.text()).slice(0, 4000)); } catch (e) { return json({ error: 'Requête invalide' }, 400); }
+    const ver = await getVerrous(comptes), now = new Date().toISOString();
+    const codeOf = c => { const x = String(c || '').trim(); if (x.length < 4 || x.length > 60) throw new Error('Le code doit faire entre 4 et 60 caractères.'); return lockCode(x); };
+    try {
+      const a = b && b.app, o = b && b.options;
+      if (a) {
+        if (typeof a.message === 'string') ver.app.message = a.message.replace(/[\u0000-\u001f]/g, ' ').trim().slice(0, 300);
+        // reverrouiller retire les accès donnés lors du verrouillage précédent
+        if (a.actif === true && !ver.app.actif) { ver.app.actif = true; ver.app.v = (ver.app.v || 1) + 1; ver.app.depuis = now; }
+        if (a.actif === false) { ver.app.actif = false; ver.app.depuis = null; }
+        if (a.code) { Object.assign(ver.app, codeOf(a.code)); ver.app.v = (ver.app.v || 1) + 1; }
+        if (a.retirerCode) { delete ver.app.hash; delete ver.app.salt; }
+      }
+      if (o) {
+        if (typeof o.actif === 'boolean') ver.options.actif = o.actif;
+        // nouveau code : les accès donnés avec l'ancien code sont retirés
+        if (o.code) { Object.assign(ver.options, codeOf(o.code)); ver.options.v = (ver.options.v || 1) + 1; }
+        if (o.revoquer) ver.options.v = (ver.options.v || 1) + 1;
+      }
+    } catch (e) { return json({ error: e.message }, 400); }
+    ver.modifiePar = me.email; ver.le = now;
+    await comptes.setJSON('verrous', ver);
+    return json(await verView(ver));
+  }
+
+  if ((action === 'comptes' || action === 'stats') && req.method === 'GET') {
+    const users = await allUsers(comptes), ver = await getVerrous(comptes), admins = adminList(adminEmails);
     const rows = [];
     for (const u of users) {
       const doc = await historiques.get('u/' + u.id, { type: 'json' }) || {};
       const banks = doc.banks && typeof doc.banks === 'object' ? Object.values(doc.banks) : [];
       const hist = Array.isArray(doc.history) ? doc.history : [];
       rows.push({ email: u.email, id: u.id, createdAt: u.createdAt || null, lastLogin: u.lastLogin || null, lastSync: doc.updatedAt || null,
-        locked: !!(u.lockedUntil && u.lockedUntil > Date.now()), banks: banks.length, analyses: hist.length,
+        locked: !!(u.lockedUntil && u.lockedUntil > Date.now()), acces: accessFor(u, ver, admins.includes(normEmail(u.email))), admin: admins.includes(normEmail(u.email)), banks: banks.length, analyses: hist.length,
         device: (u.devices || [])[0] ? { label: u.devices[0].label, type: u.devices[0].type, lieu: u.devices[0].lieu || '' } : null, nDevices: (u.devices || []).length,
         bankNames: banks.map(b => String(b.name || '')).filter(Boolean), histDates: hist.map(e => dayOf(e.at)) });
     }
@@ -116,6 +149,14 @@ export async function handleAdmin(req, action, { comptes, historiques, activite,
     const h = hashPassword(pw);
     await comptes.setJSON(key, { ...user, salt: h.salt, hash: h.hash, fails: 0, lockedUntil: 0, passwordResetAt: new Date().toISOString() });
     return json({ ok: true });
+  }
+  // ouvrir ou retirer à un compte l'accès aux options réservées (sans qu'il ait besoin du code)
+  if (action === 'acces') {
+    const ver = await getVerrous(comptes), unlocks = { ...(user.unlocks || {}) };
+    if (body.options === true) unlocks.options = ver.options.v; else if (body.options === false) delete unlocks.options;
+    if (body.app === true) unlocks.app = ver.app.v; else if (body.app === false) delete unlocks.app;
+    await comptes.setJSON(key, { ...user, unlocks });
+    return json({ ok: true, acces: accessFor({ unlocks }, ver, adminList(adminEmails).includes(normEmail(user.email))) });
   }
   if (action === 'debloquer') { await comptes.setJSON(key, { ...user, fails: 0, lockedUntil: 0 }); return json({ ok: true }); }
   if (action === 'supprimer') {

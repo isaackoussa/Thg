@@ -62,10 +62,12 @@ export function mergeBanks(a, b) {
   return { banks: kept, banksDeleted: delKept };
 }
 
-export async function handleHistorique(req, { getUser, store }) {
+export async function handleHistorique(req, { getUser, store, blocked }) {
   if (req.method !== 'GET' && req.method !== 'PUT') return json({ error: 'Méthode non autorisée' }, 405);
   const user = await getUser();
   if (!user || !user.id) return json({ error: 'Connexion requise' }, 401);
+  // app verrouillée par l'admin : rien n'est lu ni écrit pour ce compte tant qu'il n'a pas le code
+  if (blocked && await blocked(user)) return json({ error: 'L’app est verrouillée par l’administrateur.', code: 'app_locked' }, 423);
   const key = 'u/' + user.id;
   let stored = null;
   try { stored = await store.get(key, { type: 'json' }); } catch (e) { stored = null; }
